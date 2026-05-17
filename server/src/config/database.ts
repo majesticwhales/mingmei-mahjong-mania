@@ -1,6 +1,8 @@
 import "reflect-metadata";
 import { Sequelize } from "sequelize-typescript";
 import { Game } from "../models/game.ts";
+import { GameEdge } from "../models/game-edge.ts";
+import { GameNode } from "../models/game-node.ts";
 import { GameParticipant } from "../models/game-participant.ts";
 import { GameTeam } from "../models/game-team.ts";
 import { Lobby } from "../models/lobby.ts";
@@ -28,6 +30,8 @@ export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
     Game,
     GameTeam,
     GameParticipant,
+    GameNode,
+    GameEdge,
   ],
   logging: process.env.NODE_ENV === "development" ? console.log : false,
 });

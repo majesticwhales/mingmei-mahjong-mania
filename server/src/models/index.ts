@@ -13,3 +13,5 @@ export { Game } from "./game.ts";
 export type { GameStatus } from "./game.ts";
 export { GameTeam } from "./game-team.ts";
 export { GameParticipant } from "./game-participant.ts";
+export { GameNode } from "./game-node.ts";
+export { GameEdge } from "./game-edge.ts";

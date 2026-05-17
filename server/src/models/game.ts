@@ -7,6 +7,8 @@ import {
   Table,
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
+import { GameEdge } from "./game-edge.ts";
+import { GameNode } from "./game-node.ts";
 import { GameParticipant } from "./game-participant.ts";
 import { GameTeam } from "./game-team.ts";
 import { Lobby } from "./lobby.ts";
@@ -63,4 +65,10 @@ export class Game extends BaseModel {
 
   @HasMany(() => GameParticipant)
   declare participants?: GameParticipant[];
+
+  @HasMany(() => GameNode)
+  declare nodes?: GameNode[];
+
+  @HasMany(() => GameEdge)
+  declare edges?: GameEdge[];
 }
