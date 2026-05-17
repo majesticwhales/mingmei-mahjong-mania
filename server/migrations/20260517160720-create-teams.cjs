@@ -35,10 +35,16 @@ module.exports = {
       },
     });
 
-    await queryInterface.addIndex('team_definitions', ['sort_order']);
+    await queryInterface.addIndex('team_definitions', ['sort_order'], {
+      name: 'team_definitions_sort_order',
+    });
   },
 
   async down(queryInterface) {
+    await queryInterface.removeIndex(
+      'team_definitions',
+      'team_definitions_sort_order',
+    );
     await queryInterface.dropTable('team_definitions');
   },
 };

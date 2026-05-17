@@ -4,3 +4,4 @@ export { TeamDefinition } from "./team-definition.ts";
 export { MapTemplate } from "./map-template.ts";
 export { MapTemplateNode } from "./map-template-node.ts";
 export { MapTemplateEdge } from "./map-template-edge.ts";
+export { TileType } from "./tile-type.ts";

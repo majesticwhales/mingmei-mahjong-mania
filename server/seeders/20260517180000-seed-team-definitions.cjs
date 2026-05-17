@@ -2,9 +2,20 @@
 
 const { randomUUID } = require('crypto');
 
+async function tableRowCount(queryInterface, tableName) {
+  const [rows] = await queryInterface.sequelize.query(
+    `SELECT COUNT(*)::int AS count FROM ${tableName}`,
+  );
+  return Number(rows[0].count);
+}
+
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface) {
+    if ((await tableRowCount(queryInterface, 'team_definitions')) > 0) {
+      return;
+    }
+
     const now = new Date();
     await queryInterface.bulkInsert('team_definitions', [
       {
