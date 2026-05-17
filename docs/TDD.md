@@ -115,8 +115,7 @@ flowchart TB
     GameNodes[game_nodes]
     GameTeams[game_teams]
     TeamPos[game_team_positions]
-    LocTiles[game_location_tiles]
-    TeamHands[game_team_hand_tiles]
+    TilePlacements[game_tile_placements]
     LocVis[game_location_team_visibility]
     SchedJobs[game_scheduled_jobs]
   end
@@ -135,7 +134,8 @@ flowchart TB
 ### 4.1 Core invariants
 
 - **Closed tile set:** 136 `game_tiles` per game — 84 on map, 13 per hand × 4 teams. No mid-game create/destroy.
-- **One tile per map node:** Each `game_node` has exactly one `game_location_tiles` row.
+- **One tile per map node:** Each `game_node` has exactly one `game_tile_placements` row with `game_node_id` set (84 map placements total).
+- **One placement per tile:** Each `game_tile` has exactly one `game_tile_placements` row — either on a node or in a team hand (XOR via DB check).
 - **Fixed hand size:** 13 tiles per team hand (`games.hand_size = 13`).
 - **Checked-in gate:** Station actions require `current_game_node_id` set.
 - **Swap at station:** `SWAP_TILE` only at `current_game_node_id`; exchanges hand tile ↔ location tile; counts unchanged.
@@ -201,7 +201,7 @@ canSwap(team, node) =
 |---------|-------------|
 | `CHECK_IN` | Requires prior photo upload (`media_asset_id`). Sets `current_game_node_id` to any station. |
 | `CHECK_OUT` | Clears `current_game_node_id`. |
-| `SWAP_TILE` | Hand ↔ location at current station. Triggers `normalizeHandSlotIndices`. |
+| `SWAP_TILE` | Hand ↔ location at current station (swap two `game_tile_placements` targets). |
 | `SWAP_LOCATION_TILES` | Swap tiles between two map nodes (challenges). Uses shared `TileSwapService`. |
 | *(future)* | Additional station actions while checked in. |
 
@@ -237,8 +237,8 @@ sequenceDiagram
 sortKey(tile) = (tile_types.suit_sort_order, tile_types.rank, game_tiles.copy_index)
 ```
 
-- After **deal** and every **`SWAP_TILE`**, run `normalizeHandSlotIndices(team)` — `slot_index` 0–12 in sort order.
-- Projections emit `handTiles[]` in slot order; **client must not re-sort**.
+- Hand order is **not stored** in the DB. The engine/projection layer sorts by `sortKey` when building `handTiles[]`.
+- Projections emit `handTiles[]` with `slotIndex` 0–12 assigned at read time; **client must not re-sort**.
 
 ### 4.7 Challenges (architecture; rules TBD)
 
@@ -326,7 +326,7 @@ For this game, the live hand is **13 tiles**; evaluation for “complete hand”
 
 - Red fives, dora/uradora indicators (likely **out of v1** unless product requires)
 - Which yaku apply in this outdoor variant
-- Whether evaluation uses **closed hand only** (13 from `game_team_hand_tiles`) or can include called tiles later
+- Whether evaluation uses **closed hand only** (13 tiles via `game_tile_placements` where `game_team_id` is set) or can include called tiles later
 
 ---
 
@@ -433,15 +433,18 @@ Cloned from template at game start.
 
 136 rows per game: `tile_type_id`, `copy_index` (0–3).
 
-#### `game_location_tiles`
+#### `game_tile_placements`
 
-`game_node_id` ↔ `game_tile_id` (84 rows).
+Where each `game_tile` lives — **exactly one** of:
 
-#### `game_team_hand_tiles`
+| Column | Meaning |
+|--------|---------|
+| `game_node_id` | On the map at that station (84 rows at deal) |
+| `game_team_id` | In that team’s hand (13 rows per team) |
 
-`game_team_id`, `game_tile_id`, `slot_index` (0–12, sorted).
+`game_tile_id` is unique. `game_node_id` is unique when set (one tile per node). DB check: `(game_node_id IS NOT NULL) XOR (game_team_id IS NOT NULL)`.
 
-**Deal:** Shuffle all 136 → assign 84 to map nodes → 13 per team in fixed team order → `normalizeHandSlotIndices` each team.
+**Deal:** Shuffle all 136 `game_tiles` → create 84 node placements → 13 team placements per team in fixed team order. Hand sort order is applied in the engine when projecting, not persisted.
 
 ### 5.5 Positions and visibility
 
@@ -670,7 +673,7 @@ server/src/
   socket/         Socket.IO, rooms
   queue/          per-game processor
   engine/         handlers, TileSwapService, invariants
-  projections/    GameStateProjection, normalizeHandSlotIndices
+  projections/    GameStateProjection (hand sort via sortKey)
   scheduler/      game_scheduled_jobs worker
   media/          R2/MinIO presign, retention sweeper
   challenges/     ChallengeResolutionService (stubs → impl)

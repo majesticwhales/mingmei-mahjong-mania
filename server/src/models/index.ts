@@ -15,3 +15,5 @@ export { GameTeam } from "./game-team.ts";
 export { GameParticipant } from "./game-participant.ts";
 export { GameNode } from "./game-node.ts";
 export { GameEdge } from "./game-edge.ts";
+export { GameTile } from "./game-tile.ts";
+export { GameTilePlacement } from "./game-tile-placement.ts";

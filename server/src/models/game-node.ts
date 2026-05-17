@@ -3,10 +3,12 @@ import {
   Column,
   DataType,
   ForeignKey,
+  HasOne,
   Table,
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
 import { Game } from "./game.ts";
+import { GameTilePlacement } from "./game-tile-placement.ts";
 import { MapTemplateNode } from "./map-template-node.ts";
 
 @Table({ tableName: "game_nodes" })
@@ -39,4 +41,7 @@ export class GameNode extends BaseModel {
 
   @Column({ type: DataType.INTEGER, allowNull: true })
   declare geofenceRadiusMeters: number | null;
+
+  @HasOne(() => GameTilePlacement)
+  declare tilePlacement?: GameTilePlacement;
 }

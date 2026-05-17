@@ -5,6 +5,8 @@ import { GameEdge } from "../models/game-edge.ts";
 import { GameNode } from "../models/game-node.ts";
 import { GameParticipant } from "../models/game-participant.ts";
 import { GameTeam } from "../models/game-team.ts";
+import { GameTile } from "../models/game-tile.ts";
+import { GameTilePlacement } from "../models/game-tile-placement.ts";
 import { Lobby } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
 import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
@@ -32,6 +34,8 @@ export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
     GameParticipant,
     GameNode,
     GameEdge,
+    GameTile,
+    GameTilePlacement,
   ],
   logging: process.env.NODE_ENV === "development" ? console.log : false,
 });

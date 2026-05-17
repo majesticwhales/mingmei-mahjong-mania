@@ -9,6 +9,7 @@ import {
 import { BaseModel } from "./base.ts";
 import { Game } from "./game.ts";
 import { GameParticipant } from "./game-participant.ts";
+import { GameTilePlacement } from "./game-tile-placement.ts";
 import { TeamDefinition } from "./team-definition.ts";
 
 @Table({ tableName: "game_teams" })
@@ -32,4 +33,7 @@ export class GameTeam extends BaseModel {
 
   @HasMany(() => GameParticipant)
   declare participants?: GameParticipant[];
+
+  @HasMany(() => GameTilePlacement)
+  declare tilePlacements?: GameTilePlacement[];
 }
