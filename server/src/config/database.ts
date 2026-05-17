@@ -1,5 +1,8 @@
 import "reflect-metadata";
 import { Sequelize } from "sequelize-typescript";
+import { Lobby } from "../models/lobby.ts";
+import { LobbyMember } from "../models/lobby-member.ts";
+import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import { MapTemplate } from "../models/map-template.ts";
 import { MapTemplateEdge } from "../models/map-template-edge.ts";
 import { MapTemplateNode } from "../models/map-template-node.ts";
@@ -16,6 +19,9 @@ export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
     MapTemplateNode,
     MapTemplateEdge,
     TileType,
+    Lobby,
+    LobbyMember,
+    LobbyTeamAssignment,
   ],
   logging: process.env.NODE_ENV === "development" ? console.log : false,
 });

@@ -5,3 +5,7 @@ export { MapTemplate } from "./map-template.ts";
 export { MapTemplateNode } from "./map-template-node.ts";
 export { MapTemplateEdge } from "./map-template-edge.ts";
 export { TileType } from "./tile-type.ts";
+export { Lobby } from "./lobby.ts";
+export type { LobbyStatus, TeamAssignmentMode } from "./lobby.ts";
+export { LobbyMember } from "./lobby-member.ts";
+export { LobbyTeamAssignment } from "./lobby-team-assignment.ts";
