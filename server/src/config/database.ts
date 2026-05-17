@@ -1,17 +1,9 @@
-import "dotenv/config";
-import { Sequelize } from "sequelize";
+import "reflect-metadata";
+import { Sequelize } from "sequelize-typescript";
+import { User } from "../models/user.ts";
 
-const databaseUrl = process.env.DATABASE_URL;
-
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is not set. Copy server/.env.example to server/.env");
-}
-
-export const sequelize = new Sequelize(databaseUrl, {
+export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
   dialect: "postgres",
+  models: [User],
   logging: process.env.NODE_ENV === "development" ? console.log : false,
 });
-
-export async function connectDatabase(): Promise<void> {
-  await sequelize.authenticate();
-}
