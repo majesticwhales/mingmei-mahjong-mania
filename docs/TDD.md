@@ -21,10 +21,12 @@ This document defines **infrastructure and architecture** for *mahjong-jet-lag* 
 - **Cloudflare R2** media storage (MinIO locally)
 - DB-backed scheduler (visibility phases, notifications, game end)
 - Challenge system **schema + media plumbing** (resolver logic when product defines cards)
+- **Riichi hand evaluation** module (stub → full scoring; see [§4.8](#48-mahjong-hand-evaluation-riichi))
 
 ### Out of scope (v1)
 
-- Polished UI / full mahjong scoring rules
+- Polished UI
+- Exhaustive riichi edge-case coverage on day one (incremental implementation inside the scoring module)
 - Anti-cheat beyond basic validation
 - Multi-server Redis (design allows it later; ship single-node first)
 - Mobile push (FCM/APNs) — Socket-only notifications for v1
@@ -86,6 +88,7 @@ All other tables in [§5](#5-data-model) are **not yet migrated** on this branch
 | Game end | Drain **in-flight** command queue, then `ended` |
 | Realtime | Commands → queue → engine → `game_events` → broadcast |
 | State storage | Relational tables; JSONB only on events/commands/challenge params |
+| Hand scoring | **Riichi** ruleset; `HandEvaluationService`; stub in infra phase, wired to **game summary** + **challenges** later |
 
 ---
 
@@ -252,6 +255,78 @@ Runtime: `game_challenge_instances`, `game_challenge_submissions`.
 | `tile_swap` | Map tile exchanges via `TileSwapService` |
 
 Photo challenges reuse media pipeline (`purpose = challenge_submission`). Implement resolvers when product defines decks (Phase H).
+
+### 4.8 Mahjong hand evaluation (Riichi)
+
+A dedicated **scoring module** (not part of the realtime command engine) evaluates a mahjong hand and returns structured scoring metadata. The client **never** computes score - only displays server results.
+
+**Ruleset (v1 target):** [Riichi / modern Japanese](https://riichi.wiki/) (han–fu style scoring, yaku detection). Implementation is **code-first** in `server/src/scoring/`; optional static `yaku_definitions` table later if product wants data-driven yaku.
+
+#### Responsibility boundary
+
+| Module | Role |
+|--------|------|
+| `HandEvaluationService` | Pure function(s): tiles in → evaluation out |
+| `GameSummaryService` | At game end, loads each team’s 13 `handTiles`, calls evaluator, attaches results to summary |
+| `ChallengeResolutionService` | Invokes evaluator when a challenge requires proving a scoring hand |
+
+No game state mutation from scoring alone unless a challenge resolver explicitly applies an effect after a successful evaluation.
+
+#### Input / output (contract)
+
+**Input** (`HandEvaluationInput`):
+
+```ts
+{
+  tiles: Array<{
+    suit: string;      // matches tile_types.suit
+    rank: number;      // 1–9 for suits; honors use agreed rank mapping
+    isRedFive?: boolean;
+  }>;
+  winningTile?: { suit, rank, isRedFive? };  // optional 14th tile if evaluating complete win
+  context?: {
+    seatWind?: "east" | "south" | "west" | "north";
+    roundWind?: "east" | "south" | "west" | "north";
+    riichi?: boolean;
+    // extended riichi flags (ippatsu, haitei, etc.) as rules firm up
+  };
+}
+```
+
+For this game, the live hand is **13 tiles**; evaluation for “complete hand” may pass `winningTile` separately or as a 14th entry—pick one convention in implementation and keep consistent in API.
+
+**Output** (`HandEvaluationResult`):
+
+```ts
+{
+  isValidWinningHand: boolean;
+  handRank?: string;           // e.g. "Full flush", "Riichi", "No yaku"
+  yaku: Array<{ name: string; han: number }>;
+  fu?: number;
+  han?: number;
+  points?: { total: number; dealer?: number; nonDealer?: number };
+  errorCode?: string;          // e.g. "NOT_A_WINNING_HAND", "INVALID_TILE_COUNT"
+  message?: string;            // human-readable for UI / summary
+}
+```
+
+#### v1 sequencing
+
+| Step | Deliverable |
+|------|-------------|
+| **I-a (early)** | Module skeleton + types; stub returns `isValidWinningHand: false`, `errorCode: "NOT_IMPLEMENTED"`; unit test harness with fixture hands |
+| **I-b** | Winning-hand structure detection (standard form: 4 melds + pair) |
+| **I-c** | Yaku + han–fu + point calculation (riichi baseline) |
+| **I-d** | `GET /api/games/:id/summary` includes per-team `handEvaluation` |
+| **I-e** | Challenge resolvers call same service when card requires it |
+
+**HTTP (dev / optional v1):** `POST /api/scoring/evaluate-hand` — authenticated; body = `HandEvaluationInput`; for tooling and client-free tests. Not required for production gameplay if summary + challenges cover integration.
+
+#### Open riichi details (defer to implementation)
+
+- Red fives, dora/uradora indicators (likely **out of v1** unless product requires)
+- Which yaku apply in this outdoor variant
+- Whether evaluation uses **closed hand only** (13 from `game_team_hand_tiles`) or can include called tiles later
 
 ---
 
@@ -573,9 +648,10 @@ v1: in-process on single node. System handlers update state → `game_events` �
 |------|-----------|
 | Auth | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` |
 | Lobbies | `POST /api/lobbies`, `GET /api/lobbies/:id`, `PATCH /api/lobbies/:id/config` (host), `POST …/join`, `POST …/team`, `POST …/start` |
-| Games | `GET /api/games/:id`, `GET /api/games/:id/summary` (ended only) |
+| Games | `GET /api/games/:id`, `GET /api/games/:id/summary` (ended only; includes `handEvaluation` per team when Phase I-d) |
 | Media | `POST /api/games/:id/media/upload-url`, optional `POST …/media/:id/confirm` |
 | Catalog | `GET /api/map-templates`, `GET /api/tile-types`, `GET /api/challenge-decks` |
+| Scoring | `POST /api/scoring/evaluate-hand` (optional dev API; same contract as `HandEvaluationService`) |
 
 ### Socket
 
@@ -598,7 +674,8 @@ server/src/
   scheduler/      game_scheduled_jobs worker
   media/          R2/MinIO presign, retention sweeper
   challenges/     ChallengeResolutionService (stubs → impl)
-  services/       LobbyService, GameStartService
+  scoring/        HandEvaluationService (Riichi: structure, yaku, han–fu, points)
+  services/       LobbyService, GameStartService, GameSummaryService
   models/         Sequelize models
 ```
 
@@ -618,6 +695,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 | **F** | Geolocation warn/allow |
 | **G** | R2/MinIO, check-in photo, game summary URLs, retention |
 | **H** | Challenge catalog + resolvers (when product ready) |
+| **I** | **Scoring:** `HandEvaluationService` stub → riichi implementation; summary + challenge integration |
 
 ---
 
@@ -631,13 +709,16 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 | Custom lobby notifications | Deferred |
 | GDPR media delete | Deferred |
 | Challenge photo visibility during game | Likely same as check-in; confirm with product |
+| Riichi: dora / red dora / full yaku list | Defer; confirm with product |
+| 13 vs 14 tiles for evaluation API | Convention TBD when implementing Phase I-b |
+| Scoring affects game winner | TBD — summary ranking only vs mechanical win condition |
 
 ---
 
 ## 12. Migration checklist (this branch)
 
-- [ ] Merge or recreate `20260517155235-create-users.js`
-- [ ] Add `create-team-definitions` (replace teams stub)
+- [x] `20260517155235-create-users.cjs`
+- [x] `20260517160720-create-teams.cjs` (`team_definitions` + seeder)
 - [ ] Add lobby tables
 - [ ] Add game runtime tables
 - [ ] Add tile + map catalog tables
