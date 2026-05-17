@@ -1,8 +1,3 @@
-import { sequelize } from "../config/database";
-
-// Import and register models here, then define associations.
-// Example:
-// import { User } from "./user";
-// User.initialize(sequelize);
-
-export { sequelize };
+export { sequelize } from "../config/database.ts";
+export { User } from "./user.ts";
+export { TeamDefinition } from "./team-definition.ts";

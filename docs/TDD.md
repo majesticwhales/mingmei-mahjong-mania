@@ -55,6 +55,10 @@ All other tables in [§5](#5-data-model) are **not yet migrated** on this branch
 - `docker-compose.yml` — PostgreSQL 16
 - `client/` — React + Vite (demo only)
 
+### Sequelize CLI + ESM
+
+`server/package.json` has `"type": "module"`. **Migrations and seeders must use the `.cjs` extension** (same as `config/config.cjs`) so `module.exports` / `require` work with sequelize-cli.
+
 ---
 
 ## 3. Confirmed design decisions

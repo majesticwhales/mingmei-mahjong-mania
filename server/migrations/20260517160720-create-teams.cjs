@@ -3,26 +3,25 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('users', {
+    await queryInterface.createTable('team_definitions', {
       id: {
         type: Sequelize.UUID,
         defaultValue: Sequelize.UUIDV4,
         primaryKey: true,
         allowNull: false,
       },
-      email: {
-        type: Sequelize.STRING,
+      code: {
+        type: Sequelize.STRING(32),
         allowNull: false,
         unique: true,
       },
-      password_hash: {
-        type: Sequelize.STRING,
+      display_name: {
+        type: Sequelize.STRING(64),
         allowNull: false,
       },
-      username: {
-        type: Sequelize.STRING,
+      sort_order: {
+        type: Sequelize.INTEGER,
         allowNull: false,
-        unique: true,
       },
       created_at: {
         type: Sequelize.DATE,
@@ -36,11 +35,10 @@ module.exports = {
       },
     });
 
-    await queryInterface.addIndex('users', ['email']);
-    await queryInterface.addIndex('users', ['username']);
+    await queryInterface.addIndex('team_definitions', ['sort_order']);
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable('users');
+    await queryInterface.dropTable('team_definitions');
   },
 };
