@@ -9,3 +9,7 @@ export { Lobby } from "./lobby.ts";
 export type { LobbyStatus, TeamAssignmentMode } from "./lobby.ts";
 export { LobbyMember } from "./lobby-member.ts";
 export { LobbyTeamAssignment } from "./lobby-team-assignment.ts";
+export { Game } from "./game.ts";
+export type { GameStatus } from "./game.ts";
+export { GameTeam } from "./game-team.ts";
+export { GameParticipant } from "./game-participant.ts";

@@ -1,5 +1,8 @@
 import "reflect-metadata";
 import { Sequelize } from "sequelize-typescript";
+import { Game } from "../models/game.ts";
+import { GameParticipant } from "../models/game-participant.ts";
+import { GameTeam } from "../models/game-team.ts";
 import { Lobby } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
 import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
@@ -22,6 +25,9 @@ export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
     Lobby,
     LobbyMember,
     LobbyTeamAssignment,
+    Game,
+    GameTeam,
+    GameParticipant,
   ],
   logging: process.env.NODE_ENV === "development" ? console.log : false,
 });
