@@ -14,12 +14,12 @@ const stations: Station[] = [
   { id: "lawrence-west", name: "Lawrence West", x: 372, y: 258, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "ne" },
   { id: "glencairn", name: "Glencairn", x: 404, y: 286, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "ne" },
   { id: "cedarvale", name: "Cedarvale", x: 435, y: 315, lineIds: ["1", "5"], isInterchange: true, accessible: true, labelAnchor: "sw" },
-  { id: "st-clair-west", name: "St. Clair West", x: 450, y: 365, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "w" },
-  { id: "dupont", name: "Dupont", x: 470, y: 400, lineIds: ["1"], isInterchange: false, accessible: false, labelAnchor: "w" },
+  { id: "st-clair-west", name: "St. Clair West", x: 448, y: 367, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "w" },
+  { id: "dupont", name: "Dupont", x: 462, y: 418, lineIds: ["1"], isInterchange: false, accessible: false, labelAnchor: "w" },
 
   // Line 1 + Line 2 interchanges — labels above (north) to clear both lines.
-  { id: "spadina", name: "Spadina", x: 475, y: 460, lineIds: ["1", "2"], isInterchange: true, accessible: true, labelAnchor: "s" },
-  { id: "st-george", name: "St. George", x: 515, y: 460, lineIds: ["1", "2"], isInterchange: true, accessible: true, labelAnchor: "n" },
+  { id: "spadina", name: "Spadina", x: 475, y: 470, lineIds: ["1", "2"], isInterchange: true, accessible: true, labelAnchor: "s" },
+  { id: "st-george", name: "St. George", x: 515, y: 470, lineIds: ["1", "2"], isInterchange: true, accessible: true, labelAnchor: "n" },
 
   // Line 1 University arm downtown (x=515 column) — labels west.
   { id: "museum", name: "Museum", x: 515, y: 495, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "w" },
@@ -37,17 +37,17 @@ const stations: Station[] = [
   { id: "dundas", name: "Dundas", x: 595, y: 555, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
   { id: "college", name: "College", x: 595, y: 525, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
   { id: "wellesley", name: "Wellesley", x: 595, y: 495, lineIds: ["1"], isInterchange: false, accessible: false, labelAnchor: "e" },
-  { id: "bloor-yonge", name: "Bloor-Yonge", x: 595, y: 460, lineIds: ["1", "2"], isInterchange: true, accessible: true, labelAnchor: "ne", labelRotate: -30 },
+  { id: "bloor-yonge", name: "Bloor-Yonge", x: 595, y: 470, lineIds: ["1", "2"], isInterchange: true, accessible: true, labelAnchor: "ne", labelRotate: -30 },
   { id: "rosedale", name: "Rosedale", x: 595, y: 405, lineIds: ["1"], isInterchange: false, accessible: false, labelAnchor: "e" },
   { id: "summerhill", name: "Summerhill", x: 595, y: 380, lineIds: ["1"], isInterchange: false, accessible: false, labelAnchor: "e" },
   { id: "st-clair", name: "St. Clair", x: 595, y: 360, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
   { id: "davisville", name: "Davisville", x: 595, y: 340, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
   { id: "eglinton", name: "Eglinton", x: 595, y: 315, lineIds: ["1", "5"], isInterchange: true, accessible: true, labelAnchor: "sw" },
   { id: "lawrence", name: "Lawrence", x: 595, y: 275, lineIds: ["1"], isInterchange: false, accessible: false, labelAnchor: "e" },
-  { id: "york-mills", name: "York Mills", x: 595, y: 245, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
-  { id: "sheppard-yonge", name: "Sheppard-Yonge", x: 595, y: 210, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
-  { id: "north-york-centre", name: "North York Centre", x: 595, y: 180, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
-  { id: "finch", name: "Finch", x: 595, y: 145, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
+  { id: "york-mills", name: "York Mills", x: 595, y: 235, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
+  { id: "sheppard-yonge", name: "Sheppard-Yonge", x: 595, y: 195, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
+  { id: "north-york-centre", name: "North York Centre", x: 595, y: 155, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
+  { id: "finch", name: "Finch", x: 595, y: 115, lineIds: ["1"], isInterchange: false, accessible: true, labelAnchor: "e" },
   { id: "kipling", name: "Kipling", x: 25, y: 470, lineIds: ["2"], isInterchange: false, accessible: true, labelAnchor: "n" },
   { id: "islington", name: "Islington", x: 55, y: 470, lineIds: ["2"], isInterchange: false, accessible: true, labelAnchor: "n" },
   { id: "royal-york", name: "Royal York", x: 85, y: 470, lineIds: ["2"], isInterchange: false, accessible: false, labelAnchor: "n" },
@@ -65,7 +65,7 @@ const stations: Station[] = [
 
   // Bay sits between St-George and Bloor-Yonge in the interchange dip;
   // tucked below to clear the three interchange labels stacked above.
-  { id: "bay", name: "Bay", x: 555, y: 460, lineIds: ["2"], isInterchange: false, accessible: true, labelAnchor: "s", labelRotate: 0 },
+  { id: "bay", name: "Bay", x: 555, y: 470, lineIds: ["2"], isInterchange: false, accessible: true, labelAnchor: "s", labelRotate: 0 },
 
   { id: "sherbourne", name: "Sherbourne", x: 630, y: 470, lineIds: ["2"], isInterchange: false, accessible: false, labelAnchor: "n" },
   { id: "castle-frank", name: "Castle Frank", x: 660, y: 470, lineIds: ["2"], isInterchange: false, accessible: false, labelAnchor: "n" },
@@ -76,17 +76,17 @@ const stations: Station[] = [
   { id: "greenwood", name: "Greenwood", x: 820, y: 470, lineIds: ["2"], isInterchange: false, accessible: false, labelAnchor: "n" },
   { id: "coxwell", name: "Coxwell", x: 850, y: 470, lineIds: ["2"], isInterchange: false, accessible: false, labelAnchor: "n" },
   { id: "woodbine", name: "Woodbine", x: 880, y: 470, lineIds: ["2"], isInterchange: false, accessible: false, labelAnchor: "n" },
-  { id: "main-street", name: "Main Street", x: 915, y: 470, lineIds: ["2"], isInterchange: false, accessible: true, labelAnchor: "n" },
-  { id: "victoria-park", name: "Victoria Park", x: 945, y: 475, lineIds: ["2"], isInterchange: false, accessible: true, labelAnchor: "n" },
-  { id: "warden", name: "Warden", x: 975, y: 470, lineIds: ["2"], isInterchange: false, accessible: true, labelAnchor: "n" },
-  { id: "kennedy", name: "Kennedy", x: 1020, y: 440, lineIds: ["2", "5"], isInterchange: true, accessible: true, labelAnchor: "e" },
+  { id: "main-street", name: "Main Street", x: 915, y: 470, lineIds: ["2"], isInterchange: false, accessible: true, labelAnchor: "e" },
+  { id: "victoria-park", name: "Victoria Park", x: 958, y: 418, lineIds: ["2"], isInterchange: false, accessible: true, labelAnchor: "e" },
+  { id: "warden", name: "Warden", x: 1002, y: 367, lineIds: ["2"], isInterchange: false, accessible: true, labelAnchor: "e" },
+  { id: "kennedy", name: "Kennedy", x: 1045, y: 315, lineIds: ["2", "5"], isInterchange: true, accessible: true, labelAnchor: "e" },
   // Line 5 Eglinton — alternate N/S for the horizontal run, switch to east
   // once the line starts bending south toward Kennedy.
-  { id: "mount-dennis", name: "Mount Pennis", x: 200, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "s" },
-  { id: "keelesdale", name: "Keelesdale", x: 240, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "s" },
-  { id: "caledonia", name: "Caledonia", x: 280, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "s" },
-  { id: "fairbank", name: "Fairbank", x: 310, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "s" },
-  { id: "oakwood", name: "Oakwood", x: 340, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "s" },
+  { id: "mount-dennis", name: "Mount Dennis", x: 200, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
+  { id: "keelesdale", name: "Keelesdale", x: 240, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
+  { id: "caledonia", name: "Caledonia", x: 280, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
+  { id: "fairbank", name: "Fairbank", x: 310, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
+  { id: "oakwood", name: "Oakwood", x: 340, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
   { id: "forest-hill", name: "Forest Hill", x: 475, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
   { id: "chaplin", name: "Chaplin", x: 515, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
   { id: "avenue", name: "Avenue", x: 555, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
@@ -102,8 +102,8 @@ const stations: Station[] = [
   { id: "pharmacy", name: "Pharmacy", x: 895, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
   { id: "golden-mile", name: "Golden Mile", x: 925, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
   { id: "hakimi-lebovic", name: "Hakimi Lebovic", x: 955, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
-  { id: "birchmount", name: "Birchmount", x: 980, y: 325, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "ne" },
-  { id: "ionview", name: "Ionview", x: 1000, y: 365, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "e" },
+  { id: "birchmount", name: "Birchmount", x: 985, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
+  { id: "ionview", name: "Ionview", x: 1015, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "n" },
 ];
 
 const stationsById = new Map(stations.map((s) => [s.id, s]));
@@ -147,7 +147,7 @@ const lines: SubwayLine[] = [
       "keele", "dundas-west", "lansdowne", "dufferin", "ossington", "christie", "bathurst",
       "spadina", "st-george", "bay", "bloor-yonge", "sherbourne", "castle-frank", "broadview",
       "chester", "pape", "donlands", "greenwood", "coxwell", "woodbine", "main-street",
-      "victoria-park", "warden", "kennedy", "lawrence-east", "scarborough-centre",
+      "victoria-park", "warden", "kennedy"
     ],
   },
   {
