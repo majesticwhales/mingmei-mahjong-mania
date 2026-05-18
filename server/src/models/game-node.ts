@@ -1,5 +1,6 @@
 import {
   BelongsTo,
+  BelongsToMany,
   Column,
   DataType,
   ForeignKey,
@@ -9,7 +10,9 @@ import {
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
 import { Game } from "./game.ts";
+import { GameLine } from "./game-line.ts";
 import { GameLocationTeamVisibility } from "./game-location-team-visibility.ts";
+import { GameNodeLine } from "./game-node-line.ts";
 import { GameNodeVisibilityGroup } from "./game-node-visibility-group.ts";
 import { GameTilePlacement } from "./game-tile-placement.ts";
 import { MapTemplateNode } from "./map-template-node.ts";
@@ -51,14 +54,20 @@ export class GameNode extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false })
   declare coordinateY: number;
 
-  @Column({ type: DataType.INTEGER, allowNull: false })
-  declare lineId: number;
-
   @Column({ type: DataType.STRING(16), allowNull: false })
   declare labelAnchor: string;
 
+  @Column({ type: DataType.DOUBLE, allowNull: true })
+  declare labelRotate: number | null;
+
   @Column({ type: DataType.BOOLEAN, allowNull: false })
   declare isInterchange: boolean;
+
+  @BelongsToMany(() => GameLine, () => GameNodeLine)
+  declare lines?: GameLine[];
+
+  @HasMany(() => GameNodeLine)
+  declare nodeLines?: GameNodeLine[];
 
   @HasOne(() => GameTilePlacement)
   declare tilePlacement?: GameTilePlacement;

@@ -9,6 +9,7 @@ import {
 import { BaseModel } from "./base.ts";
 import { GameCommandQueueItem } from "./game-command-queue-item.ts";
 import { GameEdge } from "./game-edge.ts";
+import { GameLine } from "./game-line.ts";
 import { GameEvent } from "./game-event.ts";
 import { GameScheduledJob } from "./game-scheduled-job.ts";
 import { GameChallengeInstance } from "./game-challenge-instance.ts";
@@ -78,6 +79,9 @@ export class Game extends BaseModel {
 
   @HasMany(() => GameEdge)
   declare edges?: GameEdge[];
+
+  @HasMany(() => GameLine)
+  declare lines?: GameLine[];
 
   @HasMany(() => GameTile)
   declare tiles?: GameTile[];

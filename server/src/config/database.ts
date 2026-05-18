@@ -26,7 +26,11 @@ import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import { MapTemplate } from "../models/map-template.ts";
 import { MediaAsset } from "../models/media-asset.ts";
 import { MapTemplateEdge } from "../models/map-template-edge.ts";
+import { MapTemplateLine } from "../models/map-template-line.ts";
 import { MapTemplateNode } from "../models/map-template-node.ts";
+import { MapTemplateNodeLine } from "../models/map-template-node-line.ts";
+import { GameLine } from "../models/game-line.ts";
+import { GameNodeLine } from "../models/game-node-line.ts";
 import { TeamDefinition } from "../models/team-definition.ts";
 import { TileType } from "../models/tile-type.ts";
 import { User } from "../models/user.ts";
@@ -37,7 +41,9 @@ export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
     User,
     TeamDefinition,
     MapTemplate,
+    MapTemplateLine,
     MapTemplateNode,
+    MapTemplateNodeLine,
     MapTemplateEdge,
     TileType,
     Lobby,
@@ -47,6 +53,8 @@ export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
     GameTeam,
     GameParticipant,
     GameNode,
+    GameNodeLine,
+    GameLine,
     GameEdge,
     GameTile,
     GameTilePlacement,

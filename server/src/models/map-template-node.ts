@@ -1,12 +1,16 @@
 import {
   BelongsTo,
+  BelongsToMany,
   Column,
   DataType,
   ForeignKey,
+  HasMany,
   Table,
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
 import { MapTemplate } from "./map-template.ts";
+import { MapTemplateLine } from "./map-template-line.ts";
+import { MapTemplateNodeLine } from "./map-template-node-line.ts";
 
 @Table({ tableName: "map_template_nodes" })
 export class MapTemplateNode extends BaseModel {
@@ -38,12 +42,18 @@ export class MapTemplateNode extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false })
   declare coordinateY: number;
 
-  @Column({ type: DataType.INTEGER, allowNull: false })
-  declare lineId: number;
-
   @Column({ type: DataType.STRING(16), allowNull: false })
   declare labelAnchor: string;
 
+  @Column({ type: DataType.DOUBLE, allowNull: true })
+  declare labelRotate: number | null;
+
   @Column({ type: DataType.BOOLEAN, allowNull: false })
   declare isInterchange: boolean;
+
+  @BelongsToMany(() => MapTemplateLine, () => MapTemplateNodeLine)
+  declare lines?: MapTemplateLine[];
+
+  @HasMany(() => MapTemplateNodeLine)
+  declare nodeLines?: MapTemplateNodeLine[];
 }

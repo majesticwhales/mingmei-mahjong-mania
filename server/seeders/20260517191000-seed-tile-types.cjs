@@ -41,13 +41,17 @@ function buildTileRows(now) {
 
   const addCopies = (suit, rank, suitSortOrder, displayName) => {
     for (let copyIndex = 0; copyIndex < 4; copyIndex += 1) {
+      const isRedFive =
+        (suit === 'man' || suit === 'pin' || suit === 'sou') &&
+        rank === 5 &&
+        copyIndex === 0;
       rows.push({
         id: randomUUID(),
         suit,
         rank,
         copy_index: copyIndex,
         suit_sort_order: suitSortOrder,
-        display_name: displayName,
+        display_name: isRedFive ? `Red ${displayName}` : displayName,
         created_at: now,
         updated_at: now,
       });
