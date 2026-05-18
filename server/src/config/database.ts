@@ -6,6 +6,11 @@ import { GameNode } from "../models/game-node.ts";
 import { GameParticipant } from "../models/game-participant.ts";
 import { GameTeam } from "../models/game-team.ts";
 import { GameTile } from "../models/game-tile.ts";
+import { GameLocationTeamVisibility } from "../models/game-location-team-visibility.ts";
+import { GameNodeVisibilityGroup } from "../models/game-node-visibility-group.ts";
+import { GameRuleFlag } from "../models/game-rule-flag.ts";
+import { GameTeamHomeGroup } from "../models/game-team-home-group.ts";
+import { GameTeamPosition } from "../models/game-team-position.ts";
 import { GameTilePlacement } from "../models/game-tile-placement.ts";
 import { Lobby } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
@@ -36,6 +41,11 @@ export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
     GameEdge,
     GameTile,
     GameTilePlacement,
+    GameTeamPosition,
+    GameNodeVisibilityGroup,
+    GameTeamHomeGroup,
+    GameLocationTeamVisibility,
+    GameRuleFlag,
   ],
   logging: process.env.NODE_ENV === "development" ? console.log : false,
 });

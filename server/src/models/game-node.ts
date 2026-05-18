@@ -3,11 +3,14 @@ import {
   Column,
   DataType,
   ForeignKey,
+  HasMany,
   HasOne,
   Table,
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
 import { Game } from "./game.ts";
+import { GameLocationTeamVisibility } from "./game-location-team-visibility.ts";
+import { GameNodeVisibilityGroup } from "./game-node-visibility-group.ts";
 import { GameTilePlacement } from "./game-tile-placement.ts";
 import { MapTemplateNode } from "./map-template-node.ts";
 
@@ -44,4 +47,10 @@ export class GameNode extends BaseModel {
 
   @HasOne(() => GameTilePlacement)
   declare tilePlacement?: GameTilePlacement;
+
+  @HasOne(() => GameNodeVisibilityGroup)
+  declare visibilityGroup?: GameNodeVisibilityGroup;
+
+  @HasMany(() => GameLocationTeamVisibility)
+  declare teamVisibility?: GameLocationTeamVisibility[];
 }

@@ -9,6 +9,7 @@ import {
 import { BaseModel } from "./base.ts";
 import { GameEdge } from "./game-edge.ts";
 import { GameNode } from "./game-node.ts";
+import { GameRuleFlag } from "./game-rule-flag.ts";
 import { GameTile } from "./game-tile.ts";
 import { GameParticipant } from "./game-participant.ts";
 import { GameTeam } from "./game-team.ts";
@@ -75,4 +76,7 @@ export class Game extends BaseModel {
 
   @HasMany(() => GameTile)
   declare tiles?: GameTile[];
+
+  @HasMany(() => GameRuleFlag)
+  declare ruleFlags?: GameRuleFlag[];
 }
