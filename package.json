@@ -9,7 +9,8 @@
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "db:migrate": "npm run db:migrate --prefix server",
-    "db:migrate:undo": "npm run db:migrate:undo --prefix server"
+    "db:migrate:undo": "npm run db:migrate:undo --prefix server",
+    "db:seed": "npm run db:seed --prefix server"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
