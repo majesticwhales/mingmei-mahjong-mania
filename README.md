@@ -124,7 +124,7 @@ From the project root, generate a migration (run from `server/` or use `--prefix
 npm run db:migration:generate --prefix server -- --name create-example-table
 ```
 
-Edit the file in `server/migrations/`, then apply it:
+Edit the file in `server/migrations/` (use a **`.cjs`** extension — the server package is ESM), then apply it:
 
 ```bash
 npm run db:migrate

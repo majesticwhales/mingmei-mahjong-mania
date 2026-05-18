@@ -1,10 +1,11 @@
 import { app } from "./app";
-import { connectDatabase } from "./config/database";
+import { sequelize } from "./config/database";
+import "reflect-metadata";
 
 const port = Number(process.env.PORT) || 3001;
 
 async function main() {
-  await connectDatabase();
+  await sequelize.authenticate();
   console.log("Database connection established.");
 
   app.listen(port, () => {
