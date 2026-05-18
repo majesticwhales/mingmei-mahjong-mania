@@ -21,7 +21,7 @@ This document defines **infrastructure and architecture** for *mahjong-jet-lag* 
 - **Cloudflare R2** media storage (MinIO locally)
 - DB-backed scheduler (visibility phases, notifications, game end)
 - Challenge system **schema + media plumbing** (resolver logic when product defines cards)
-- **Riichi hand evaluation** module (stub → full scoring; see [§3.8](#38-mahjong-hand-evaluation-riichi))
+- **Riichi hand evaluation** module (stub → full scoring; see [§3.9](#39-mahjong-hand-evaluation-riichi))
 
 ### Out of scope (v1)
 
@@ -215,7 +215,17 @@ sequenceDiagram
 - Uploader may show **local preview** only.
 - After `status = ended`: `GET /api/games/:id/summary` returns presigned GET URLs for participants.
 
-### 3.6 Hand sorting (server authority)
+### 3.6 Tile identity and red fives
+
+Each physical tile is one `tile_types` row: `(suit, rank, copy_index)` with `copy_index` 0–3. There is **no** `is_red_five` column.
+
+**Red-five convention (catalog):** for `man`, `pin`, and `sou` at **rank 5**, **`copy_index === 0`** is the red five (three tiles in the 136 set). Other copies of the 5 are normal fives. Seeded `display_name` values are `Red 5 Man`, `Red 5 Pin`, `Red 5 Sou` for those rows.
+
+**Game rule:** `game_rule_flags` with `rule_key = red_fives_enabled` (boolean `enabled`). When **off**, red-five tiles still exist and count as normal 5s for melds; when **on**, scoring/projections treat them as red fives. Default at game start: TBD with product (recommend **on** for riichi).
+
+**Server helper:** `server/src/tiles/red-five.ts` — `isRedFiveTileIdentity(tile)`, `isRedFiveForGame(tile, redFivesEnabled)`. All engine, projection, and scoring code must use this; do not re-encode the convention ad hoc.
+
+### 3.7 Hand sorting (server authority)
 
 ```text
 sortKey(tile) = (tile_types.suit_sort_order, tile_types.rank, game_tiles.copy_index)
@@ -224,7 +234,7 @@ sortKey(tile) = (tile_types.suit_sort_order, tile_types.rank, game_tiles.copy_in
 - Hand order is **not stored** in the DB. The engine/projection layer sorts by `sortKey` when building `handTiles[]`.
 - Projections emit `handTiles[]` with `slotIndex` 0–12 assigned at read time; **client must not re-sort**.
 
-### 3.7 Challenges (architecture; rules TBD)
+### 3.8 Challenges (architecture; rules TBD)
 
 Static catalog: `challenge_decks`, `challenge_types`, `challenges` (parameters JSONB OK).
 
@@ -240,7 +250,7 @@ Runtime: `game_challenge_instances`, `game_challenge_submissions`.
 
 Photo challenges reuse media pipeline (`purpose = challenge_submission`). Implement resolvers when product defines decks (Phase H).
 
-### 3.8 Mahjong hand evaluation (Riichi)
+### 3.9 Mahjong hand evaluation (Riichi)
 
 A dedicated **scoring module** (not part of the realtime command engine) evaluates a mahjong hand and returns structured scoring metadata. The client **never** computes score - only displays server results.
 
@@ -265,9 +275,12 @@ No game state mutation from scoring alone unless a challenge resolver explicitly
   tiles: Array<{
     suit: string;      // matches tile_types.suit
     rank: number;      // 1–9 for suits; honors use agreed rank mapping
-    isRedFive?: boolean;
+    copyIndex: number; // 0–3; red five iff man|pin|sou, rank 5, copyIndex 0
   }>;
-  winningTile?: { suit, rank, isRedFive? };  // optional 14th tile if evaluating complete win
+  winningTile?: { suit, rank, copyIndex };  // optional 14th tile if evaluating complete win
+  rules: {
+    redFivesEnabled: boolean;  // from game_rule_flags.red_fives_enabled
+  };
   context?: {
     seatWind?: "east" | "south" | "west" | "north";
     roundWind?: "east" | "south" | "west" | "north";
@@ -276,6 +289,8 @@ No game state mutation from scoring alone unless a challenge resolver explicitly
   };
 }
 ```
+
+`HandEvaluationService` derives red-five treatment via `isRedFiveForGame(tile, rules.redFivesEnabled)` — **not** a persisted per-tile flag.
 
 For this game, the live hand is **13 tiles**; evaluation for “complete hand” may pass `winningTile` separately or as a 14th entry—pick one convention in implementation and keep consistent in API.
 
@@ -308,7 +323,8 @@ For this game, the live hand is **13 tiles**; evaluation for “complete hand”
 
 #### Open riichi details (defer to implementation)
 
-- Red fives, dora/uradora indicators (likely **out of v1** unless product requires)
+- Red fives: **identity resolved** (§3.6); han/fu for red fives in scoring may still be **out of v1**
+- Dora/uradora indicators (likely **out of v1** unless product requires)
 - Which yaku apply in this outdoor variant
 - Whether evaluation uses **closed hand only** (13 tiles via `game_tile_placements` where `game_team_id` is set) or can include called tiles later
 
@@ -433,11 +449,13 @@ Layout fields (including `lineIds[]` string codes) are **not secret** and are in
 #### `tile_types`
 
 34 types × 4 copies in seed = 136 logical types.  
-`suit`, `rank`, `suit_sort_order`, `display_name`.
+`suit`, `rank`, `copy_index` (0–3), `suit_sort_order`, `display_name`.
+
+Red fives: `(man|pin|sou, rank 5, copy_index 0)` — see [§3.6](#36-tile-identity-and-red-fives). No boolean column.
 
 #### `game_tiles`
 
-136 rows per game: `tile_type_id`, `copy_index` (0–3).
+136 rows per game: `tile_type_id`, `copy_index` (must match the referenced `tile_types.copy_index`).
 
 #### `game_tile_placements`
 
@@ -472,7 +490,13 @@ Phase unlocks only: `is_face_up`, `source` (`phase` \| `override`), `revealed_at
 
 #### `game_rule_flags` (optional)
 
-Extensible global rules beyond visibility.
+Extensible per-game rules: `rule_key`, `enabled` (boolean).
+
+| `rule_key` | Meaning |
+|------------|---------|
+| `red_fives_enabled` | When true, copy 0 of each suited 5 uses red-five scoring/UI (§3.6) |
+
+Set at game start from lobby config (when product defines it). Other keys may be added later.
 
 ### 4.6 Scheduled jobs
 
@@ -642,9 +666,13 @@ The client renders the map from `mapNodes` and the station panel from `atStation
   "instanceId": "uuid",
   "suit": "man",
   "rank": 2,
-  "displayName": "2 Man"
+  "copyIndex": 1,
+  "displayName": "2 Man",
+  "isRedFive": false
 }
 ```
+
+`isRedFive` is **computed** when building the snapshot (`isRedFiveForGame` + `red_fives_enabled`). Include `copyIndex` so the client can reconcile with catalog conventions.
 
 **`mapNodes[]`** — one per map node, fixed length 84. Layout fields are always present; **`tile`** is conditional:
 
@@ -660,7 +688,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
   "isInterchange": false,
   "latitude": 51.5074,
   "longitude": -0.1278,
-  "tile": { "instanceId": "...", "suit": "bamboos", "rank": 5, "displayName": "5 Bamboo" }
+  "tile": { "instanceId": "...", "suit": "sou", "rank": 5, "displayName": "5 Sou" }
 }
 {
   "id": "uuid",
@@ -751,6 +779,7 @@ server/src/
   media/          R2/MinIO presign, retention sweeper
   challenges/     ChallengeResolutionService (stubs → impl)
   scoring/        HandEvaluationService (Riichi: structure, yaku, han–fu, points)
+  tiles/          red-five identity helpers (isRedFiveForGame)
   services/       LobbyService, GameStartService, GameSummaryService
   models/         Sequelize models
 ```
