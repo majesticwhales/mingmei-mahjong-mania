@@ -23,3 +23,11 @@ export { GameTeamHomeGroup } from "./game-team-home-group.ts";
 export { GameLocationTeamVisibility } from "./game-location-team-visibility.ts";
 export type { VisibilitySource } from "./game-location-team-visibility.ts";
 export { GameRuleFlag } from "./game-rule-flag.ts";
+export { GameEvent } from "./game-event.ts";
+export { GameCommandQueueItem } from "./game-command-queue-item.ts";
+export type { CommandQueueStatus } from "./game-command-queue-item.ts";
+export { GameScheduledJob } from "./game-scheduled-job.ts";
+export type {
+  ScheduledJobType,
+  ScheduledJobStatus,
+} from "./game-scheduled-job.ts";

@@ -513,10 +513,16 @@ Use `@aws-sdk/client-s3` with custom endpoint + path-style for R2.
 
 #### `game_command_queue`
 
+`game_id`, `game_team_id`, `user_id`, `command_type`, `payload` (JSONB).  
 `status`: `pending` \| `processing` \| `done` \| `failed`.  
-`client_command_id` (UUID) for idempotency.
+`client_command_id` (UUID) — unique per `game_id` for idempotency.  
+`processed_at`, `error_message` when terminal.
 
-Optional: `game_event_media` (`event_id`, `media_asset_id`) for multiple attachments.
+#### `game_scheduled_jobs`
+
+`game_id`, `job_type` (`VISIBILITY_PHASE_ADVANCE` \| `GAME_END` \| `NOTIFICATION`), `run_at`, `status`, optional `payload` (JSONB), `completed_at`, `error_message`.
+
+Optional (later): `game_event_media` (`event_id`, `media_asset_id`) for multiple attachments.
 
 ---
 
@@ -720,13 +726,13 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 
 ## 12. Migration checklist (this branch)
 
-- [x] `20260517155235-create-users.cjs`
-- [x] `20260517160720-create-teams.cjs` (`team_definitions` + seeder)
-- [ ] Add lobby tables
-- [ ] Add game runtime tables
-- [ ] Add tile + map catalog tables
-- [ ] Add visibility + positions tables
-- [ ] Add `game_events`, `game_command_queue`, `game_scheduled_jobs`
+- [x] Add user table
+- [x] Add team definitions
+- [x] Add lobby tables
+- [x] Add game runtime tables
+- [x] Add tile + map catalog tables
+- [x] Add visibility + positions tables
+- [x] Add `game_events`, `game_command_queue`, `game_scheduled_jobs`
 - [ ] Add `media_assets`
 - [ ] Add challenge tables (can be empty seeds)
 - [ ] Seeds: `team_definitions`, `tile_types` (136), sample `map_template` (84 nodes)

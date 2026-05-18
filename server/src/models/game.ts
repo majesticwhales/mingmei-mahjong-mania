@@ -7,14 +7,17 @@ import {
   Table,
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
+import { GameCommandQueueItem } from "./game-command-queue-item.ts";
 import { GameEdge } from "./game-edge.ts";
+import { GameEvent } from "./game-event.ts";
+import { GameScheduledJob } from "./game-scheduled-job.ts";
 import { GameNode } from "./game-node.ts";
 import { GameRuleFlag } from "./game-rule-flag.ts";
 import { GameTile } from "./game-tile.ts";
 import { GameParticipant } from "./game-participant.ts";
-import { GameTeam } from "./game-team.ts";
 import { Lobby } from "./lobby.ts";
 import { MapTemplate } from "./map-template.ts";
+import { GameTeam } from "./game-team.ts";
 
 export type GameStatus = "active" | "ending" | "ended";
 
@@ -79,4 +82,13 @@ export class Game extends BaseModel {
 
   @HasMany(() => GameRuleFlag)
   declare ruleFlags?: GameRuleFlag[];
+
+  @HasMany(() => GameEvent)
+  declare events?: GameEvent[];
+
+  @HasMany(() => GameCommandQueueItem)
+  declare commandQueue?: GameCommandQueueItem[];
+
+  @HasMany(() => GameScheduledJob)
+  declare scheduledJobs?: GameScheduledJob[];
 }
