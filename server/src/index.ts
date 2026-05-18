@@ -1,6 +1,7 @@
-import { app } from "./app";
-import { sequelize } from "./config/database";
+import "./env.ts";
 import "reflect-metadata";
+import { app } from "./app.ts";
+import { sequelize } from "./config/database.ts";
 
 const port = Number(process.env.PORT) || 3001;
 

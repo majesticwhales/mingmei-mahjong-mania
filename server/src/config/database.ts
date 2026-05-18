@@ -1,3 +1,4 @@
+import "../env.ts";
 import "reflect-metadata";
 import { Sequelize } from "sequelize-typescript";
 import { Challenge } from "../models/challenge.ts";
@@ -35,7 +36,14 @@ import { TeamDefinition } from "../models/team-definition.ts";
 import { TileType } from "../models/tile-type.ts";
 import { User } from "../models/user.ts";
 
-export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error(
+    "DATABASE_URL is not set. Copy server/.env.example to server/.env, then run npm run db:up from the repo root.",
+  );
+}
+
+export const sequelize = new Sequelize(databaseUrl, {
   dialect: "postgres",
   models: [
     User,
