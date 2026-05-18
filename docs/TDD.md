@@ -43,7 +43,7 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 - **Models:** `server/src/models/`, registered in `server/src/config/database.ts`.
 - **CLI:** From `server/`, `npm run db:migrate`, `npm run db:seed`, `npm run db:migrate:status`.
 
-**Phase A (schema):** All tables in [§4](#4-data-model) are migrated. Catalog seeds: `team_definitions`, `tile_types` (136), `challenge_types`, `map_template` TTC 2026 (replace placeholder geocoords in `seeders/data/ttc2026-network.cjs` before production geofence).
+**Phase A (schema):** All tables in [§4](#4-data-model) are migrated. Catalog seeds: `team_definitions`, `tile_types` (136), `challenge_types`, `map_template` **TTC 2026** (84 stations; WGS84 `latitude`/`longitude` and schematic layout in `seeders/data/ttc2026-network.cjs`).
 
 ---
 
@@ -418,7 +418,7 @@ Seeded: `east`, `south`, `west`, `north` (`20260517180000-seed-team-definitions.
 | `latitude`, `longitude` | WGS84 entrance coords for geofence (authoritative values in `server/seeders/data/ttc2026-network.cjs`) |
 | `geofence_radius_meters` | Optional; engine may default ~75–150m when null |
 | `coordinate_x`, `coordinate_y` | Integer grid position for schematic map UI |
-| `label_anchor` | Label placement hint (e.g. `N`, `NE`, `SW`) — `STRING(16)` |
+| `label_anchor` | Label placement hint (lowercase compass: `n`, `ne`, `sw`, `e`, …) — `STRING(16)`; stored as seeded, echoed in projections as `labelAnchor` |
 | `label_rotate` | Optional label rotation in degrees (client transit-map style) |
 | `is_interchange` | Interchange station styling |
 
@@ -686,7 +686,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
   "coordinateX": 12,
   "coordinateY": 4,
   "lineIds": ["red", "blue"],
-  "labelAnchor": "NE",
+  "labelAnchor": "ne",
   "labelRotate": null,
   "isInterchange": false,
   "latitude": 51.5074,
@@ -700,7 +700,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
   "coordinateX": 8,
   "coordinateY": 1,
   "lineIds": ["red"],
-  "labelAnchor": "N",
+  "labelAnchor": "n",
   "isInterchange": false,
   "latitude": 51.52,
   "longitude": -0.13
@@ -802,7 +802,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 
 | Phase | Work |
 |-------|------|
-| **A** | This doc; all §4 migrations; catalog seeds (`team_definitions`, `tile_types`, `challenge_types`); sample `map_template` TODO |
+| **A** | This doc; all §4 migrations; catalog seeds (`team_definitions`, `tile_types`, `challenge_types`, `map_template` **TTC 2026** with full WGS84 coords in `seeders/data/ttc2026-network.cjs`) |
 | **B** | Auth + lobby (host config, start rules) |
 | **C** | `GameStartService` (clone, deal, visibility partition, jobs) |
 | **D** | Engine, queue, scheduler, event tests |
@@ -842,7 +842,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 - [x] Add `media_assets`
 - [x] Add challenge tables (challenge_types seeder; decks/cards empty)
 - [x] Seeds: `team_definitions`, `tile_types` (136), `challenge_types`
-- [x] Seed: `map_template` **TTC 2026** (`server/seeders/data/ttc2026-network.cjs` → `20260517202000-seed-map-template-ttc2026.cjs`). Fill real `latitude`/`longitude` per station in the seed file; `npm run build:ttc2026-seed-data` syncs schematic layout from client without overwriting coords.
+- [x] Seed: `map_template` **TTC 2026** (`server/seeders/data/ttc2026-network.cjs` → `20260517202000-seed-map-template-ttc2026.cjs`). All 84 stations have entrance `latitude`/`longitude` plus schematic `x`/`y`/`labelAnchor` in the seed file (canonical for DB). Client `client/src/data/ttc2026.ts` is a demo mirror—keep both in sync when layout changes.
 
 ---
 
@@ -883,7 +883,7 @@ Team is checked in at `STN_42` (fogged on map). Home quarter nodes include `STN_
       "coordinateX": 10,
       "coordinateY": 5,
       "lineIds": ["red"],
-      "labelAnchor": "NE",
+      "labelAnchor": "ne",
       "isInterchange": false,
       "latitude": 51.5,
       "longitude": -0.12,
@@ -901,7 +901,7 @@ Team is checked in at `STN_42` (fogged on map). Home quarter nodes include `STN_
       "coordinateX": 8,
       "coordinateY": 3,
       "lineIds": ["red", "blue"],
-      "labelAnchor": "N",
+      "labelAnchor": "n",
       "isInterchange": false,
       "latitude": 51.51,
       "longitude": -0.11
