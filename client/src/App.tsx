@@ -7,7 +7,7 @@ import {
   PLAYER_VIEW_OPTIONS,
   type PlayerViewMode,
 } from "./data/playerViews";
-import { shuffleRiichiTileWall } from "./data/riichiTiles";
+import { getRandomDoraTile, shuffleRiichiTileWall } from "./data/riichiTiles";
 import type { Network } from "./data/types";
 import { getNetwork } from "./services/network";
 
@@ -28,6 +28,7 @@ export default function App() {
   const [network, setNetwork] = useState<Network | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [tileWall, setTileWall] = useState(shuffleRiichiTileWall);
+  const [doraTile, setDoraTile] = useState(getRandomDoraTile);
   const [viewMode, setViewMode] = useState<PlayerViewMode>("admin");
   const [error, setError] = useState<string | null>(null);
 
@@ -124,6 +125,11 @@ export default function App() {
     [connectedStationIdsByStationId, network, selectedStation, stationsById],
   );
 
+  const randomizeTiles = useCallback(() => {
+    setTileWall(shuffleRiichiTileWall());
+    setDoraTile(getRandomDoraTile());
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isTextInputTarget(event.target)) return;
@@ -183,6 +189,16 @@ export default function App() {
       </header>
 
       <main className="app__map">
+        <aside className="app__dora" aria-label={`Dora tile: ${doraTile.label}`}>
+          <span className="app__dora-label">Dora</span>
+          <img
+            src={doraTile.imagePath}
+            alt={doraTile.label}
+            title={doraTile.label}
+            className="app__dora-tile"
+          />
+          <span className="app__dora-name">{doraTile.label}</span>
+        </aside>
         <p className="app__keyboard-hint">
           Use arrow keys to move between stations. Press Escape to clear.
         </p>
@@ -200,7 +216,7 @@ export default function App() {
         station={selectedStation}
         tileWall={tileWall}
         viewMode={viewMode}
-        onShuffleTiles={() => setTileWall(shuffleRiichiTileWall())}
+        onShuffleTiles={randomizeTiles}
         onClose={() => setSelectedStationId(null)}
       />
     </div>

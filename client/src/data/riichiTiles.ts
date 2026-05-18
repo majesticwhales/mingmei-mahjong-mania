@@ -107,6 +107,24 @@ export const getRemainingTileGroups = (
   );
 };
 
+const RIICHI_TILE_SORT_ORDER = new Map(
+  RIICHI_TILE_KINDS.map((tile, index) => [tile.id, index]),
+);
+
+export const sortRiichiTiles = (
+  tiles: readonly RiichiTileCopy[],
+): RiichiTileCopy[] =>
+  [...tiles].sort(
+    (a, b) =>
+      (RIICHI_TILE_SORT_ORDER.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+        (RIICHI_TILE_SORT_ORDER.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
+      a.copy - b.copy ||
+      a.copyId.localeCompare(b.copyId),
+  );
+
+export const getRandomDoraTile = (): RiichiTileKind =>
+  RIICHI_TILE_KINDS[Math.floor(Math.random() * RIICHI_TILE_KINDS.length)];
+
 export const shuffleRiichiTileWall = (): RiichiTileCopy[] => {
   const shuffledWall = [...RIICHI_TILE_WALL];
 

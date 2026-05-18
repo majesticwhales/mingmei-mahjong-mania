@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   getRemainingTileGroups,
   getStationTile,
+  sortRiichiTiles,
   TILE_BACK_IMAGE_PATH,
   type RiichiTileCopy,
 } from "../data/riichiTiles";
@@ -216,7 +217,7 @@ export function StationPanel({
                   {playerIndex == null ? `Hand ${groupIndex + 1}` : `Player ${playerIndex + 1}`}
                 </h4>
                 <ul className="station-panel__tile-grid">
-                  {group.map((tile) => (
+                  {sortRiichiTiles(group).map((tile) => (
                     <li className="station-panel__tile" key={tile.copyId}>
                       <img
                         src={tile.imagePath}

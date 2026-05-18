@@ -97,6 +97,60 @@ body {
   background: var(--bg);
 }
 
+.app__dora {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 0.2rem 0.55rem;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: rgba(18, 24, 33, 0.86);
+  color: var(--panel-fg);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
+.app__dora-label {
+  grid-column: 1 / -1;
+  color: var(--panel-muted);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.app__dora-tile {
+  display: block;
+  width: 34px;
+  height: auto;
+  padding: 3px;
+  border: 1px solid #d8d0c4;
+  border-radius: 5px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(232, 224, 211, 0.98)),
+    #f5efe5;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.9),
+    inset -1px -1px 0 rgba(176, 164, 148, 0.35),
+    0 1px 0 #b8aa98,
+    0 3px 7px rgba(0, 0, 0, 0.35);
+}
+
+.app__dora-name {
+  max-width: 7rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
 .app__keyboard-hint {
   position: absolute;
   left: 1rem;
