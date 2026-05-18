@@ -33,3 +33,10 @@ export type {
 } from "./game-scheduled-job.ts";
 export { MediaAsset } from "./media-asset.ts";
 export type { MediaPurpose, MediaStatus } from "./media-asset.ts";
+export { ChallengeType } from "./challenge-type.ts";
+export { ChallengeDeck } from "./challenge-deck.ts";
+export { Challenge } from "./challenge.ts";
+export { GameChallengeInstance } from "./game-challenge-instance.ts";
+export type { GameChallengeInstanceStatus } from "./game-challenge-instance.ts";
+export { GameChallengeSubmission } from "./game-challenge-submission.ts";
+export type { GameChallengeSubmissionStatus } from "./game-challenge-submission.ts";

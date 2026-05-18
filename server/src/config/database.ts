@@ -1,6 +1,11 @@
 import "reflect-metadata";
 import { Sequelize } from "sequelize-typescript";
+import { Challenge } from "../models/challenge.ts";
+import { ChallengeDeck } from "../models/challenge-deck.ts";
+import { ChallengeType } from "../models/challenge-type.ts";
 import { Game } from "../models/game.ts";
+import { GameChallengeInstance } from "../models/game-challenge-instance.ts";
+import { GameChallengeSubmission } from "../models/game-challenge-submission.ts";
 import { GameCommandQueueItem } from "../models/game-command-queue-item.ts";
 import { GameEvent } from "../models/game-event.ts";
 import { GameScheduledJob } from "../models/game-scheduled-job.ts";
@@ -54,6 +59,11 @@ export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
     GameCommandQueueItem,
     GameScheduledJob,
     MediaAsset,
+    ChallengeType,
+    ChallengeDeck,
+    Challenge,
+    GameChallengeInstance,
+    GameChallengeSubmission,
   ],
   logging: process.env.NODE_ENV === "development" ? console.log : false,
 });

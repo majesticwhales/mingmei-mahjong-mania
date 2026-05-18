@@ -9,6 +9,7 @@ import {
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
 import { Game } from "./game.ts";
+import { GameChallengeInstance } from "./game-challenge-instance.ts";
 import { GameLocationTeamVisibility } from "./game-location-team-visibility.ts";
 import { GameParticipant } from "./game-participant.ts";
 import { GameTeamHomeGroup } from "./game-team-home-group.ts";
@@ -49,4 +50,7 @@ export class GameTeam extends BaseModel {
 
   @HasMany(() => GameLocationTeamVisibility)
   declare locationVisibility?: GameLocationTeamVisibility[];
+
+  @HasMany(() => GameChallengeInstance)
+  declare challengeInstances?: GameChallengeInstance[];
 }

@@ -3,8 +3,10 @@ import {
   Column,
   DataType,
   ForeignKey,
+  HasMany,
   Table,
 } from "sequelize-typescript";
+import { GameChallengeSubmission } from "./game-challenge-submission.ts";
 import { BaseModel } from "./base.ts";
 import { Game } from "./game.ts";
 import { User } from "./user.ts";
@@ -53,4 +55,7 @@ export class MediaAsset extends BaseModel {
 
   @Column({ type: DataType.DATE, allowNull: true })
   declare deletedAt: Date | null;
+
+  @HasMany(() => GameChallengeSubmission)
+  declare challengeSubmissions?: GameChallengeSubmission[];
 }

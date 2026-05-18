@@ -11,6 +11,7 @@ import { GameCommandQueueItem } from "./game-command-queue-item.ts";
 import { GameEdge } from "./game-edge.ts";
 import { GameEvent } from "./game-event.ts";
 import { GameScheduledJob } from "./game-scheduled-job.ts";
+import { GameChallengeInstance } from "./game-challenge-instance.ts";
 import { MediaAsset } from "./media-asset.ts";
 import { GameNode } from "./game-node.ts";
 import { GameRuleFlag } from "./game-rule-flag.ts";
@@ -95,4 +96,7 @@ export class Game extends BaseModel {
 
   @HasMany(() => MediaAsset)
   declare mediaAssets?: MediaAsset[];
+
+  @HasMany(() => GameChallengeInstance)
+  declare challengeInstances?: GameChallengeInstance[];
 }

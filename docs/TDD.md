@@ -507,7 +507,27 @@ Use `@aws-sdk/client-s3` with custom endpoint + path-style for R2.
 
 ### 5.8 Challenges (schema; seeds later)
 
-`challenge_decks`, `challenge_types`, `challenges`, `game_challenge_instances`, `game_challenge_submissions`.
+#### `challenge_types`
+
+Global catalog: `code`, `name`, `resolver_key` (dispatches `ChallengeResolutionService`).
+
+#### `challenge_decks`
+
+`code`, `name`, `is_active`, `sort_order`.
+
+#### `challenges`
+
+`challenge_deck_id`, `challenge_type_id`, `code` (unique per deck), `title`, `parameters` (JSONB), `sort_order`, `is_active`.
+
+#### `game_challenge_instances`
+
+Runtime draw per team: `game_id`, `game_team_id`, `challenge_id`, `status` (`active` \| `submitted` \| `approved` \| `rejected` \| `cancelled`), `assigned_at`, `expires_at`, `resolved_at`, `resolution_payload` (JSONB).
+
+#### `game_challenge_submissions`
+
+`game_challenge_instance_id`, `submitted_by_user_id`, optional `media_asset_id`, `payload` (JSONB), `status` (`pending` \| `accepted` \| `rejected`), `submitted_at`, `reviewed_at`, `rejection_reason`.
+
+Seeder: `challenge_types` only (`travel`, `photo`, `tile_swap`); decks/cards when product defines them.
 
 ### 5.9 Events and command queue
 
@@ -738,7 +758,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 - [x] Add visibility + positions tables
 - [x] Add `game_events`, `game_command_queue`, `game_scheduled_jobs`
 - [x] Add `media_assets`
-- [ ] Add challenge tables (can be empty seeds)
+- [x] Add challenge tables (challenge_types seeder; decks/cards empty)
 - [ ] Seeds: `team_definitions`, `tile_types` (136), sample `map_template` (84 nodes)
 
 ---
