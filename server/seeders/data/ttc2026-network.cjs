@@ -479,7 +479,7 @@ module.exports = {
       "code": "north-york-centre",
       "name": "North York Centre",
       "x": 595,
-      "y": 180,
+      "y": 155,
       "latitude": 43.7686787,
       "longitude": -79.4126298,
       "lineIds": [
