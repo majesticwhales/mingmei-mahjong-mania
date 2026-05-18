@@ -45,6 +45,9 @@ export class MapTemplateNode extends BaseModel {
   @Column({ type: DataType.STRING(16), allowNull: false })
   declare labelAnchor: string;
 
+  @Column({ type: DataType.DOUBLE, allowNull: true })
+  declare labelRotate: number | null;
+
   @Column({ type: DataType.BOOLEAN, allowNull: false })
   declare isInterchange: boolean;
 

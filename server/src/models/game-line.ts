@@ -10,8 +10,8 @@ import {
 import { BaseModel } from "./base.ts";
 import { Game } from "./game.ts";
 import { GameNode } from "./game-node.ts";
-import { GameNodeLine } from "./game-node-line.ts";
 import { MapTemplateLine } from "./map-template-line.ts";
+import { GameNodeLine } from "./game-node-line.ts";
 
 @Table({ tableName: "game_lines" })
 export class GameLine extends BaseModel {
@@ -35,8 +35,20 @@ export class GameLine extends BaseModel {
   @Column({ type: DataType.STRING(128), allowNull: true })
   declare name: string | null;
 
+  @Column({ type: DataType.STRING(32), allowNull: true })
+  declare shortName: string | null;
+
+  @Column({ type: DataType.STRING(7), allowNull: true })
+  declare color: string | null;
+
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   declare sortOrder: number;
+
+  @Column({ type: DataType.JSONB, allowNull: true })
+  declare renderMetadata: {
+    stationIds: string[];
+    bends: Record<string, Array<{ x: number; y: number }>> | null;
+  } | null;
 
   @BelongsToMany(() => GameNode, () => GameNodeLine)
   declare nodes?: GameNode[];

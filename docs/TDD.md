@@ -43,7 +43,7 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 - **Models:** `server/src/models/`, registered in `server/src/config/database.ts`.
 - **CLI:** From `server/`, `npm run db:migrate`, `npm run db:seed`, `npm run db:migrate:status`.
 
-**Phase A (schema):** All tables in [§4](#4-data-model) are migrated. Catalog seeds: `team_definitions`, `tile_types` (136), `challenge_types`. Sample **`map_template`** (84 nodes + edges) still TODO — see [§11](#11-migration-checklist).
+**Phase A (schema):** All tables in [§4](#4-data-model) are migrated. Catalog seeds: `team_definitions`, `tile_types` (136), `challenge_types`, `map_template` TTC 2026 (replace placeholder geocoords in `seeders/data/ttc2026-network.cjs` before production geofence).
 
 ---
 
@@ -415,15 +415,16 @@ Seeded: `east`, `south`, `west`, `north` (`20260517180000-seed-team-definitions.
 | Column | Notes |
 |--------|--------|
 | `code`, `name` | Station identifiers (unique `code` per template) |
-| `latitude`, `longitude` | WGS84; used for geofence on check-in |
+| `latitude`, `longitude` | WGS84 entrance coords for geofence (authoritative values in `server/seeders/data/ttc2026-network.cjs`) |
 | `geofence_radius_meters` | Optional; engine may default ~75–150m when null |
 | `coordinate_x`, `coordinate_y` | Integer grid position for schematic map UI |
 | `label_anchor` | Label placement hint (e.g. `N`, `NE`, `SW`) — `STRING(16)` |
+| `label_rotate` | Optional label rotation in degrees (client transit-map style) |
 | `is_interchange` | Interchange station styling |
 
 #### `map_template_lines`
 
-Lines for a template: `code` (`STRING`, unique per template), optional `name`, `sort_order`.
+Lines for a template: `code` (`STRING`, unique per template), `name`, `short_name`, `color` (hex), `sort_order`, `render_metadata` (JSONB: `stationIds`, `bends` waypoints).
 
 #### `map_template_node_lines`
 
@@ -438,7 +439,8 @@ Many-to-many: `map_template_node_id` ↔ `map_template_line_id` (a station can s
 Cloned from template at game start (`GameStartService`):
 
 - **`game_nodes`:** copy template node layout fields + `game_id`, `template_node_id` (FK, `RESTRICT` on delete).
-- **`game_lines`:** clone `map_template_lines` per game (`code`, `name`, `sort_order`, `template_line_id`).
+- **`game_lines`:** clone `map_template_lines` per game (`code`, `name`, `short_name`, `color`, `render_metadata`, `sort_order`, `template_line_id`).
+- **`game_nodes`:** also clone `label_rotate`.
 - **`game_node_lines`:** clone `map_template_node_lines` using cloned line + node IDs.
 - **`game_edges`:** `from_game_node_id`, `to_game_node_id` mapped from template edge endpoints.
 
@@ -650,7 +652,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 | `gameId`, `status`, `endsAt` | Shared |
 | `nextVisibilityChangeAt` | Optional; for UI timer only |
 | `mapNodes[]` | Layout fields for all 84 nodes; `lineIds[]` (string codes); `tile` only if phase-visible on map |
-| `mapLines[]` | Line catalog (`code`, `name`, `sortOrder`) — sent once / on reconnect |
+| `mapLines[]` | Line catalog (`code`, `name`, `shortName`, `color`, `renderMetadata`) — sent once / on reconnect |
 | `mapEdges[]` | Static graph (`fromNodeId`, `toNodeId`) — sent once / on reconnect |
 | `atStation` | When checked in: `nodeId`, `code`, `tile` (always) |
 | `handTiles[]` | Own team, pre-sorted |
@@ -685,6 +687,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
   "coordinateY": 4,
   "lineIds": ["red", "blue"],
   "labelAnchor": "NE",
+  "labelRotate": null,
   "isInterchange": false,
   "latitude": 51.5074,
   "longitude": -0.1278,
@@ -710,7 +713,14 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 **`mapLines[]`** — line catalog for styling:
 
 ```json
-{ "code": "red", "name": "Red Line", "sortOrder": 0 }
+{
+  "code": "1",
+  "name": "Line 1 Yonge-University",
+  "shortName": "Line 1",
+  "color": "#FFC72C",
+  "sortOrder": 0,
+  "renderMetadata": { "stationIds": ["finch-west", "..."], "bends": { "union": [{ "x": 575, "y": 680 }] } }
+}
 ```
 
 **`mapEdges[]`** — cloned graph edges (no tile data):
@@ -832,7 +842,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 - [x] Add `media_assets`
 - [x] Add challenge tables (challenge_types seeder; decks/cards empty)
 - [x] Seeds: `team_definitions`, `tile_types` (136), `challenge_types`
-- [ ] Seed: sample `map_template` (84 nodes + edges with layout fields)
+- [x] Seed: `map_template` **TTC 2026** (`server/seeders/data/ttc2026-network.cjs` → `20260517202000-seed-map-template-ttc2026.cjs`). Fill real `latitude`/`longitude` per station in the seed file; `npm run build:ttc2026-seed-data` syncs schematic layout from client without overwriting coords.
 
 ---
 
@@ -898,8 +908,8 @@ Team is checked in at `STN_42` (fogged on map). Home quarter nodes include `STN_
     }
   ],
   "mapLines": [
-    { "code": "red", "name": "Red Line", "sortOrder": 0 },
-    { "code": "blue", "name": "Blue Line", "sortOrder": 1 }
+    { "code": "1", "name": "Line 1 Yonge-University", "shortName": "Line 1", "color": "#FFC72C", "sortOrder": 0, "renderMetadata": { "stationIds": [], "bends": null } },
+    { "code": "2", "name": "Line 2 Bloor-Danforth", "shortName": "Line 2", "color": "#00923F", "sortOrder": 1, "renderMetadata": { "stationIds": [], "bends": null } }
   ],
   "mapEdges": [
     { "fromNodeId": "node-01-…", "toNodeId": "node-02-…" }
