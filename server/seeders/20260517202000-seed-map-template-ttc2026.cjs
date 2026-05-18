@@ -17,6 +17,14 @@ function edgeKey(fromCode, toCode) {
   return fromCode < toCode ? `${fromCode}|${toCode}` : `${toCode}|${fromCode}`;
 }
 
+/** bulkInsert does not auto-serialize JSONB; stringify for PostgreSQL. */
+function renderMetadataJson(line) {
+  return JSON.stringify({
+    stationIds: line.stationIds,
+    bends: line.bends ?? null,
+  });
+}
+
 function buildUndirectedEdges(lines, stationCodes) {
   const edges = new Map();
   for (const line of lines) {
@@ -66,10 +74,7 @@ module.exports = {
         short_name: line.shortName,
         color: line.color,
         sort_order: index,
-        render_metadata: {
-          stationIds: line.stationIds,
-          bends: line.bends ?? null,
-        },
+        render_metadata: renderMetadataJson(line),
         created_at: now,
         updated_at: now,
       };
