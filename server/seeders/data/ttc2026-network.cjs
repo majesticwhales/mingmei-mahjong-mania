@@ -901,8 +901,8 @@ module.exports = {
       "name": "Mount Dennis",
       "x": 200,
       "y": 315,
-      "latitude": 43.697782,
-      "longitude": -79.505266,
+      "latitude": 43.6877711,
+      "longitude": -79.4878946,
       "lineIds": [
         "5"
       ],
@@ -915,8 +915,8 @@ module.exports = {
       "name": "Keelesdale",
       "x": 240,
       "y": 315,
-      "latitude": 43.701361,
-      "longitude": -79.494281,
+      "latitude": 43.6899652,
+      "longitude": -79.4746907,
       "lineIds": [
         "5"
       ],
@@ -929,8 +929,8 @@ module.exports = {
       "name": "Caledonia",
       "x": 280,
       "y": 315,
-      "latitude": 43.70494,
-      "longitude": -79.483296,
+      "latitude": 43.6921787,
+      "longitude": -79.4654343,
       "lineIds": [
         "5"
       ],
@@ -943,8 +943,8 @@ module.exports = {
       "name": "Fairbank",
       "x": 310,
       "y": 315,
-      "latitude": 43.707625,
-      "longitude": -79.475057,
+      "latitude": 43.6955565,
+      "longitude": -79.449392,
       "lineIds": [
         "5"
       ],
@@ -957,8 +957,8 @@ module.exports = {
       "name": "Oakwood",
       "x": 340,
       "y": 315,
-      "latitude": 43.710309,
-      "longitude": -79.466818,
+      "latitude": 43.6975373,
+      "longitude": -79.4428796,
       "lineIds": [
         "5"
       ],
@@ -971,8 +971,8 @@ module.exports = {
       "name": "Forest Hill",
       "x": 475,
       "y": 315,
-      "latitude": 43.722389,
-      "longitude": -79.429743,
+      "latitude": 43.7010475,
+      "longitude": -79.4255354,
       "lineIds": [
         "5"
       ],
@@ -985,8 +985,8 @@ module.exports = {
       "name": "Chaplin",
       "x": 515,
       "y": 315,
-      "latitude": 43.725968,
-      "longitude": -79.418758,
+      "latitude": 43.7027932,
+      "longitude": -79.417291,
       "lineIds": [
         "5"
       ],
@@ -999,8 +999,8 @@ module.exports = {
       "name": "Avenue",
       "x": 555,
       "y": 315,
-      "latitude": 43.729547,
-      "longitude": -79.407773,
+      "latitude": 43.7045982,
+      "longitude": -79.4087872,
       "lineIds": [
         "5"
       ],
@@ -1013,8 +1013,8 @@ module.exports = {
       "name": "Mount Pleasant",
       "x": 625,
       "y": 315,
-      "latitude": 43.73581,
-      "longitude": -79.388549,
+      "latitude": 43.7084636,
+      "longitude": -79.3901439,
       "lineIds": [
         "5"
       ],
@@ -1027,8 +1027,8 @@ module.exports = {
       "name": "Leaside",
       "x": 655,
       "y": 315,
-      "latitude": 43.738495,
-      "longitude": -79.38031,
+      "latitude": 43.7111037,
+      "longitude": -79.3771168,
       "lineIds": [
         "5"
       ],
@@ -1041,8 +1041,8 @@ module.exports = {
       "name": "Laird",
       "x": 685,
       "y": 315,
-      "latitude": 43.741179,
-      "longitude": -79.372071,
+      "latitude": 43.7132181,
+      "longitude": -79.3650287,
       "lineIds": [
         "5"
       ],
@@ -1055,8 +1055,8 @@ module.exports = {
       "name": "Sunnybrook Park",
       "x": 715,
       "y": 315,
-      "latitude": 43.743863,
-      "longitude": -79.363832,
+      "latitude": 43.7173292,
+      "longitude": -79.349031,
       "lineIds": [
         "5"
       ],
@@ -1065,12 +1065,12 @@ module.exports = {
       "labelRotate": null
     },
     {
-      "code": "science-centre",
-      "name": "Science Centre",
+      "code": "don-valley",
+      "name": "Don Valley",
       "x": 745,
       "y": 315,
-      "latitude": 43.746548,
-      "longitude": -79.355593,
+      "latitude": 43.7204924,
+      "longitude": -79.3388801,
       "lineIds": [
         "5"
       ],
@@ -1083,8 +1083,8 @@ module.exports = {
       "name": "Aga Khan Park & Museum",
       "x": 775,
       "y": 315,
-      "latitude": 43.749232,
-      "longitude": -79.347354,
+      "latitude": 43.7223874,
+      "longitude": -79.3327547,
       "lineIds": [
         "5"
       ],
@@ -1097,8 +1097,8 @@ module.exports = {
       "name": "Wynford",
       "x": 805,
       "y": 315,
-      "latitude": 43.751916,
-      "longitude": -79.339115,
+      "latitude": 43.7240472,
+      "longitude": -79.3267322,
       "lineIds": [
         "5"
       ],
@@ -1111,8 +1111,8 @@ module.exports = {
       "name": "Sloane",
       "x": 835,
       "y": 315,
-      "latitude": 43.754601,
-      "longitude": -79.330876,
+      "latitude": 43.7258943,
+      "longitude": -79.3126007,
       "lineIds": [
         "5"
       ],
@@ -1125,8 +1125,8 @@ module.exports = {
       "name": "O'Connor",
       "x": 865,
       "y": 315,
-      "latitude": 43.757285,
-      "longitude": -79.322637,
+      "latitude": 43.7248261,
+      "longitude": -79.3016823,
       "lineIds": [
         "5"
       ],
@@ -1139,8 +1139,8 @@ module.exports = {
       "name": "Pharmacy",
       "x": 895,
       "y": 315,
-      "latitude": 43.759969,
-      "longitude": -79.314398,
+      "latitude": 43.7258445,
+      "longitude": -79.2966347,
       "lineIds": [
         "5"
       ],
@@ -1153,8 +1153,8 @@ module.exports = {
       "name": "Golden Mile",
       "x": 925,
       "y": 315,
-      "latitude": 43.762653,
-      "longitude": -79.30616,
+      "latitude": 43.7278547,
+      "longitude": -79.2876481,
       "lineIds": [
         "5"
       ],
@@ -1167,8 +1167,8 @@ module.exports = {
       "name": "Hakimi Lebovic",
       "x": 955,
       "y": 315,
-      "latitude": 43.765338,
-      "longitude": -79.297921,
+      "latitude": 43.726982,
+      "longitude": -79.2915569,
       "lineIds": [
         "5"
       ],
@@ -1181,8 +1181,8 @@ module.exports = {
       "name": "Birchmount",
       "x": 985,
       "y": 315,
-      "latitude": 43.765078,
-      "longitude": -79.290187,
+      "latitude": 43.7302008,
+      "longitude": -79.2769534,
       "lineIds": [
         "5"
       ],
@@ -1195,8 +1195,8 @@ module.exports = {
       "name": "Ionview",
       "x": 1015,
       "y": 315,
-      "latitude": 43.756881,
-      "longitude": -79.281222,
+      "latitude": 43.7312791,
+      "longitude": -79.2722271,
       "lineIds": [
         "5"
       ],
