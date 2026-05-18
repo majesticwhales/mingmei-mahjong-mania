@@ -31,3 +31,5 @@ export type {
   ScheduledJobType,
   ScheduledJobStatus,
 } from "./game-scheduled-job.ts";
+export { MediaAsset } from "./media-asset.ts";
+export type { MediaPurpose, MediaStatus } from "./media-asset.ts";

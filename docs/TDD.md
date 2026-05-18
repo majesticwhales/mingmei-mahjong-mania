@@ -484,9 +484,13 @@ Extensible global rules beyond visibility.
 
 | Column | Notes |
 |--------|--------|
+| `game_id` | Owning game |
+| `user_id` | Uploader |
 | `purpose` | `check_in` \| `challenge_submission` \| `other` |
-| `storage_key` | R2 object key |
+| `storage_key` | R2 object key (unique) |
 | `status` | `pending` \| `ready` \| `failed` |
+| `content_type` | Optional MIME for presign |
+| `byte_size` | Optional uploaded size |
 | `expires_at` | `created_at + 365 days` |
 | `deleted_at` | set when purged |
 
@@ -733,7 +737,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 - [x] Add tile + map catalog tables
 - [x] Add visibility + positions tables
 - [x] Add `game_events`, `game_command_queue`, `game_scheduled_jobs`
-- [ ] Add `media_assets`
+- [x] Add `media_assets`
 - [ ] Add challenge tables (can be empty seeds)
 - [ ] Seeds: `team_definitions`, `tile_types` (136), sample `map_template` (84 nodes)
 

@@ -19,6 +19,7 @@ import { Lobby } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
 import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import { MapTemplate } from "../models/map-template.ts";
+import { MediaAsset } from "../models/media-asset.ts";
 import { MapTemplateEdge } from "../models/map-template-edge.ts";
 import { MapTemplateNode } from "../models/map-template-node.ts";
 import { TeamDefinition } from "../models/team-definition.ts";
@@ -52,6 +53,7 @@ export const sequelize = new Sequelize(process.env.DATABASE_URL!, {
     GameEvent,
     GameCommandQueueItem,
     GameScheduledJob,
+    MediaAsset,
   ],
   logging: process.env.NODE_ENV === "development" ? console.log : false,
 });
