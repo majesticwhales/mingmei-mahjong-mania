@@ -139,7 +139,7 @@ module.exports = {
       "code": "st-clair-west",
       "name": "St. Clair West",
       "x": 448,
-      "y": 367,
+      "y": 375,
       "latitude": 43.684624,
       "longitude": -79.4153427,
       "lineIds": [
@@ -153,7 +153,7 @@ module.exports = {
       "code": "dupont",
       "name": "Dupont",
       "x": 462,
-      "y": 418,
+      "y": 435,
       "latitude": 43.6747046,
       "longitude": -79.406983,
       "lineIds": [
@@ -167,7 +167,7 @@ module.exports = {
       "code": "spadina",
       "name": "Spadina",
       "x": 475,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6672349,
       "longitude": -79.4036863,
       "lineIds": [
@@ -175,14 +175,14 @@ module.exports = {
         "2"
       ],
       "isInterchange": true,
-      "labelAnchor": "n",
+      "labelAnchor": "s",
       "labelRotate": null
     },
     {
       "code": "st-george",
       "name": "St. George",
       "x": 515,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6686549,
       "longitude": -79.398109,
       "lineIds": [
@@ -197,7 +197,7 @@ module.exports = {
       "code": "museum",
       "name": "Museum",
       "x": 515,
-      "y": 495,
+      "y": 545,
       "latitude": 43.6668462,
       "longitude": -79.3933506,
       "lineIds": [
@@ -211,7 +211,7 @@ module.exports = {
       "code": "queens-park",
       "name": "Queen's Park",
       "x": 515,
-      "y": 525,
+      "y": 575,
       "latitude": 43.6596838,
       "longitude": -79.3901923,
       "lineIds": [
@@ -225,7 +225,7 @@ module.exports = {
       "code": "st-patrick",
       "name": "St. Patrick",
       "x": 515,
-      "y": 555,
+      "y": 605,
       "latitude": 43.6548199,
       "longitude": -79.3882736,
       "lineIds": [
@@ -239,7 +239,7 @@ module.exports = {
       "code": "osgoode",
       "name": "Osgoode",
       "x": 515,
-      "y": 585,
+      "y": 635,
       "latitude": 43.6508016,
       "longitude": -79.3865409,
       "lineIds": [
@@ -253,7 +253,7 @@ module.exports = {
       "code": "st-andrew",
       "name": "St. Andrew",
       "x": 515,
-      "y": 625,
+      "y": 675,
       "latitude": 43.6477917,
       "longitude": -79.3848711,
       "lineIds": [
@@ -267,7 +267,7 @@ module.exports = {
       "code": "union",
       "name": "Union",
       "x": 555,
-      "y": 685,
+      "y": 735,
       "latitude": 43.6445345,
       "longitude": -79.380381,
       "lineIds": [
@@ -281,7 +281,7 @@ module.exports = {
       "code": "king",
       "name": "King",
       "x": 595,
-      "y": 625,
+      "y": 675,
       "latitude": 43.6489494,
       "longitude": -79.3777538,
       "lineIds": [
@@ -295,7 +295,7 @@ module.exports = {
       "code": "queen",
       "name": "Queen",
       "x": 595,
-      "y": 585,
+      "y": 635,
       "latitude": 43.6529083,
       "longitude": -79.3794575,
       "lineIds": [
@@ -309,7 +309,7 @@ module.exports = {
       "code": "dundas",
       "name": "Dundas",
       "x": 595,
-      "y": 555,
+      "y": 605,
       "latitude": 43.6565367,
       "longitude": -79.3810223,
       "lineIds": [
@@ -323,7 +323,7 @@ module.exports = {
       "code": "college",
       "name": "College",
       "x": 595,
-      "y": 525,
+      "y": 575,
       "latitude": 43.6606617,
       "longitude": -79.3827952,
       "lineIds": [
@@ -337,7 +337,7 @@ module.exports = {
       "code": "wellesley",
       "name": "Wellesley",
       "x": 595,
-      "y": 495,
+      "y": 545,
       "latitude": 43.6653371,
       "longitude": -79.3839088,
       "lineIds": [
@@ -351,7 +351,7 @@ module.exports = {
       "code": "bloor-yonge",
       "name": "Bloor-Yonge",
       "x": 595,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6707855,
       "longitude": -79.3856867,
       "lineIds": [
@@ -366,7 +366,7 @@ module.exports = {
       "code": "rosedale",
       "name": "Rosedale",
       "x": 595,
-      "y": 405,
+      "y": 439,
       "latitude": 43.6764641,
       "longitude": -79.3885367,
       "lineIds": [
@@ -380,7 +380,7 @@ module.exports = {
       "code": "summerhill",
       "name": "Summerhill",
       "x": 595,
-      "y": 380,
+      "y": 408,
       "latitude": 43.6822959,
       "longitude": -79.3907769,
       "lineIds": [
@@ -394,7 +394,7 @@ module.exports = {
       "code": "st-clair",
       "name": "St. Clair",
       "x": 595,
-      "y": 360,
+      "y": 377,
       "latitude": 43.6878791,
       "longitude": -79.3930329,
       "lineIds": [
@@ -408,7 +408,7 @@ module.exports = {
       "code": "davisville",
       "name": "Davisville",
       "x": 595,
-      "y": 340,
+      "y": 346,
       "latitude": 43.6976475,
       "longitude": -79.3969607,
       "lineIds": [
@@ -507,7 +507,7 @@ module.exports = {
       "code": "kipling",
       "name": "Kipling",
       "x": 25,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6375325,
       "longitude": -79.5356041,
       "lineIds": [
@@ -521,7 +521,7 @@ module.exports = {
       "code": "islington",
       "name": "Islington",
       "x": 55,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6448955,
       "longitude": -79.5242965,
       "lineIds": [
@@ -535,7 +535,7 @@ module.exports = {
       "code": "royal-york",
       "name": "Royal York",
       "x": 85,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6481008,
       "longitude": -79.5112485,
       "lineIds": [
@@ -549,7 +549,7 @@ module.exports = {
       "code": "old-mill",
       "name": "Old Mill",
       "x": 115,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6501618,
       "longitude": -79.495091,
       "lineIds": [
@@ -563,7 +563,7 @@ module.exports = {
       "code": "jane",
       "name": "Jane",
       "x": 145,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6498989,
       "longitude": -79.4841152,
       "lineIds": [
@@ -577,7 +577,7 @@ module.exports = {
       "code": "runnymede",
       "name": "Runnymede",
       "x": 175,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6518409,
       "longitude": -79.4755723,
       "lineIds": [
@@ -591,7 +591,7 @@ module.exports = {
       "code": "high-park",
       "name": "High Park",
       "x": 205,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6540856,
       "longitude": -79.4660951,
       "lineIds": [
@@ -605,7 +605,7 @@ module.exports = {
       "code": "keele",
       "name": "Keele",
       "x": 235,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6557003,
       "longitude": -79.4594954,
       "lineIds": [
@@ -619,7 +619,7 @@ module.exports = {
       "code": "dundas-west",
       "name": "Dundas West",
       "x": 265,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6567312,
       "longitude": -79.4538196,
       "lineIds": [
@@ -633,7 +633,7 @@ module.exports = {
       "code": "lansdowne",
       "name": "Lansdowne",
       "x": 295,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6593524,
       "longitude": -79.4431918,
       "lineIds": [
@@ -647,7 +647,7 @@ module.exports = {
       "code": "dufferin",
       "name": "Dufferin",
       "x": 325,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6602635,
       "longitude": -79.4353869,
       "lineIds": [
@@ -661,7 +661,7 @@ module.exports = {
       "code": "ossington",
       "name": "Ossington",
       "x": 355,
-      "y": 470,
+      "y": 495,
       "latitude": 43.67853945,
       "longitude": -79.43145291373627,
       "lineIds": [
@@ -675,7 +675,7 @@ module.exports = {
       "code": "christie",
       "name": "Christie",
       "x": 385,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6640809,
       "longitude": -79.4185289,
       "lineIds": [
@@ -689,7 +689,7 @@ module.exports = {
       "code": "bathurst",
       "name": "Bathurst",
       "x": 415,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6664159,
       "longitude": -79.4113092,
       "lineIds": [
@@ -703,7 +703,7 @@ module.exports = {
       "code": "bay",
       "name": "Bay",
       "x": 555,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6701851,
       "longitude": -79.3902694,
       "lineIds": [
@@ -717,7 +717,7 @@ module.exports = {
       "code": "sherbourne",
       "name": "Sherbourne",
       "x": 630,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6721877,
       "longitude": -79.3764819,
       "lineIds": [
@@ -731,7 +731,7 @@ module.exports = {
       "code": "castle-frank",
       "name": "Castle Frank",
       "x": 660,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6734986,
       "longitude": -79.3690458,
       "lineIds": [
@@ -745,7 +745,7 @@ module.exports = {
       "code": "broadview",
       "name": "Broadview",
       "x": 700,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6769951,
       "longitude": -79.3582176,
       "lineIds": [
@@ -759,7 +759,7 @@ module.exports = {
       "code": "chester",
       "name": "Chester",
       "x": 730,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6782277,
       "longitude": -79.3525143,
       "lineIds": [
@@ -773,7 +773,7 @@ module.exports = {
       "code": "pape",
       "name": "Pape",
       "x": 760,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6800489,
       "longitude": -79.3445666,
       "lineIds": [
@@ -787,7 +787,7 @@ module.exports = {
       "code": "donlands",
       "name": "Donlands",
       "x": 790,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6809354,
       "longitude": -79.3379107,
       "lineIds": [
@@ -801,7 +801,7 @@ module.exports = {
       "code": "greenwood",
       "name": "Greenwood",
       "x": 820,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6824765,
       "longitude": -79.3302798,
       "lineIds": [
@@ -815,7 +815,7 @@ module.exports = {
       "code": "coxwell",
       "name": "Coxwell",
       "x": 850,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6841534,
       "longitude": -79.3231599,
       "lineIds": [
@@ -829,7 +829,7 @@ module.exports = {
       "code": "woodbine",
       "name": "Woodbine",
       "x": 880,
-      "y": 470,
+      "y": 495,
       "latitude": 43.6864139,
       "longitude": -79.3126246,
       "lineIds": [
@@ -843,7 +843,7 @@ module.exports = {
       "code": "main-street",
       "name": "Main Street",
       "x": 915,
-      "y": 470,
+      "y": 495,
       "latitude": 43.689078,
       "longitude": -79.3019411,
       "lineIds": [
@@ -857,7 +857,7 @@ module.exports = {
       "code": "victoria-park",
       "name": "Victoria Park",
       "x": 958,
-      "y": 418,
+      "y": 435,
       "latitude": 43.694452,
       "longitude": -79.2887029,
       "lineIds": [
@@ -871,7 +871,7 @@ module.exports = {
       "code": "warden",
       "name": "Warden",
       "x": 1002,
-      "y": 367,
+      "y": 375,
       "latitude": 43.7095541,
       "longitude": -79.2798036,
       "lineIds": [
@@ -1251,29 +1251,29 @@ module.exports = {
         "st-andrew": [
           {
             "x": 515,
-            "y": 650
+            "y": 700
           },
           {
             "x": 520,
-            "y": 668
+            "y": 718
           },
           {
             "x": 535,
-            "y": 680
+            "y": 730
           }
         ],
         "union": [
           {
             "x": 575,
-            "y": 680
+            "y": 730
           },
           {
             "x": 590,
-            "y": 668
+            "y": 718
           },
           {
             "x": 595,
-            "y": 650
+            "y": 700
           }
         ]
       }

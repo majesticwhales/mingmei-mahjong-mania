@@ -3,10 +3,7 @@ import "./App.css";
 import { Legend } from "./components/Legend";
 import { MapShell } from "./components/MapShell";
 import { StationPanel } from "./components/StationPanel";
-import {
-  RIICHI_TILE_WALL,
-  shuffleRiichiTileWall,
-} from "./data/riichiTiles";
+import { shuffleRiichiTileWall } from "./data/riichiTiles";
 import type { Network } from "./data/types";
 import { getNetwork } from "./services/network";
 
@@ -26,7 +23,7 @@ function isTextInputTarget(target: EventTarget | null) {
 export default function App() {
   const [network, setNetwork] = useState<Network | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
-  const [tileWall, setTileWall] = useState(() => [...RIICHI_TILE_WALL]);
+  const [tileWall, setTileWall] = useState(shuffleRiichiTileWall);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

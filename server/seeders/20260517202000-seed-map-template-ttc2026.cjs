@@ -38,10 +38,62 @@ function buildUndirectedEdges(lines, stationCodes) {
   return [...edges.values()];
 }
 
+async function updateExistingTemplate(queryInterface, templateId) {
+  const now = new Date();
+  const { template, stations, lines } = network;
+
+  await queryInterface.bulkUpdate(
+    'map_templates',
+    {
+      description: template.description,
+      default_duration_seconds: template.defaultDurationSeconds,
+      default_hand_size: template.defaultHandSize,
+      node_count: template.nodeCount,
+      updated_at: now,
+    },
+    { id: templateId },
+  );
+
+  for (const [index, line] of lines.entries()) {
+    await queryInterface.bulkUpdate(
+      'map_template_lines',
+      {
+        name: line.name,
+        short_name: line.shortName,
+        color: line.color,
+        sort_order: index,
+        render_metadata: renderMetadataJson(line),
+        updated_at: now,
+      },
+      { map_template_id: templateId, code: line.code },
+    );
+  }
+
+  for (const station of stations) {
+    await queryInterface.bulkUpdate(
+      'map_template_nodes',
+      {
+        name: station.name,
+        latitude: station.latitude,
+        longitude: station.longitude,
+        coordinate_x: station.x,
+        coordinate_y: station.y,
+        label_anchor: station.labelAnchor,
+        label_rotate: station.labelRotate,
+        is_interchange: station.isInterchange,
+        updated_at: now,
+      },
+      { map_template_id: templateId, code: station.code },
+    );
+  }
+}
+
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface) {
-    if (await findTemplateId(queryInterface)) {
+    const existingTemplateId = await findTemplateId(queryInterface);
+    if (existingTemplateId) {
+      await updateExistingTemplate(queryInterface, existingTemplateId);
       return;
     }
 
