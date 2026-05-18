@@ -1149,12 +1149,12 @@ module.exports = {
       "labelRotate": null
     },
     {
-      "code": "golden-mile",
-      "name": "Golden Mile",
+      "code": "hakimi-lebovic",
+      "name": "Hakimi Lebovic",
       "x": 925,
       "y": 315,
-      "latitude": 43.7278547,
-      "longitude": -79.2876481,
+      "latitude": 43.726982,
+      "longitude": -79.2915569,
       "lineIds": [
         "5"
       ],
@@ -1163,12 +1163,12 @@ module.exports = {
       "labelRotate": null
     },
     {
-      "code": "hakimi-lebovic",
-      "name": "Hakimi Lebovic",
+      "code": "golden-mile",
+      "name": "Golden Mile",
       "x": 955,
       "y": 315,
-      "latitude": 43.726982,
-      "longitude": -79.2915569,
+      "latitude": 43.7278547,
+      "longitude": -79.2876481,
       "lineIds": [
         "5"
       ],
