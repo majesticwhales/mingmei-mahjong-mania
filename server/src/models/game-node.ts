@@ -51,6 +51,15 @@ export class GameNode extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false })
   declare coordinateY: number;
 
+  @Column({ type: DataType.INTEGER, allowNull: false })
+  declare lineId: number;
+
+  @Column({ type: DataType.STRING(16), allowNull: false })
+  declare labelAnchor: string;
+
+  @Column({ type: DataType.BOOLEAN, allowNull: false })
+  declare isInterchange: boolean;
+
   @HasOne(() => GameTilePlacement)
   declare tilePlacement?: GameTilePlacement;
 

@@ -29,12 +29,21 @@ export class MapTemplateNode extends BaseModel {
   @Column({ type: DataType.DOUBLE, allowNull: false })
   declare longitude: number;
 
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  declare geofenceRadiusMeters: number | null;
+
   @Column({ type: DataType.INTEGER, allowNull: false })
   declare coordinateX: number;
 
   @Column({ type: DataType.INTEGER, allowNull: false })
   declare coordinateY: number;
 
-  @Column({ type: DataType.INTEGER, allowNull: true })
-  declare geofenceRadiusMeters: number | null;
+  @Column({ type: DataType.INTEGER, allowNull: false })
+  declare lineId: number;
+
+  @Column({ type: DataType.STRING(16), allowNull: false })
+  declare labelAnchor: string;
+
+  @Column({ type: DataType.BOOLEAN, allowNull: false })
+  declare isInterchange: boolean;
 }
