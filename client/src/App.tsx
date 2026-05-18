@@ -45,6 +45,35 @@ export default function App() {
     return network.stations.find((s) => s.id === selectedStationId) ?? null;
   }, [network, selectedStationId]);
 
+  const stationsById = useMemo(() => {
+    if (!network) return new Map<string, Network["stations"][number]>();
+    return new Map(network.stations.map((station) => [station.id, station]));
+  }, [network]);
+
+  const connectedStationIdsByStationId = useMemo(() => {
+    const connectedStations = new Map<string, Set<string>>();
+    if (!network) return connectedStations;
+
+    for (const line of network.lines) {
+      for (let index = 0; index < line.stationIds.length - 1; index += 1) {
+        const stationId = line.stationIds[index];
+        const nextStationId = line.stationIds[index + 1];
+
+        if (!connectedStations.has(stationId)) {
+          connectedStations.set(stationId, new Set());
+        }
+        if (!connectedStations.has(nextStationId)) {
+          connectedStations.set(nextStationId, new Set());
+        }
+
+        connectedStations.get(stationId)?.add(nextStationId);
+        connectedStations.get(nextStationId)?.add(stationId);
+      }
+    }
+
+    return connectedStations;
+  }, [network]);
+
   const selectStationByDirection = useCallback(
     (key: ArrowKey) => {
       if (!network) return;
@@ -63,8 +92,12 @@ export default function App() {
               ? { x: 0, y: 1 }
               : { x: 0, y: -1 };
 
-      const nextStation = network.stations
-        .filter((station) => station.id !== currentStation.id)
+      const connectedStationIds =
+        connectedStationIdsByStationId.get(currentStation.id) ?? new Set<string>();
+
+      const nextStation = Array.from(connectedStationIds)
+        .map((stationId) => stationsById.get(stationId))
+        .filter((station): station is Network["stations"][number] => Boolean(station))
         .map((station) => {
           const dx = station.x - currentStation.x;
           const dy = station.y - currentStation.y;
@@ -83,7 +116,7 @@ export default function App() {
         setSelectedStationId(nextStation.id);
       }
     },
-    [network, selectedStation],
+    [connectedStationIdsByStationId, network, selectedStation, stationsById],
   );
 
   useEffect(() => {

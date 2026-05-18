@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import type { RiichiTileCopy } from "../data/riichiTiles";
 import type { LabelAnchor, Station } from "../data/types";
 
@@ -50,6 +50,7 @@ const TILE_WIDTH = 16;
 const TILE_HEIGHT = 22;
 
 export function StationMarker({ station, tile, isSelected, onSelect }: Props) {
+  const markerRef = useRef<SVGGElement>(null);
   const isInterchange = station.isInterchange;
   const anchor = station.labelAnchor ?? defaultAnchor(station);
   const placement = LABEL_OFFSETS[anchor];
@@ -105,6 +106,12 @@ export function StationMarker({ station, tile, isSelected, onSelect }: Props) {
     labelTransform = `rotate(${rotation} ${labelX} ${labelY})`;
   }
 
+  useEffect(() => {
+    if (isSelected && document.activeElement !== markerRef.current) {
+      markerRef.current?.focus({ preventScroll: true });
+    }
+  }, [isSelected]);
+
   const handleKey = (event: KeyboardEvent<SVGGElement>) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -114,6 +121,7 @@ export function StationMarker({ station, tile, isSelected, onSelect }: Props) {
 
   return (
     <g
+      ref={markerRef}
       className={`station-marker${isSelected ? " station-marker--selected" : ""}`}
       role="button"
       tabIndex={0}
