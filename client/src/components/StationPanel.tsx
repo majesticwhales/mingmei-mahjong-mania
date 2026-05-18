@@ -2,14 +2,22 @@ import { useMemo, useState } from "react";
 import {
   getRemainingTileGroups,
   getStationTile,
+  TILE_BACK_IMAGE_PATH,
   type RiichiTileCopy,
 } from "../data/riichiTiles";
+import {
+  getPlayerIndex,
+  isAdminView,
+  isStationVisibleToView,
+  type PlayerViewMode,
+} from "../data/playerViews";
 import type { Network, Station } from "../data/types";
 
 interface Props {
   network: Network;
   station: Station | null;
   tileWall: readonly RiichiTileCopy[];
+  viewMode: PlayerViewMode;
   onShuffleTiles: () => void;
   onClose: () => void;
 }
@@ -18,12 +26,20 @@ export function StationPanel({
   network,
   station,
   tileWall,
+  viewMode,
   onShuffleTiles,
   onClose,
 }: Props) {
   const [showRemainingTiles, setShowRemainingTiles] = useState(false);
   const isOpen = Boolean(station) || showRemainingTiles;
+  const isAdmin = isAdminView(viewMode);
+  const playerIndex = getPlayerIndex(viewMode);
   const linesById = new Map(network.lines.map((l) => [l.id, l]));
+  const stationIndex = station
+    ? network.stations.findIndex((item) => item.id === station.id)
+    : -1;
+  const isStationTileVisible =
+    stationIndex >= 0 && isStationVisibleToView(stationIndex, viewMode);
   const stationTile = useMemo(
     () => (station ? getStationTile(network.stations, station.id, tileWall) : null),
     [network.stations, station, tileWall],
@@ -32,7 +48,19 @@ export function StationPanel({
     () => getRemainingTileGroups(network.stations.length, tileWall),
     [network.stations.length, tileWall],
   );
-  const hasRemainingTiles = remainingTileGroups.some((group) => group.length > 0);
+  const visibleTileGroups =
+    playerIndex == null
+      ? remainingTileGroups
+      : remainingTileGroups[playerIndex]
+        ? [remainingTileGroups[playerIndex]]
+        : [];
+  const hasRemainingTiles = visibleTileGroups.some((group) => group.length > 0);
+  const canRevealStationTile = isAdmin || isStationTileVisible;
+  const assignedTileImagePath = canRevealStationTile
+    ? stationTile?.imagePath
+    : TILE_BACK_IMAGE_PATH;
+  const assignedTileName = canRevealStationTile ? stationTile?.label : "Hidden tile";
+  const assignedTileCopy = canRevealStationTile ? stationTile?.copy : null;
 
   const handleClose = () => {
     setShowRemainingTiles(false);
@@ -69,8 +97,8 @@ export function StationPanel({
       {!station && (
         <div className="station-panel__body">
           <p className="station-panel__empty">
-            Tap any station on the map to see its assigned Riichi tile. Pan with
-            one finger, pinch to zoom, double-tap to zoom in.
+            Tap any station on the map to see its assigned Riichi tile. Player
+            views only reveal their own station tiles and hand.
           </p>
           {hasRemainingTiles && (
             <div className="station-panel__actions">
@@ -79,15 +107,23 @@ export function StationPanel({
                 className="station-panel__tile-toggle"
                 onClick={() => setShowRemainingTiles((current) => !current)}
               >
-                {showRemainingTiles ? "Hide remaining hands" : "Show remaining hands"}
+                {showRemainingTiles
+                  ? playerIndex == null
+                    ? "Hide remaining hands"
+                    : "Hide your hand"
+                  : playerIndex == null
+                    ? "Show remaining hands"
+                    : "Show your hand"}
               </button>
-              <button
-                type="button"
-                className="station-panel__tile-toggle station-panel__tile-toggle--secondary"
-                onClick={onShuffleTiles}
-              >
-                Randomize tiles
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="station-panel__tile-toggle station-panel__tile-toggle--secondary"
+                  onClick={onShuffleTiles}
+                >
+                  Randomize tiles
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -95,19 +131,25 @@ export function StationPanel({
 
       {station && (
         <div className="station-panel__body">
-          {stationTile && (
+          {stationTile && assignedTileImagePath && assignedTileName && (
             <section>
               <h3 className="station-panel__section-title">Assigned tile</h3>
-              <div className="station-panel__assigned-tile">
+              <div
+                className={`station-panel__assigned-tile${
+                  canRevealStationTile ? "" : " station-panel__assigned-tile--hidden"
+                }`}
+              >
                 <img
-                  src={stationTile.imagePath}
-                  alt={stationTile.label}
+                  src={assignedTileImagePath}
+                  alt={assignedTileName}
                   className="station-panel__tile-image station-panel__tile-image--large"
                 />
                 <div>
-                  <p className="station-panel__tile-name">{stationTile.label}</p>
+                  <p className="station-panel__tile-name">{assignedTileName}</p>
                   <p className="station-panel__tile-copy">
-                    Copy {stationTile.copy} of 4
+                    {assignedTileCopy == null
+                      ? "This tile is hidden in this player view."
+                      : `Copy ${assignedTileCopy} of 4`}
                   </p>
                 </div>
               </div>
@@ -140,15 +182,23 @@ export function StationPanel({
                 className="station-panel__tile-toggle"
                 onClick={() => setShowRemainingTiles((current) => !current)}
               >
-                {showRemainingTiles ? "Hide remaining hands" : "Show remaining hands"}
+                {showRemainingTiles
+                  ? playerIndex == null
+                    ? "Hide remaining hands"
+                    : "Hide your hand"
+                  : playerIndex == null
+                    ? "Show remaining hands"
+                    : "Show your hand"}
               </button>
-              <button
-                type="button"
-                className="station-panel__tile-toggle station-panel__tile-toggle--secondary"
-                onClick={onShuffleTiles}
-              >
-                Randomize tiles
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="station-panel__tile-toggle station-panel__tile-toggle--secondary"
+                  onClick={onShuffleTiles}
+                >
+                  Randomize tiles
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -157,13 +207,13 @@ export function StationPanel({
       {showRemainingTiles && (
         <section className="station-panel__remaining" aria-label="Remaining tiles">
           <h3 className="station-panel__section-title">
-            Remaining 52 tiles: 4 hands of 13
+            {playerIndex == null ? "Remaining 52 tiles: 4 hands of 13" : "Your hand"}
           </h3>
           <div className="station-panel__hands">
-            {remainingTileGroups.map((group, groupIndex) => (
-              <div className="station-panel__hand" key={groupIndex}>
+            {visibleTileGroups.map((group, groupIndex) => (
+              <div className="station-panel__hand" key={playerIndex ?? groupIndex}>
                 <h4 className="station-panel__hand-title">
-                  Hand {groupIndex + 1}
+                  {playerIndex == null ? `Hand ${groupIndex + 1}` : `Player ${playerIndex + 1}`}
                 </h4>
                 <ul className="station-panel__tile-grid">
                   {group.map((tile) => (

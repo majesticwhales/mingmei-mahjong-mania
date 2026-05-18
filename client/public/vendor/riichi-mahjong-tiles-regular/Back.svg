@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 90" role="img" aria-label="Tile back">
+  <rect width="64" height="90" rx="9" fill="#f5efe5"/>
+  <rect x="4" y="4" width="56" height="82" rx="7" fill="#d8d0c4"/>
+  <rect x="8" y="8" width="48" height="74" rx="5" fill="#123d8f"/>
+  <path d="M14 18h36v54H14z" fill="#1d5bd6"/>
+  <path d="M20 24h24v42H20z" fill="none" stroke="#8db4ff" stroke-width="3"/>
+  <path d="M26 30h12v30H26z" fill="none" stroke="#8db4ff" stroke-width="3"/>
+  <path d="M20 45h24" stroke="#8db4ff" stroke-width="3"/>
+</svg>

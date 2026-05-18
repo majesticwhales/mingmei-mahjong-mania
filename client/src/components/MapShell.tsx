@@ -6,6 +6,7 @@ import {
   type ReactZoomPanPinchContentRef,
   type ReactZoomPanPinchRef,
 } from "react-zoom-pan-pinch";
+import type { PlayerViewMode } from "../data/playerViews";
 import type { RiichiTileCopy } from "../data/riichiTiles";
 import type { Network } from "../data/types";
 import { SubwaySvg } from "./SubwaySvg";
@@ -14,6 +15,7 @@ interface Props {
   network: Network;
   selectedStationId: string | null;
   tileWall: readonly RiichiTileCopy[];
+  viewMode: PlayerViewMode;
   onSelectStation: (id: string) => void;
 }
 
@@ -65,6 +67,7 @@ export function MapShell({
   network,
   selectedStationId,
   tileWall,
+  viewMode,
   onSelectStation,
 }: Props) {
   const transformRef = useRef<ReactZoomPanPinchContentRef>(null);
@@ -115,6 +118,7 @@ export function MapShell({
             network={network}
             selectedStationId={selectedStationId}
             tileWall={tileWall}
+            viewMode={viewMode}
             onSelectStation={onSelectStation}
           />
         </TransformComponent>

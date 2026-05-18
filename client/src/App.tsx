@@ -3,6 +3,10 @@ import "./App.css";
 import { Legend } from "./components/Legend";
 import { MapShell } from "./components/MapShell";
 import { StationPanel } from "./components/StationPanel";
+import {
+  PLAYER_VIEW_OPTIONS,
+  type PlayerViewMode,
+} from "./data/playerViews";
 import { shuffleRiichiTileWall } from "./data/riichiTiles";
 import type { Network } from "./data/types";
 import { getNetwork } from "./services/network";
@@ -24,6 +28,7 @@ export default function App() {
   const [network, setNetwork] = useState<Network | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [tileWall, setTileWall] = useState(shuffleRiichiTileWall);
+  const [viewMode, setViewMode] = useState<PlayerViewMode>("admin");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -162,6 +167,19 @@ export default function App() {
       <header className="app__header">
         <h1 className="app__title">Toronto TTC 2026</h1>
         <Legend lines={network.lines} />
+        <label className="app__view-selector">
+          <span>View</span>
+          <select
+            value={viewMode}
+            onChange={(event) => setViewMode(event.target.value as PlayerViewMode)}
+          >
+            {PLAYER_VIEW_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </header>
 
       <main className="app__map">
@@ -172,6 +190,7 @@ export default function App() {
           network={network}
           selectedStationId={selectedStationId}
           tileWall={tileWall}
+          viewMode={viewMode}
           onSelectStation={setSelectedStationId}
         />
       </main>
@@ -180,6 +199,7 @@ export default function App() {
         network={network}
         station={selectedStation}
         tileWall={tileWall}
+        viewMode={viewMode}
         onShuffleTiles={() => setTileWall(shuffleRiichiTileWall())}
         onClose={() => setSelectedStationId(null)}
       />

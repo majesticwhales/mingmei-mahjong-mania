@@ -12,6 +12,8 @@ export interface RiichiTileCopy extends RiichiTileKind {
 
 const TILE_ASSET_BASE_PATH = "/vendor/riichi-mahjong-tiles-regular";
 
+export const TILE_BACK_IMAGE_PATH = `${TILE_ASSET_BASE_PATH}/Back.svg`;
+
 const suitTiles = (
   suitId: "man" | "pin" | "sou",
   suitLabel: "Character" | "Circle" | "Bamboo",
