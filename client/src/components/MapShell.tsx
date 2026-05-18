@@ -1,9 +1,10 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   TransformComponent,
   TransformWrapper,
   useControls,
   type ReactZoomPanPinchContentRef,
+  type ReactZoomPanPinchRef,
 } from "react-zoom-pan-pinch";
 import type { Network } from "../data/types";
 import { SubwaySvg } from "./SubwaySvg";
@@ -14,8 +15,13 @@ interface Props {
   onSelectStation: (id: string) => void;
 }
 
-const MIN_SCALE = 2;
+const MIN_SCALE = 3;
 const MAX_SCALE = 30;
+const MIN_SCALE_EPSILON = 0.001;
+
+function isMinScale(scale: number) {
+  return scale <= MIN_SCALE + MIN_SCALE_EPSILON;
+}
 
 function ZoomControls() {
   const { zoomIn, zoomOut, resetTransform, centerView } = useControls();
@@ -44,7 +50,7 @@ function ZoomControls() {
         aria-label="Reset view"
         onClick={() => {
           resetTransform();
-          centerView(1, 300, "easeOut");
+          centerView(MIN_SCALE, 300, "easeOut");
         }}
       >
         ⤾
@@ -55,21 +61,43 @@ function ZoomControls() {
 
 export function MapShell({ network, selectedStationId, onSelectStation }: Props) {
   const transformRef = useRef<ReactZoomPanPinchContentRef>(null);
+  const [isAtMinZoom, setIsAtMinZoom] = useState(true);
+
+  function handleTransform(_ref: ReactZoomPanPinchRef, state: { scale: number }) {
+    const nextIsAtMinZoom = isMinScale(state.scale);
+    setIsAtMinZoom((current) =>
+      current === nextIsAtMinZoom ? current : nextIsAtMinZoom,
+    );
+  }
+
+  function recenterAtMinZoom(ref: ReactZoomPanPinchRef) {
+    if (isMinScale(ref.state.scale)) {
+      ref.centerView(MIN_SCALE, 160, "easeOut");
+    }
+  }
 
   return (
     <div className="map-shell">
       <TransformWrapper
         ref={transformRef}
-        initialScale={1}
+        initialScale={MIN_SCALE}
         minScale={MIN_SCALE}
         maxScale={MAX_SCALE}
         centerOnInit
-        limitToBounds={false}
+        centerZoomedOut
+        limitToBounds
         wheel={{ step: 0.12 }}
-        pinch={{ step: 5 }}
+        pinch={{ step: 5, allowPanning: !isAtMinZoom }}
         doubleClick={{ mode: "zoomIn", step: 0.7, animationTime: 200 }}
-        panning={{ velocityDisabled: false, excluded: ["station-marker"] }}
-        velocityAnimation={{ animationTime: 220 }}
+        panning={{
+          disabled: isAtMinZoom,
+          velocityDisabled: isAtMinZoom,
+          excluded: ["station-marker"],
+        }}
+        velocityAnimation={{ disabled: isAtMinZoom, animationTime: 220 }}
+        onInit={recenterAtMinZoom}
+        onTransform={handleTransform}
+        onZoomStop={recenterAtMinZoom}
       >
         <ZoomControls />
         <TransformComponent
