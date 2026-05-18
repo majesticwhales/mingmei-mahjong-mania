@@ -25,14 +25,16 @@ export function StationPanel({ network, station, onClose }: Props) {
             {station ? station.name : "Pick a station"}
           </h2>
         </div>
-        <button
-          type="button"
-          className="station-panel__close"
-          aria-label="Close station details"
-          onClick={onClose}
-        >
-          ×
-        </button>
+        {station && (
+          <button
+            type="button"
+            className="station-panel__close"
+            aria-label="Close station details"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        )}
       </header>
 
       {!station && (
@@ -61,26 +63,6 @@ export function StationPanel({ network, station, onClose }: Props) {
                   </li>
                 ))}
             </ul>
-          </section>
-
-          <section>
-            <h3 className="station-panel__section-title">Details</h3>
-            <dl className="station-panel__details">
-              <div>
-                <dt>Type</dt>
-                <dd>{station.isInterchange ? "Interchange" : "Standard station"}</dd>
-              </div>
-              <div>
-                <dt>Accessible</dt>
-                <dd>
-                  {station.accessible === undefined
-                    ? "Unknown"
-                    : station.accessible
-                      ? "Yes"
-                      : "No"}
-                </dd>
-              </div>
-            </dl>
           </section>
         </div>
       )}

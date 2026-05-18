@@ -842,7 +842,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 - [x] Add `media_assets`
 - [x] Add challenge tables (challenge_types seeder; decks/cards empty)
 - [x] Seeds: `team_definitions`, `tile_types` (136), `challenge_types`
-- [x] Seed: `map_template` **TTC 2026** (`server/seeders/data/ttc2026-network.cjs` → `20260517202000-seed-map-template-ttc2026.cjs`). All 84 stations have entrance `latitude`/`longitude` plus schematic `x`/`y`/`labelAnchor` in the seed file (canonical for DB). Client `client/src/data/ttc2026.ts` is a demo mirror—keep both in sync when layout changes.
+- [x] Seed: `map_template` **TTC 2026** (`server/seeders/data/ttc2026-network.cjs` → `20260517202000-seed-map-template-ttc2026.cjs`). All 84 stations have entrance `latitude`/`longitude` plus schematic `x`/`y`/`labelAnchor` in the seed file, which is the canonical map source for the DB-backed client.
 
 ---
 

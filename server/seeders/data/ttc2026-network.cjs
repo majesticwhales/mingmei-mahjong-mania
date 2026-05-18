@@ -9,8 +9,8 @@
  *
  * x / y are schematic SVG layout coords for the client map only.
  *
- * Re-sync layout from client without wiping coordinates:
- *   npm run build:ttc2026-seed-data
+ * Edit this file when changing schematic layout; the client reads the seeded
+ * template through `/api/network`.
  */
 
 module.exports = {
@@ -175,7 +175,7 @@ module.exports = {
         "2"
       ],
       "isInterchange": true,
-      "labelAnchor": "s",
+      "labelAnchor": "n",
       "labelRotate": null
     },
     {
@@ -306,8 +306,8 @@ module.exports = {
       "labelRotate": null
     },
     {
-      "code": "tmu",
-      "name": "TMU",
+      "code": "dundas",
+      "name": "Dundas",
       "x": 595,
       "y": 555,
       "latitude": 43.6565367,
@@ -710,7 +710,7 @@ module.exports = {
         "2"
       ],
       "isInterchange": false,
-      "labelAnchor": "s",
+      "labelAnchor": "n",
       "labelRotate": 0
     },
     {
@@ -935,7 +935,7 @@ module.exports = {
         "5"
       ],
       "isInterchange": false,
-      "labelAnchor": "s",
+      "labelAnchor": "n",
       "labelRotate": null
     },
     {
@@ -1065,8 +1065,8 @@ module.exports = {
       "labelRotate": null
     },
     {
-      "code": "don-valley",
-      "name": "Don Valley",
+      "code": "science-centre",
+      "name": "Science Centre",
       "x": 745,
       "y": 315,
       "latitude": 43.7204924,
@@ -1151,7 +1151,7 @@ module.exports = {
     {
       "code": "hakimi-lebovic",
       "name": "Hakimi Lebovic",
-      "x": 925,
+      "x": 955,
       "y": 315,
       "latitude": 43.726982,
       "longitude": -79.2915569,
@@ -1165,7 +1165,7 @@ module.exports = {
     {
       "code": "golden-mile",
       "name": "Golden Mile",
-      "x": 955,
+      "x": 925,
       "y": 315,
       "latitude": 43.7278547,
       "longitude": -79.2876481,
