@@ -1,8 +1,10 @@
 import type { KeyboardEvent } from "react";
+import type { RiichiTileCopy } from "../data/riichiTiles";
 import type { LabelAnchor, Station } from "../data/types";
 
 interface Props {
   station: Station;
+  tile: RiichiTileCopy | null;
   isSelected: boolean;
   onSelect: (id: string) => void;
 }
@@ -44,7 +46,10 @@ function defaultRotate(station: Station, anchor: LabelAnchor): number {
   return 0;
 }
 
-export function StationMarker({ station, isSelected, onSelect }: Props) {
+const TILE_WIDTH = 16;
+const TILE_HEIGHT = 22;
+
+export function StationMarker({ station, tile, isSelected, onSelect }: Props) {
   const isInterchange = station.isInterchange;
   const anchor = station.labelAnchor ?? defaultAnchor(station);
   const placement = LABEL_OFFSETS[anchor];
@@ -120,37 +125,51 @@ export function StationMarker({ station, isSelected, onSelect }: Props) {
       {/* invisible larger hit area for fat-finger tapping */}
       <circle cx={station.x} cy={station.y} r={14} fill="transparent" />
 
-      {isInterchange ? (
-        <>
-          <circle
-            cx={station.x}
-            cy={station.y}
-            r={7}
-            fill="#fff"
-            stroke="#111"
-            strokeWidth={2}
-          />
-          <circle cx={station.x} cy={station.y} r={3} fill="#111" />
-        </>
-      ) : (
-        <circle
-          cx={station.x}
-          cy={station.y}
-          r={4}
-          fill="#fff"
-          stroke="#111"
-          strokeWidth={1.5}
+      <g
+        className="station-marker__tile-node"
+        transform={`translate(${station.x - TILE_WIDTH / 2} ${
+          station.y - TILE_HEIGHT / 2
+        })`}
+      >
+        <rect
+          className="station-marker__tile-shadow"
+          x={1.2}
+          y={1.6}
+          width={TILE_WIDTH}
+          height={TILE_HEIGHT}
+          rx={2.6}
+          aria-hidden="true"
         />
-      )}
+        <rect
+          className="station-marker__tile-frame"
+          width={TILE_WIDTH}
+          height={TILE_HEIGHT}
+          rx={2.6}
+          aria-hidden="true"
+        />
+        {tile && (
+          <image
+            href={tile.imagePath}
+            x={2}
+            y={2.25}
+            width={TILE_WIDTH - 4}
+            height={TILE_HEIGHT - 4.5}
+            preserveAspectRatio="xMidYMid meet"
+            aria-hidden="true"
+          />
+        )}
+      </g>
 
       {isSelected && (
-        <circle
-          cx={station.x}
-          cy={station.y}
-          r={isInterchange ? 12 : 9}
+        <rect
+          x={station.x - TILE_WIDTH / 2 - 3}
+          y={station.y - TILE_HEIGHT / 2 - 3}
+          width={TILE_WIDTH + 6}
+          height={TILE_HEIGHT + 6}
+          rx={4}
           fill="none"
           stroke="#2563eb"
-          strokeWidth={2}
+          strokeWidth={2.2}
           className="station-marker__halo"
         />
       )}
