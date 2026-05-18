@@ -82,7 +82,7 @@ const stations: Station[] = [
   { id: "kennedy", name: "Kennedy", x: 1045, y: 315, lineIds: ["2", "5"], isInterchange: true, accessible: true, labelAnchor: "e" },
   // Line 5 Eglinton — alternate N/S for the horizontal run, switch to east
   // once the line starts bending south toward Kennedy.
-  { id: "mount-dennis", name: "Mount Pennis", x: 200, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "s" },
+  { id: "mount-dennis", name: "Mount Dennis", x: 200, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "s" },
   { id: "keelesdale", name: "Keelesdale", x: 240, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "s" },
   { id: "caledonia", name: "Caledonia", x: 280, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "s" },
   { id: "fairbank", name: "Fairbank", x: 310, y: 315, lineIds: ["5"], isInterchange: false, accessible: true, labelAnchor: "s" },
