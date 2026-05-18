@@ -508,8 +508,8 @@ module.exports = {
       "name": "Kipling",
       "x": 25,
       "y": 470,
-      "latitude": 43.643425,
-      "longitude": -79.539872,
+      "latitude": 43.6375325,
+      "longitude": -79.5356041,
       "lineIds": [
         "2"
       ],
@@ -522,8 +522,8 @@ module.exports = {
       "name": "Islington",
       "x": 55,
       "y": 470,
-      "latitude": 43.64611,
-      "longitude": -79.531633,
+      "latitude": 43.6448955,
+      "longitude": -79.5242965,
       "lineIds": [
         "2"
       ],
@@ -536,8 +536,8 @@ module.exports = {
       "name": "Royal York",
       "x": 85,
       "y": 470,
-      "latitude": 43.648794,
-      "longitude": -79.523394,
+      "latitude": 43.6481008,
+      "longitude": -79.5112485,
       "lineIds": [
         "2"
       ],
@@ -550,8 +550,8 @@ module.exports = {
       "name": "Old Mill",
       "x": 115,
       "y": 470,
-      "latitude": 43.651478,
-      "longitude": -79.515155,
+      "latitude": 43.6501618,
+      "longitude": -79.495091,
       "lineIds": [
         "2"
       ],
@@ -564,8 +564,8 @@ module.exports = {
       "name": "Jane",
       "x": 145,
       "y": 470,
-      "latitude": 43.654163,
-      "longitude": -79.506916,
+      "latitude": 43.6498989,
+      "longitude": -79.4841152,
       "lineIds": [
         "2"
       ],
@@ -578,8 +578,8 @@ module.exports = {
       "name": "Runnymede",
       "x": 175,
       "y": 470,
-      "latitude": 43.656847,
-      "longitude": -79.498677,
+      "latitude": 43.6518409,
+      "longitude": -79.4755723,
       "lineIds": [
         "2"
       ],
@@ -592,8 +592,8 @@ module.exports = {
       "name": "High Park",
       "x": 205,
       "y": 470,
-      "latitude": 43.659531,
-      "longitude": -79.490438,
+      "latitude": 43.6540856,
+      "longitude": -79.4660951,
       "lineIds": [
         "2"
       ],
@@ -606,8 +606,8 @@ module.exports = {
       "name": "Keele",
       "x": 235,
       "y": 470,
-      "latitude": 43.662216,
-      "longitude": -79.482199,
+      "latitude": 43.6557003,
+      "longitude": -79.4594954,
       "lineIds": [
         "2"
       ],
@@ -620,8 +620,8 @@ module.exports = {
       "name": "Dundas West",
       "x": 265,
       "y": 470,
-      "latitude": 43.6649,
-      "longitude": -79.473961,
+      "latitude": 43.6567312,
+      "longitude": -79.4538196,
       "lineIds": [
         "2"
       ],
@@ -634,8 +634,8 @@ module.exports = {
       "name": "Lansdowne",
       "x": 295,
       "y": 470,
-      "latitude": 43.667584,
-      "longitude": -79.465722,
+      "latitude": 43.6593524,
+      "longitude": -79.4431918,
       "lineIds": [
         "2"
       ],
@@ -648,8 +648,8 @@ module.exports = {
       "name": "Dufferin",
       "x": 325,
       "y": 470,
-      "latitude": 43.670269,
-      "longitude": -79.457483,
+      "latitude": 43.6602635,
+      "longitude": -79.4353869,
       "lineIds": [
         "2"
       ],
@@ -662,8 +662,8 @@ module.exports = {
       "name": "Ossington",
       "x": 355,
       "y": 470,
-      "latitude": 43.672953,
-      "longitude": -79.449244,
+      "latitude": 43.67853945,
+      "longitude": -79.43145291373627,
       "lineIds": [
         "2"
       ],
@@ -676,8 +676,8 @@ module.exports = {
       "name": "Christie",
       "x": 385,
       "y": 470,
-      "latitude": 43.675637,
-      "longitude": -79.441005,
+      "latitude": 43.6640809,
+      "longitude": -79.4185289,
       "lineIds": [
         "2"
       ],
@@ -690,8 +690,8 @@ module.exports = {
       "name": "Bathurst",
       "x": 415,
       "y": 470,
-      "latitude": 43.678322,
-      "longitude": -79.432766,
+      "latitude": 43.6664159,
+      "longitude": -79.4113092,
       "lineIds": [
         "2"
       ],
@@ -704,8 +704,8 @@ module.exports = {
       "name": "Bay",
       "x": 555,
       "y": 470,
-      "latitude": 43.693345,
-      "longitude": -79.395186,
+      "latitude": 43.6701851,
+      "longitude": -79.3902694,
       "lineIds": [
         "2"
       ],
@@ -718,8 +718,8 @@ module.exports = {
       "name": "Sherbourne",
       "x": 630,
       "y": 470,
-      "latitude": 43.697559,
-      "longitude": -79.373721,
+      "latitude": 43.6721877,
+      "longitude": -79.3764819,
       "lineIds": [
         "2"
       ],
@@ -732,8 +732,8 @@ module.exports = {
       "name": "Castle Frank",
       "x": 660,
       "y": 470,
-      "latitude": 43.700244,
-      "longitude": -79.365482,
+      "latitude": 43.6734986,
+      "longitude": -79.3690458,
       "lineIds": [
         "2"
       ],
@@ -746,8 +746,8 @@ module.exports = {
       "name": "Broadview",
       "x": 700,
       "y": 470,
-      "latitude": 43.703823,
-      "longitude": -79.354497,
+      "latitude": 43.6769951,
+      "longitude": -79.3582176,
       "lineIds": [
         "2"
       ],
@@ -760,8 +760,8 @@ module.exports = {
       "name": "Chester",
       "x": 730,
       "y": 470,
-      "latitude": 43.706507,
-      "longitude": -79.346258,
+      "latitude": 43.6782277,
+      "longitude": -79.3525143,
       "lineIds": [
         "2"
       ],
@@ -774,8 +774,8 @@ module.exports = {
       "name": "Pape",
       "x": 760,
       "y": 470,
-      "latitude": 43.709191,
-      "longitude": -79.338019,
+      "latitude": 43.6800489,
+      "longitude": -79.3445666,
       "lineIds": [
         "2"
       ],
@@ -788,8 +788,8 @@ module.exports = {
       "name": "Donlands",
       "x": 790,
       "y": 470,
-      "latitude": 43.711876,
-      "longitude": -79.32978,
+      "latitude": 43.6809354,
+      "longitude": -79.3379107,
       "lineIds": [
         "2"
       ],
@@ -802,8 +802,8 @@ module.exports = {
       "name": "Greenwood",
       "x": 820,
       "y": 470,
-      "latitude": 43.71456,
-      "longitude": -79.321541,
+      "latitude": 43.6824765,
+      "longitude": -79.3302798,
       "lineIds": [
         "2"
       ],
@@ -816,8 +816,8 @@ module.exports = {
       "name": "Coxwell",
       "x": 850,
       "y": 470,
-      "latitude": 43.717244,
-      "longitude": -79.313302,
+      "latitude": 43.6841534,
+      "longitude": -79.3231599,
       "lineIds": [
         "2"
       ],
@@ -830,8 +830,8 @@ module.exports = {
       "name": "Woodbine",
       "x": 880,
       "y": 470,
-      "latitude": 43.719929,
-      "longitude": -79.305063,
+      "latitude": 43.6864139,
+      "longitude": -79.3126246,
       "lineIds": [
         "2"
       ],
@@ -844,8 +844,8 @@ module.exports = {
       "name": "Main Street",
       "x": 915,
       "y": 470,
-      "latitude": 43.72306,
-      "longitude": -79.295451,
+      "latitude": 43.689078,
+      "longitude": -79.3019411,
       "lineIds": [
         "2"
       ],
@@ -858,8 +858,8 @@ module.exports = {
       "name": "Victoria Park",
       "x": 958,
       "y": 418,
-      "latitude": 43.724496,
-      "longitude": -79.286778,
+      "latitude": 43.694452,
+      "longitude": -79.2887029,
       "lineIds": [
         "2"
       ],
@@ -872,8 +872,8 @@ module.exports = {
       "name": "Warden",
       "x": 1002,
       "y": 367,
-      "latitude": 43.728429,
-      "longitude": -79.278973,
+      "latitude": 43.7095541,
+      "longitude": -79.2798036,
       "lineIds": [
         "2"
       ],
@@ -886,8 +886,8 @@ module.exports = {
       "name": "Kennedy",
       "x": 1045,
       "y": 315,
-      "latitude": 43.739945,
-      "longitude": -79.269219,
+      "latitude": 43.7324979,
+      "longitude": -79.2637005,
       "lineIds": [
         "2",
         "5"
