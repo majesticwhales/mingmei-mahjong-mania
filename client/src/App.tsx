@@ -165,7 +165,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <h1 className="app__title">Toronto TTC 2026</h1>
+        <h1 className="app__title">Mingmei's Mahjong Mania</h1>
         <Legend lines={network.lines} />
         <label className="app__view-selector">
           <span>View</span>
