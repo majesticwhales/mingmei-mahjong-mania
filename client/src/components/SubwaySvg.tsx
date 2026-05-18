@@ -1,3 +1,4 @@
+import { getStationTile, type RiichiTileCopy } from "../data/riichiTiles";
 import type { Network } from "../data/types";
 import { LineLayer } from "./LineLayer";
 import { StationMarker } from "./StationMarker";
@@ -5,6 +6,7 @@ import { StationMarker } from "./StationMarker";
 interface Props {
   network: Network;
   selectedStationId: string | null;
+  tileWall: readonly RiichiTileCopy[];
   onSelectStation: (id: string) => void;
 }
 
@@ -18,7 +20,12 @@ export const VIEW_BOX_MIN_Y = -35;
 export const VIEW_BOX_WIDTH = 1320;
 export const VIEW_BOX_HEIGHT = 870;
 
-export function SubwaySvg({ network, selectedStationId, onSelectStation }: Props) {
+export function SubwaySvg({
+  network,
+  selectedStationId,
+  tileWall,
+  onSelectStation,
+}: Props) {
   return (
     <svg
       className="subway-svg"
@@ -34,6 +41,7 @@ export function SubwaySvg({ network, selectedStationId, onSelectStation }: Props
           <StationMarker
             key={station.id}
             station={station}
+            tile={getStationTile(network.stations, station.id, tileWall)}
             isSelected={selectedStationId === station.id}
             onSelect={onSelectStation}
           />
