@@ -6,6 +6,7 @@ import {
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
 import { MapTemplateEdge } from "./map-template-edge.ts";
+import { MapTemplateLine } from "./map-template-line.ts";
 import { MapTemplateNode } from "./map-template-node.ts";
 
 @Table({ tableName: "map_templates" })
@@ -27,6 +28,9 @@ export class MapTemplate extends BaseModel {
 
   @HasMany(() => MapTemplateNode)
   declare nodes?: MapTemplateNode[];
+
+  @HasMany(() => MapTemplateLine)
+  declare lines?: MapTemplateLine[];
 
   @HasMany(() => MapTemplateEdge)
   declare edges?: MapTemplateEdge[];

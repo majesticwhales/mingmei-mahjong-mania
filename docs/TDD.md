@@ -402,9 +402,16 @@ Seeded: `east`, `south`, `west`, `north` (`20260517180000-seed-team-definitions.
 | `latitude`, `longitude` | WGS84; used for geofence on check-in |
 | `geofence_radius_meters` | Optional; engine may default ~75–150m when null |
 | `coordinate_x`, `coordinate_y` | Integer grid position for schematic map UI |
-| `line_id` | Metro line / stroke grouping for rendering |
 | `label_anchor` | Label placement hint (e.g. `N`, `NE`, `SW`) — `STRING(16)` |
 | `is_interchange` | Interchange station styling |
+
+#### `map_template_lines`
+
+Lines for a template: `code` (`STRING`, unique per template), optional `name`, `sort_order`.
+
+#### `map_template_node_lines`
+
+Many-to-many: `map_template_node_id` ↔ `map_template_line_id` (a station can serve multiple lines).
 
 #### `map_template_edges`
 
@@ -414,10 +421,12 @@ Seeded: `east`, `south`, `west`, `north` (`20260517180000-seed-team-definitions.
 
 Cloned from template at game start (`GameStartService`):
 
-- **`game_nodes`:** copy all template node fields above + `game_id`, `template_node_id` (FK, `RESTRICT` on delete).
+- **`game_nodes`:** copy template node layout fields + `game_id`, `template_node_id` (FK, `RESTRICT` on delete).
+- **`game_lines`:** clone `map_template_lines` per game (`code`, `name`, `sort_order`, `template_line_id`).
+- **`game_node_lines`:** clone `map_template_node_lines` using cloned line + node IDs.
 - **`game_edges`:** `from_game_node_id`, `to_game_node_id` mapped from template edge endpoints.
 
-Layout fields are **not secret** and are included in `game.state` `mapNodes[]` / `mapEdges[]` for every client. Tile identity on nodes remains visibility-gated.
+Layout fields (including `lineIds[]` string codes) are **not secret** and are included in `game.state` `mapNodes[]`, `mapLines[]`, and `mapEdges[]`. Tile identity on nodes remains visibility-gated.
 
 ### 4.4 Tiles
 
@@ -616,7 +625,8 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 |-------|--------|
 | `gameId`, `status`, `endsAt` | Shared |
 | `nextVisibilityChangeAt` | Optional; for UI timer only |
-| `mapNodes[]` | Layout fields for all 84 nodes; `tile` only if phase-visible on map |
+| `mapNodes[]` | Layout fields for all 84 nodes; `lineIds[]` (string codes); `tile` only if phase-visible on map |
+| `mapLines[]` | Line catalog (`code`, `name`, `sortOrder`) — sent once / on reconnect |
 | `mapEdges[]` | Static graph (`fromNodeId`, `toNodeId`) — sent once / on reconnect |
 | `atStation` | When checked in: `nodeId`, `code`, `tile` (always) |
 | `handTiles[]` | Own team, pre-sorted |
@@ -630,9 +640,9 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 ```json
 {
   "instanceId": "uuid",
-  "suit": "characters",
+  "suit": "man",
   "rank": 2,
-  "displayName": "2 Character"
+  "displayName": "2 Man"
 }
 ```
 
@@ -642,10 +652,10 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 {
   "id": "uuid",
   "code": "STN_01",
-  "name": "Central",
+  "name": "Union Station",
   "coordinateX": 12,
   "coordinateY": 4,
-  "lineId": 2,
+  "lineIds": ["red", "blue"],
   "labelAnchor": "NE",
   "isInterchange": false,
   "latitude": 51.5074,
@@ -658,7 +668,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
   "name": "North End",
   "coordinateX": 8,
   "coordinateY": 1,
-  "lineId": 1,
+  "lineIds": ["red"],
   "labelAnchor": "N",
   "isInterchange": false,
   "latitude": 51.52,
@@ -668,6 +678,12 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 
 - Include **`tile`** only when `faceUpOnMap` is true for this team.
 - Omit `tile` (or use `null` consistently—pick one in implementation; **never** send placeholder tile identity for hidden nodes).
+
+**`mapLines[]`** — line catalog for styling:
+
+```json
+{ "code": "red", "name": "Red Line", "sortOrder": 0 }
+```
 
 **`mapEdges[]`** — cloned graph edges (no tile data):
 
@@ -827,7 +843,7 @@ Team is checked in at `STN_42` (fogged on map). Home quarter nodes include `STN_
       "name": "Example A",
       "coordinateX": 10,
       "coordinateY": 5,
-      "lineId": 1,
+      "lineIds": ["red"],
       "labelAnchor": "NE",
       "isInterchange": false,
       "latitude": 51.5,
@@ -845,12 +861,16 @@ Team is checked in at `STN_42` (fogged on map). Home quarter nodes include `STN_
       "name": "Example B",
       "coordinateX": 8,
       "coordinateY": 3,
-      "lineId": 1,
+      "lineIds": ["red", "blue"],
       "labelAnchor": "N",
       "isInterchange": false,
       "latitude": 51.51,
       "longitude": -0.11
     }
+  ],
+  "mapLines": [
+    { "code": "red", "name": "Red Line", "sortOrder": 0 },
+    { "code": "blue", "name": "Blue Line", "sortOrder": 1 }
   ],
   "mapEdges": [
     { "fromNodeId": "node-01-…", "toNodeId": "node-02-…" }
