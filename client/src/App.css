@@ -333,30 +333,6 @@ body {
   display: inline-block;
 }
 
-.station-panel__details {
-  margin: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem 1rem;
-}
-
-.station-panel__details > div {
-  display: flex;
-  flex-direction: column;
-}
-
-.station-panel__details dt {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  color: var(--panel-muted);
-  letter-spacing: 0.06em;
-}
-
-.station-panel__details dd {
-  margin: 0.15rem 0 0;
-  font-size: 0.95rem;
-}
-
 /* ---------- Desktop: sidebar ---------- */
 
 @media (min-width: 900px) {

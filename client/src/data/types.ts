@@ -51,7 +51,6 @@ export interface Station {
    * runs. Omit for upright text.
    */
   labelRotate?: number;
-  accessible?: boolean;
 }
 
 export interface Network {
