@@ -27,8 +27,8 @@ module.exports = {
       "name": "Finch West",
       "x": 215,
       "y": 115,
-      "latitude": 43.749058,
-      "longitude": -79.518508,
+      "latitude": 43.76321,
+      "longitude": -79.4903652,
       "lineIds": [
         "1"
       ],
@@ -41,8 +41,8 @@ module.exports = {
       "name": "Downsview Park",
       "x": 246,
       "y": 144,
-      "latitude": 43.744591,
-      "longitude": -79.507477,
+      "latitude": 43.75348,
+      "longitude": -79.4782844,
       "lineIds": [
         "1"
       ],
@@ -55,8 +55,8 @@ module.exports = {
       "name": "Sheppard West",
       "x": 278,
       "y": 172,
-      "latitude": 43.740464,
-      "longitude": -79.496258,
+      "latitude": 43.7492528,
+      "longitude": -79.46222519999999,
       "lineIds": [
         "1"
       ],
@@ -69,8 +69,8 @@ module.exports = {
       "name": "Wilson",
       "x": 309,
       "y": 201,
-      "latitude": 43.735997,
-      "longitude": -79.485227,
+      "latitude": 43.734759,
+      "longitude": -79.4510165,
       "lineIds": [
         "1"
       ],
@@ -83,8 +83,8 @@ module.exports = {
       "name": "Yorkdale",
       "x": 341,
       "y": 229,
-      "latitude": 43.73187,
-      "longitude": -79.474009,
+      "latitude": 43.7246418,
+      "longitude": -79.4475031,
       "lineIds": [
         "1"
       ],
@@ -97,8 +97,8 @@ module.exports = {
       "name": "Lawrence West",
       "x": 372,
       "y": 258,
-      "latitude": 43.727403,
-      "longitude": -79.462978,
+      "latitude": 43.7148335,
+      "longitude": -79.4437406,
       "lineIds": [
         "1"
       ],
@@ -111,8 +111,8 @@ module.exports = {
       "name": "Glencairn",
       "x": 404,
       "y": 286,
-      "latitude": 43.723276,
-      "longitude": -79.451759,
+      "latitude": 43.709568,
+      "longitude": -79.441296,
       "lineIds": [
         "1"
       ],
@@ -125,8 +125,8 @@ module.exports = {
       "name": "Cedarvale",
       "x": 435,
       "y": 315,
-      "latitude": 43.718809,
-      "longitude": -79.440728,
+      "latitude": 43.6995707,
+      "longitude": -79.4364738,
       "lineIds": [
         "1",
         "5"
@@ -140,8 +140,8 @@ module.exports = {
       "name": "St. Clair West",
       "x": 448,
       "y": 367,
-      "latitude": 43.707668,
-      "longitude": -79.432269,
+      "latitude": 43.684624,
+      "longitude": -79.4153427,
       "lineIds": [
         "1"
       ],
@@ -154,8 +154,8 @@ module.exports = {
       "name": "Dupont",
       "x": 462,
       "y": 418,
-      "latitude": 43.700719,
-      "longitude": -79.423738,
+      "latitude": 43.6747046,
+      "longitude": -79.406983,
       "lineIds": [
         "1"
       ],
@@ -168,8 +168,8 @@ module.exports = {
       "name": "Spadina",
       "x": 475,
       "y": 470,
-      "latitude": 43.686187,
-      "longitude": -79.417156,
+      "latitude": 43.6672349,
+      "longitude": -79.4036863,
       "lineIds": [
         "1",
         "2"
@@ -183,8 +183,8 @@ module.exports = {
       "name": "St. George",
       "x": 515,
       "y": 470,
-      "latitude": 43.689766,
-      "longitude": -79.406171,
+      "latitude": 43.6686549,
+      "longitude": -79.398109,
       "lineIds": [
         "1",
         "2"
@@ -198,8 +198,8 @@ module.exports = {
       "name": "Museum",
       "x": 515,
       "y": 495,
-      "latitude": 43.681028,
-      "longitude": -79.403133,
+      "latitude": 43.6668462,
+      "longitude": -79.3933506,
       "lineIds": [
         "1"
       ],
@@ -212,8 +212,8 @@ module.exports = {
       "name": "Queen's Park",
       "x": 515,
       "y": 525,
-      "latitude": 43.673538,
-      "longitude": -79.400529,
+      "latitude": 43.6596838,
+      "longitude": -79.3901923,
       "lineIds": [
         "1"
       ],
@@ -226,8 +226,8 @@ module.exports = {
       "name": "St. Patrick",
       "x": 515,
       "y": 555,
-      "latitude": 43.666048,
-      "longitude": -79.397925,
+      "latitude": 43.6548199,
+      "longitude": -79.3882736,
       "lineIds": [
         "1"
       ],
@@ -240,8 +240,8 @@ module.exports = {
       "name": "Osgoode",
       "x": 515,
       "y": 585,
-      "latitude": 43.658558,
-      "longitude": -79.395321,
+      "latitude": 43.6508016,
+      "longitude": -79.3865409,
       "lineIds": [
         "1"
       ],
@@ -254,8 +254,8 @@ module.exports = {
       "name": "St. Andrew",
       "x": 515,
       "y": 625,
-      "latitude": 43.648571,
-      "longitude": -79.391848,
+      "latitude": 43.6477917,
+      "longitude": -79.3848711,
       "lineIds": [
         "1"
       ],
@@ -268,8 +268,8 @@ module.exports = {
       "name": "Union",
       "x": 555,
       "y": 685,
-      "latitude": 43.63717,
-      "longitude": -79.375655,
+      "latitude": 43.6445345,
+      "longitude": -79.380381,
       "lineIds": [
         "1"
       ],
@@ -282,8 +282,8 @@ module.exports = {
       "name": "King",
       "x": 595,
       "y": 625,
-      "latitude": 43.655729,
-      "longitude": -79.369878,
+      "latitude": 43.6489494,
+      "longitude": -79.3777538,
       "lineIds": [
         "1"
       ],
@@ -296,8 +296,8 @@ module.exports = {
       "name": "Queen",
       "x": 595,
       "y": 585,
-      "latitude": 43.665716,
-      "longitude": -79.37335,
+      "latitude": 43.6529083,
+      "longitude": -79.3794575,
       "lineIds": [
         "1"
       ],
@@ -306,12 +306,12 @@ module.exports = {
       "labelRotate": null
     },
     {
-      "code": "dundas",
-      "name": "Dundas",
+      "code": "tmu",
+      "name": "TMU",
       "x": 595,
       "y": 555,
-      "latitude": 43.673206,
-      "longitude": -79.375954,
+      "latitude": 43.6565367,
+      "longitude": -79.3810223,
       "lineIds": [
         "1"
       ],
@@ -324,8 +324,8 @@ module.exports = {
       "name": "College",
       "x": 595,
       "y": 525,
-      "latitude": 43.680696,
-      "longitude": -79.378558,
+      "latitude": 43.6606617,
+      "longitude": -79.3827952,
       "lineIds": [
         "1"
       ],
@@ -338,8 +338,8 @@ module.exports = {
       "name": "Wellesley",
       "x": 595,
       "y": 495,
-      "latitude": 43.688186,
-      "longitude": -79.381163,
+      "latitude": 43.6653371,
+      "longitude": -79.3839088,
       "lineIds": [
         "1"
       ],
@@ -352,8 +352,8 @@ module.exports = {
       "name": "Bloor-Yonge",
       "x": 595,
       "y": 470,
-      "latitude": 43.696924,
-      "longitude": -79.384201,
+      "latitude": 43.6707855,
+      "longitude": -79.3856867,
       "lineIds": [
         "1",
         "2"
@@ -367,8 +367,8 @@ module.exports = {
       "name": "Rosedale",
       "x": 595,
       "y": 405,
-      "latitude": 43.710656,
-      "longitude": -79.388975,
+      "latitude": 43.6764641,
+      "longitude": -79.3885367,
       "lineIds": [
         "1"
       ],
@@ -381,8 +381,8 @@ module.exports = {
       "name": "Summerhill",
       "x": 595,
       "y": 380,
-      "latitude": 43.716898,
-      "longitude": -79.391145,
+      "latitude": 43.6822959,
+      "longitude": -79.3907769,
       "lineIds": [
         "1"
       ],
@@ -395,8 +395,8 @@ module.exports = {
       "name": "St. Clair",
       "x": 595,
       "y": 360,
-      "latitude": 43.721891,
-      "longitude": -79.392881,
+      "latitude": 43.6878791,
+      "longitude": -79.3930329,
       "lineIds": [
         "1"
       ],
@@ -409,8 +409,8 @@ module.exports = {
       "name": "Davisville",
       "x": 595,
       "y": 340,
-      "latitude": 43.726884,
-      "longitude": -79.394617,
+      "latitude": 43.6976475,
+      "longitude": -79.3969607,
       "lineIds": [
         "1"
       ],
@@ -423,8 +423,8 @@ module.exports = {
       "name": "Eglinton",
       "x": 595,
       "y": 315,
-      "latitude": 43.733126,
-      "longitude": -79.396787,
+      "latitude": 43.7049424,
+      "longitude": -79.3985309,
       "lineIds": [
         "1",
         "5"
@@ -438,8 +438,8 @@ module.exports = {
       "name": "Lawrence",
       "x": 595,
       "y": 275,
-      "latitude": 43.743113,
-      "longitude": -79.40026,
+      "latitude": 43.7253529,
+      "longitude": -79.4020554,
       "lineIds": [
         "1"
       ],
@@ -452,8 +452,8 @@ module.exports = {
       "name": "York Mills",
       "x": 595,
       "y": 235,
-      "latitude": 43.750603,
-      "longitude": -79.402864,
+      "latitude": 43.745312,
+      "longitude": -79.406022,
       "lineIds": [
         "1"
       ],
@@ -466,8 +466,8 @@ module.exports = {
       "name": "Sheppard-Yonge",
       "x": 595,
       "y": 195,
-      "latitude": 43.759341,
-      "longitude": -79.405902,
+      "latitude": 43.7615367,
+      "longitude": -79.4124667,
       "lineIds": [
         "1"
       ],
@@ -480,8 +480,8 @@ module.exports = {
       "name": "North York Centre",
       "x": 595,
       "y": 180,
-      "latitude": 43.766831,
-      "longitude": -79.408506,
+      "latitude": 43.7686787,
+      "longitude": -79.4126298,
       "lineIds": [
         "1"
       ],
@@ -494,8 +494,8 @@ module.exports = {
       "name": "Finch",
       "x": 595,
       "y": 115,
-      "latitude": 43.775569,
-      "longitude": -79.411544,
+      "latitude": 43.7805168,
+      "longitude": -79.4145776,
       "lineIds": [
         "1"
       ],
