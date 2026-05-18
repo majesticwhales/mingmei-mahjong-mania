@@ -45,6 +45,12 @@ export class GameNode extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: true })
   declare geofenceRadiusMeters: number | null;
 
+  @Column({ type: DataType.INTEGER, allowNull: false })
+  declare coordinateX: number;
+
+  @Column({ type: DataType.INTEGER, allowNull: false })
+  declare coordinateY: number;
+
   @HasOne(() => GameTilePlacement)
   declare tilePlacement?: GameTilePlacement;
 

@@ -44,6 +44,27 @@ module.exports = {
         type: Sequelize.INTEGER,
         allowNull: true,
       },
+      coordinate_x: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+      },
+      coordinate_y: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+      },
+      line_id: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+      },
+      label_anchor: {
+        type: Sequelize.STRING(16),
+        allowNull: false,
+      },
+      is_interchange: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       created_at: {
         type: Sequelize.DATE,
         allowNull: false,
@@ -83,14 +104,6 @@ module.exports = {
         references: { model: 'game_nodes', key: 'id' },
         onUpdate: 'CASCADE',
         onDelete: 'CASCADE',
-      },
-      weight: {
-        type: Sequelize.INTEGER,
-        allowNull: true,
-      },
-      travel_seconds: {
-        type: Sequelize.INTEGER,
-        allowNull: true,
       },
       created_at: {
         type: Sequelize.DATE,

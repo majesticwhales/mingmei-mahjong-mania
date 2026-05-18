@@ -29,6 +29,12 @@ export class MapTemplateNode extends BaseModel {
   @Column({ type: DataType.DOUBLE, allowNull: false })
   declare longitude: number;
 
+  @Column({ type: DataType.INTEGER, allowNull: false })
+  declare coordinateX: number;
+
+  @Column({ type: DataType.INTEGER, allowNull: false })
+  declare coordinateY: number;
+
   @Column({ type: DataType.INTEGER, allowNull: true })
   declare geofenceRadiusMeters: number | null;
 }
