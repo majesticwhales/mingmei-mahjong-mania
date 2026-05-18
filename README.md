@@ -53,10 +53,16 @@ npm install && npm install --prefix client && npm install --prefix server
    npm run db:up
    ```
 
-3. Run migrations (after you add them):
+3. Run migrations:
 
    ```bash
    npm run db:migrate
+   ```
+
+4. Run seeding:
+
+   ```bash
+   npm run db:seed
    ```
 
 ## Scripts
