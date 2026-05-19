@@ -3,6 +3,7 @@ import {
   type GameTeamSlot,
   resolveTeamsForGameStart,
 } from "./even-team-assignment.ts";
+import { cloneMapTemplateToGame } from "./map-clone-service.ts";
 import { computeReadiness } from "./lobby-serializer.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Game } from "../models/game.ts";
@@ -21,7 +22,7 @@ export interface StartGameResult {
 
 /**
  * Phase B shell: create game row, four game teams, participants, persist resolved
- * lobby team slots. Phase C: clone map (84 nodes), deal 136 tiles, visibility
+ * lobby team slots. Phase C: map clone (done), deal 136 tiles, visibility
  * groups, scheduled jobs.
  */
 export async function startFromLobby(
@@ -123,6 +124,12 @@ export async function startFromLobby(
         configVersion: 1,
       },
       { transaction },
+    );
+
+    await cloneMapTemplateToGame(
+      game.id,
+      lobby.mapTemplateId,
+      transaction,
     );
 
     const gameTeamIdBySlot = new Map<GameTeamSlot, string>();
