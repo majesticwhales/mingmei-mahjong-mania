@@ -817,8 +817,8 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 | Phase | Work |
 |-------|------|
 | **A** | This doc; all §4 migrations; catalog seeds (`team_definitions`, `tile_types`, `challenge_types`, `map_template` **TTC 2026** with full WGS84 coords in `seeders/data/ttc2026-network.cjs`) |
-| **B** | Auth + lobby (host config, start rules) |
-| **C** | `GameStartService` (clone, deal, visibility partition, jobs) |
+| **B** | Auth + lobby HTTP APIs; **host** `POST /api/lobbies/:id/start` validates readiness, resolves teams (`even-team-assignment.ts`), persists `team_slot`, creates `games` + four `game_teams` + `game_participants`, closes lobby |
+| **C** | Extend **same** `GameStartService`: clone map (84 nodes/edges/lines), create 136 `game_tiles` + placements, visibility groups, scheduled jobs |
 | **D** | Engine, queue, scheduler, event tests |
 | **E** | Socket.IO, projections (sorted hands), reconnect |
 | **F** | Geolocation warn/allow |

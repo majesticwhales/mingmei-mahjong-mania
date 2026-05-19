@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { TeamAssignmentMode } from "../models/lobby.ts";
 import { asyncHandler } from "../middleware/async-handler.ts";
 import { HttpError } from "../lib/http-error.ts";
+import { startFromLobby } from "../services/game-start-service.ts";
 import * as lobbyService from "../services/lobby-service.ts";
 
 export const lobbiesRouter = Router();
@@ -142,5 +143,13 @@ lobbiesRouter.post(
       parseTeamSlot(body.teamSlot),
     );
     res.json({ lobby });
+  }),
+);
+
+lobbiesRouter.post(
+  "/:id/start",
+  asyncHandler(async (req, res) => {
+    const result = await startFromLobby(req.params.id, req.user!.id);
+    res.status(201).json(result);
   }),
 );
