@@ -257,6 +257,7 @@ export async function joinLobby(
   return getLobbyForUser(lobbyId, userId);
 }
 
+/** Set or change the member's team (1–4), or null for the random pool. Re-picking replaces a prior choice. */
 export async function pickTeam(
   lobbyId: string,
   userId: string,

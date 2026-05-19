@@ -12,7 +12,11 @@
     "db:migration:generate": "sequelize-cli migration:generate",
     "db:seed": "sequelize-cli db:seed:all",
     "db:seed:undo": "sequelize-cli db:seed:undo:all",
-    "db:seed:map-template": "sequelize-cli db:seed --seed 20260517202000-seed-map-template-ttc2026.cjs"
+    "db:seed:map-template": "sequelize-cli db:seed --seed 20260517202000-seed-map-template-ttc2026.cjs",
+    "test": "vitest run",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
@@ -31,8 +35,11 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.17.6",
+    "@types/supertest": "^7.2.0",
     "sequelize-cli": "^6.6.5",
+    "supertest": "^7.2.2",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.6"
   }
 }
