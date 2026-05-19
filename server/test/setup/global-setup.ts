@@ -2,7 +2,31 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
+import pg from "pg";
 import { assertTestDatabaseUrl } from "./assert-test-database.ts";
+
+async function ensureTestDatabaseExists(testUrl: string): Promise<void> {
+  const url = new URL(testUrl);
+  const dbName = decodeURIComponent(url.pathname.replace(/^\//, ""));
+  if (!dbName) {
+    throw new Error("DATABASE_URL_TEST must include a database name");
+  }
+
+  url.pathname = "/postgres";
+  const client = new pg.Client({ connectionString: url.toString() });
+  await client.connect();
+  try {
+    const { rowCount } = await client.query(
+      "SELECT 1 FROM pg_database WHERE datname = $1",
+      [dbName],
+    );
+    if (rowCount === 0) {
+      await client.query(`CREATE DATABASE "${dbName.replace(/"/g, '""')}"`);
+    }
+  } finally {
+    await client.end();
+  }
+}
 
 const serverRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -26,6 +50,8 @@ export default async function globalSetup(): Promise<void> {
 
   process.env.NODE_ENV = "test";
   process.env.DATABASE_URL = testUrl;
+
+  await ensureTestDatabaseExists(testUrl);
 
   const env = { ...process.env };
 
