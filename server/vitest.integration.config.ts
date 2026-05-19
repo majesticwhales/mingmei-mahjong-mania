@@ -9,9 +9,9 @@ export default defineConfig({
     include: ["test/integration/**/*.test.ts"],
     setupFiles: ["./test/setup/env.ts"],
     globalSetup: ["./test/setup/global-setup.ts"],
-    globalTeardown: ["./test/setup/global-teardown.ts"],
     fileParallelism: false,
     pool: "forks",
     maxWorkers: 1,
+    testTimeout: 15000,
   },
 });

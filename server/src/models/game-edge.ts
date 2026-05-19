@@ -31,10 +31,4 @@ export class GameEdge extends BaseModel {
 
   @BelongsTo(() => GameNode, "toGameNodeId")
   declare toGameNode?: GameNode;
-
-  @Column({ type: DataType.INTEGER, allowNull: true })
-  declare weight: number | null;
-
-  @Column({ type: DataType.INTEGER, allowNull: true })
-  declare travelSeconds: number | null;
 }

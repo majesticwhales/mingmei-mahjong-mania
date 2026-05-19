@@ -155,8 +155,6 @@ export async function cloneMapTemplateToGame(
           gameId,
           fromGameNodeId,
           toGameNodeId,
-          weight: null,
-          travelSeconds: null,
         };
       }),
       { transaction },

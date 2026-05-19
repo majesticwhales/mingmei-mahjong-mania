@@ -33,7 +33,7 @@ const serverRoot = path.resolve(
   "../..",
 );
 
-export default async function globalSetup(): Promise<void> {
+export default async function globalSetup(): Promise<() => Promise<void>> {
   dotenv.config({ path: path.join(serverRoot, ".env") });
 
   const testUrl = process.env.DATABASE_URL_TEST;
@@ -65,4 +65,13 @@ export default async function globalSetup(): Promise<void> {
     env,
     stdio: "inherit",
   });
+
+  return async () => {
+    try {
+      const { sequelize } = await import("../../src/config/database.ts");
+      await sequelize.close();
+    } catch {
+      // No connection opened yet — ignore.
+    }
+  };
 }
