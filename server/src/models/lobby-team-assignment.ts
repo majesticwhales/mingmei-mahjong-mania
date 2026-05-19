@@ -25,7 +25,11 @@ export class LobbyTeamAssignment extends BaseModel {
   @BelongsTo(() => User)
   declare user?: User;
 
-  /** 1–4 when assigned; null = random pool at game start */
+  /**
+   * Game team index 1–4 (maps to team_definitions at start).
+   * Multiple users in the same lobby may share the same value.
+   * null = random pool at game start.
+   */
   @Column({ type: DataType.INTEGER, allowNull: true })
   declare teamSlot: number | null;
 }
