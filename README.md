@@ -112,6 +112,8 @@ Run these from the **project root** unless noted otherwise.
 | `npm run test:integration` | Integration/API tests (test DB) |
 | `npm run test:watch` | Vitest watch mode |
 
+**CI:** Pull requests and pushes to `main` run `npm test` in `server/` via GitHub Actions (`.github/workflows/server-tests.yml`) against a Postgres 16 service on port 5432. Local Docker Compose still uses port 5433.
+
 ## Development
 
 1. Start both apps:
