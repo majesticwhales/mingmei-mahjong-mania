@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import { sequelize } from "./config/database.ts";
 import { errorHandler } from "./middleware/error-handler.ts";
+import { authRouter } from "./routes/auth.ts";
 import { getDefaultNetwork, mapTemplatesRouter } from "./routes/map-templates.ts";
 
 export const app = express();
@@ -25,6 +26,7 @@ app.get("/api/health", async (_req, res) => {
 /** Default catalog map (TTC 2026) in client `Network` shape + template metadata. */
 app.get("/api/network", getDefaultNetwork);
 
+app.use("/api/auth", authRouter);
 app.use("/api/map-templates", mapTemplatesRouter);
 
 app.use(errorHandler);
