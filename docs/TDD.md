@@ -860,6 +860,32 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 
 ---
 
+## 12. Testing
+
+**Stack:** Vitest + Supertest; Postgres **test database only** for any test that touches the DB.
+
+| Layer | Location | Database |
+|-------|----------|----------|
+| Unit | `server/test/unit/**` | None |
+| Integration | `server/test/integration/services/**` | `DATABASE_URL_TEST` only |
+| API | `server/test/integration/api/**` | `DATABASE_URL_TEST` only |
+
+**Commands** (from `server/`):
+
+- `npm test` — all suites
+- `npm run test:unit` — pure logic (no migrate/seed)
+- `npm run test:integration` — service + HTTP tests against test DB
+
+**Rules:**
+
+- `DATABASE_URL_TEST` is required; harness sets `DATABASE_URL` from it before app/Sequelize load. Database name must contain `test`. Never run integration tests against dev data.
+- Global setup migrates + seeds the **test** DB once per integration run; `beforeEach` truncates mutable tables, keeps catalog seeds.
+- **Intentional coverage only** — test business rules and regressions, not framework boilerplate. Prefer one orchestration test over duplicate DB count assertions. API tests assert HTTP status + error `code`; deep invariants live in service integration tests.
+
+Phase D+ adds engine/scheduler/socket suites under the same tree.
+
+---
+
 ## Appendix: example `game.state` (team-scoped snapshot)
 
 Team is checked in at `STN_42` (fogged on map). Home quarter nodes include `STN_01` with a visible tile.

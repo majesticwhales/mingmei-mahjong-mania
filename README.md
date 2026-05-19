@@ -65,6 +65,16 @@ npm install && npm install --prefix client && npm install --prefix server
    npm run db:seed
    ```
 
+5. Create the **test** database (once):
+
+   ```sql
+   CREATE DATABASE mahjong_jet_lag_test;
+   ```
+
+   Or via Docker: `docker exec -it <postgres_container> psql -U postgres -c "CREATE DATABASE mahjong_jet_lag_test;"`
+
+   Ensure `DATABASE_URL_TEST` in `server/.env` points at it (see `server/.env.example`).
+
 ## Scripts
 
 Run these from the **project root** unless noted otherwise.
@@ -97,6 +107,10 @@ Run these from the **project root** unless noted otherwise.
 | `npm run db:migrate:undo` | Undo the last migration |
 | `npm run db:migrate:status` | Show migration status |
 | `npm run db:migration:generate -- --name <name>` | Create a new migration file |
+| `npm test` | Run all Vitest suites |
+| `npm run test:unit` | Unit tests only (no DB migrate/seed) |
+| `npm run test:integration` | Integration/API tests (test DB) |
+| `npm run test:watch` | Vitest watch mode |
 
 ## Development
 
