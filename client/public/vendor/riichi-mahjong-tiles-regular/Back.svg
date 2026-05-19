@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 90" role="img" aria-label="Tile back">
+  <defs>
+    <linearGradient id="tileBack" x1="0" x2="64" y1="0" y2="90" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffc928"/>
+      <stop offset="0.5" stop-color="#f0a900"/>
+      <stop offset="1" stop-color="#c97900"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="90" rx="9" fill="url(#tileBack)"/>
+  <path d="M60 9v72" stroke="#9d5f00" stroke-linecap="round" stroke-width="3" opacity="0.22"/>
+  <path d="M9 5h46" stroke="#ffe58a" stroke-linecap="round" stroke-width="3" opacity="0.35"/>
+</svg>

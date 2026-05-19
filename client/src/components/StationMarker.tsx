@@ -1,10 +1,11 @@
-import type { KeyboardEvent } from "react";
-import type { RiichiTileCopy } from "../data/riichiTiles";
+import { useEffect, useRef, type KeyboardEvent } from "react";
+import { TILE_BACK_IMAGE_PATH, type RiichiTileCopy } from "../data/riichiTiles";
 import type { LabelAnchor, Station } from "../data/types";
 
 interface Props {
   station: Station;
   tile: RiichiTileCopy | null;
+  isTileVisible: boolean;
   isSelected: boolean;
   onSelect: (id: string) => void;
 }
@@ -49,8 +50,16 @@ function defaultRotate(station: Station, anchor: LabelAnchor): number {
 const TILE_WIDTH = 16;
 const TILE_HEIGHT = 22;
 
-export function StationMarker({ station, tile, isSelected, onSelect }: Props) {
+export function StationMarker({
+  station,
+  tile,
+  isTileVisible,
+  isSelected,
+  onSelect,
+}: Props) {
+  const markerRef = useRef<SVGGElement>(null);
   const isInterchange = station.isInterchange;
+  const tileImagePath = isTileVisible ? tile?.imagePath : TILE_BACK_IMAGE_PATH;
   const anchor = station.labelAnchor ?? defaultAnchor(station);
   const placement = LABEL_OFFSETS[anchor];
   let labelX = station.x + placement.dx;
@@ -105,6 +114,12 @@ export function StationMarker({ station, tile, isSelected, onSelect }: Props) {
     labelTransform = `rotate(${rotation} ${labelX} ${labelY})`;
   }
 
+  useEffect(() => {
+    if (isSelected && document.activeElement !== markerRef.current) {
+      markerRef.current?.focus({ preventScroll: true });
+    }
+  }, [isSelected]);
+
   const handleKey = (event: KeyboardEvent<SVGGElement>) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -114,7 +129,10 @@ export function StationMarker({ station, tile, isSelected, onSelect }: Props) {
 
   return (
     <g
-      className={`station-marker${isSelected ? " station-marker--selected" : ""}`}
+      ref={markerRef}
+      className={`station-marker${isSelected ? " station-marker--selected" : ""}${
+        isTileVisible ? "" : " station-marker--hidden-tile"
+      }`}
       role="button"
       tabIndex={0}
       aria-label={`${station.name}${isInterchange ? " (interchange)" : ""}`}
@@ -147,9 +165,9 @@ export function StationMarker({ station, tile, isSelected, onSelect }: Props) {
           rx={2.6}
           aria-hidden="true"
         />
-        {tile && (
+        {tileImagePath && (
           <image
-            href={tile.imagePath}
+            href={tileImagePath}
             x={2}
             y={2.25}
             width={TILE_WIDTH - 4}

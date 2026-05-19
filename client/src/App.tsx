@@ -3,6 +3,10 @@ import "./App.css";
 import { Legend } from "./components/Legend";
 import { MapShell } from "./components/MapShell";
 import { StationPanel } from "./components/StationPanel";
+import {
+  PLAYER_VIEW_OPTIONS,
+  type PlayerViewMode,
+} from "./data/playerViews";
 import { shuffleRiichiTileWall } from "./data/riichiTiles";
 import type { Network } from "./data/types";
 import { getNetwork } from "./services/network";
@@ -24,6 +28,7 @@ export default function App() {
   const [network, setNetwork] = useState<Network | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [tileWall, setTileWall] = useState(shuffleRiichiTileWall);
+  const [viewMode, setViewMode] = useState<PlayerViewMode>("admin");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,6 +50,35 @@ export default function App() {
     return network.stations.find((s) => s.id === selectedStationId) ?? null;
   }, [network, selectedStationId]);
 
+  const stationsById = useMemo(() => {
+    if (!network) return new Map<string, Network["stations"][number]>();
+    return new Map(network.stations.map((station) => [station.id, station]));
+  }, [network]);
+
+  const connectedStationIdsByStationId = useMemo(() => {
+    const connectedStations = new Map<string, Set<string>>();
+    if (!network) return connectedStations;
+
+    for (const line of network.lines) {
+      for (let index = 0; index < line.stationIds.length - 1; index += 1) {
+        const stationId = line.stationIds[index];
+        const nextStationId = line.stationIds[index + 1];
+
+        if (!connectedStations.has(stationId)) {
+          connectedStations.set(stationId, new Set());
+        }
+        if (!connectedStations.has(nextStationId)) {
+          connectedStations.set(nextStationId, new Set());
+        }
+
+        connectedStations.get(stationId)?.add(nextStationId);
+        connectedStations.get(nextStationId)?.add(stationId);
+      }
+    }
+
+    return connectedStations;
+  }, [network]);
+
   const selectStationByDirection = useCallback(
     (key: ArrowKey) => {
       if (!network) return;
@@ -63,8 +97,12 @@ export default function App() {
               ? { x: 0, y: 1 }
               : { x: 0, y: -1 };
 
-      const nextStation = network.stations
-        .filter((station) => station.id !== currentStation.id)
+      const connectedStationIds =
+        connectedStationIdsByStationId.get(currentStation.id) ?? new Set<string>();
+
+      const nextStation = Array.from(connectedStationIds)
+        .map((stationId) => stationsById.get(stationId))
+        .filter((station): station is Network["stations"][number] => Boolean(station))
         .map((station) => {
           const dx = station.x - currentStation.x;
           const dy = station.y - currentStation.y;
@@ -83,7 +121,7 @@ export default function App() {
         setSelectedStationId(nextStation.id);
       }
     },
-    [network, selectedStation],
+    [connectedStationIdsByStationId, network, selectedStation, stationsById],
   );
 
   useEffect(() => {
@@ -127,8 +165,21 @@ export default function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <h1 className="app__title">Toronto TTC 2026</h1>
+        <h1 className="app__title">Mingmei's Mahjong Mania</h1>
         <Legend lines={network.lines} />
+        <label className="app__view-selector">
+          <span>View</span>
+          <select
+            value={viewMode}
+            onChange={(event) => setViewMode(event.target.value as PlayerViewMode)}
+          >
+            {PLAYER_VIEW_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </header>
 
       <main className="app__map">
@@ -139,6 +190,7 @@ export default function App() {
           network={network}
           selectedStationId={selectedStationId}
           tileWall={tileWall}
+          viewMode={viewMode}
           onSelectStation={setSelectedStationId}
         />
       </main>
@@ -147,6 +199,7 @@ export default function App() {
         network={network}
         station={selectedStation}
         tileWall={tileWall}
+        viewMode={viewMode}
         onShuffleTiles={() => setTileWall(shuffleRiichiTileWall())}
         onClose={() => setSelectedStationId(null)}
       />
