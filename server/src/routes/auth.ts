@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { asyncHandler } from "../middleware/async-handler.ts";
-import { requireAuth } from "../middleware/require-auth.ts";
 import { HttpError } from "../lib/http-error.ts";
 import * as authService from "../services/auth-service.ts";
 
-export const authRouter = Router();
+/** POST /register, POST /login — no auth required. */
+export const authPublicRouter = Router();
 
-authRouter.post(
+authPublicRouter.post(
   "/register",
   asyncHandler(async (req, res) => {
     const { email, username, password } = req.body ?? {};
@@ -26,7 +26,7 @@ authRouter.post(
   }),
 );
 
-authRouter.post(
+authPublicRouter.post(
   "/login",
   asyncHandler(async (req, res) => {
     const { email, password } = req.body ?? {};
@@ -42,9 +42,11 @@ authRouter.post(
   }),
 );
 
-authRouter.get(
+/** GET /me — mounted in app.ts as `app.use("/api/auth", requireAuth, authProtectedRouter)`. */
+export const authProtectedRouter = Router();
+
+authProtectedRouter.get(
   "/me",
-  requireAuth,
   asyncHandler(async (req, res) => {
     const user = await authService.getUserById(req.user!.id);
     res.json({ user });
