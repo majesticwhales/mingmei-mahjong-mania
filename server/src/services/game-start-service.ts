@@ -6,6 +6,7 @@ import {
 import { cloneMapTemplateToGame } from "./map-clone-service.ts";
 import { computeReadiness } from "./lobby-serializer.ts";
 import { bootstrapGameVisibility } from "./game-visibility-bootstrap.ts";
+import { scheduleGameJobs } from "./game-schedule-service.ts";
 import { dealTilesForGame } from "./tile-deal-service.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Game } from "../models/game.ts";
@@ -23,9 +24,8 @@ export interface StartGameResult {
 }
 
 /**
- * Phase B shell: create game row, four game teams, participants, persist resolved
- * lobby team slots. Phase C: map clone, tile deal, visibility bootstrap (done);
- * scheduled jobs pending (Phase C commit 5).
+ * Creates a full playable game from a ready lobby: teams, map clone, tile deal,
+ * visibility bootstrap, and pending scheduled jobs. Job execution is Phase D.
  */
 export async function startFromLobby(
   lobbyId: string,
@@ -178,6 +178,14 @@ export async function startFromLobby(
       gameTeamIdBySlot,
       startedAt,
       lobby.defaultStartNodeCode,
+      transaction,
+    );
+
+    await scheduleGameJobs(
+      game.id,
+      startedAt,
+      endsAt,
+      lobby.visibilityPhaseIntervalSeconds,
       transaction,
     );
 
