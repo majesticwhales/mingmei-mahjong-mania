@@ -34,6 +34,8 @@ export interface LobbyConfigDto {
   visibilityPhaseIntervalSeconds: number;
   teamAssignmentMode: TeamAssignmentMode;
   minPlayersToStart: number;
+  /** Station code where all teams spawn at game start (null = no default). */
+  defaultStartNodeCode: string | null;
   configUpdatedAt: Date | null;
 }
 
@@ -171,6 +173,7 @@ export function serializeLobbyDetail(
       visibilityPhaseIntervalSeconds: lobby.visibilityPhaseIntervalSeconds,
       teamAssignmentMode: lobby.teamAssignmentMode,
       minPlayersToStart: lobby.minPlayersToStart,
+      defaultStartNodeCode: lobby.defaultStartNodeCode,
       configUpdatedAt: lobby.configUpdatedAt,
     },
     members: memberDtos,

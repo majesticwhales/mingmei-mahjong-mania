@@ -4,6 +4,10 @@ import { Lobby, type TeamAssignmentMode } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
 import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import { MapTemplate } from "../models/map-template.ts";
+import {
+  assertStartNodeCodeOnTemplate,
+  normalizeStartNodeCode,
+} from "./map-template-start-node.ts";
 import { User } from "../models/user.ts";
 import { GAME_TEAM_SLOTS } from "./even-team-assignment.ts";
 import {
@@ -20,6 +24,7 @@ export interface CreateLobbyOptions {
   visibilityPhaseIntervalSeconds?: number;
   teamAssignmentMode?: TeamAssignmentMode;
   minPlayersToStart?: number;
+  defaultStartNodeCode?: string | null;
 }
 
 export interface UpdateLobbyConfigPatch {
@@ -28,6 +33,7 @@ export interface UpdateLobbyConfigPatch {
   visibilityPhaseIntervalSeconds?: number;
   teamAssignmentMode?: TeamAssignmentMode;
   minPlayersToStart?: number;
+  defaultStartNodeCode?: string | null;
 }
 
 async function resolveMapTemplate(mapTemplateId?: string): Promise<MapTemplate> {
@@ -148,6 +154,15 @@ export async function createLobby(
     );
   }
 
+  let defaultStartNodeCode =
+    options.defaultStartNodeCode !== undefined
+      ? options.defaultStartNodeCode
+      : template.defaultStartNodeCode;
+  if (defaultStartNodeCode != null) {
+    defaultStartNodeCode = normalizeStartNodeCode(defaultStartNodeCode);
+    await assertStartNodeCodeOnTemplate(template.id, defaultStartNodeCode);
+  }
+
   const now = new Date();
 
   return sequelize.transaction(async (transaction) => {
@@ -160,6 +175,7 @@ export async function createLobby(
         visibilityPhaseIntervalSeconds,
         teamAssignmentMode,
         minPlayersToStart,
+        defaultStartNodeCode,
         configUpdatedAt: now,
       },
       { transaction },
@@ -273,8 +289,11 @@ export async function updateConfig(
   assertIsHost(lobby, hostUserId);
 
   if (patch.mapTemplateId != null) {
-    await resolveMapTemplate(patch.mapTemplateId);
-    lobby.mapTemplateId = patch.mapTemplateId;
+    const template = await resolveMapTemplate(patch.mapTemplateId);
+    lobby.mapTemplateId = template.id;
+    if (patch.defaultStartNodeCode === undefined) {
+      lobby.defaultStartNodeCode = template.defaultStartNodeCode;
+    }
   }
   if (patch.gameDurationSeconds != null) {
     if (patch.gameDurationSeconds < 60) {
@@ -309,6 +328,15 @@ export async function updateConfig(
       );
     }
     lobby.minPlayersToStart = patch.minPlayersToStart;
+  }
+  if (patch.defaultStartNodeCode !== undefined) {
+    if (patch.defaultStartNodeCode === null) {
+      lobby.defaultStartNodeCode = null;
+    } else {
+      const code = normalizeStartNodeCode(patch.defaultStartNodeCode);
+      await assertStartNodeCodeOnTemplate(lobby.mapTemplateId, code);
+      lobby.defaultStartNodeCode = code;
+    }
   }
 
   lobby.configUpdatedAt = new Date();

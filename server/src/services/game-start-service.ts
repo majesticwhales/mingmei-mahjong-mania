@@ -3,7 +3,11 @@ import {
   type GameTeamSlot,
   resolveTeamsForGameStart,
 } from "./even-team-assignment.ts";
+import { cloneMapTemplateToGame } from "./map-clone-service.ts";
 import { computeReadiness } from "./lobby-serializer.ts";
+import { bootstrapGameVisibility } from "./game-visibility-bootstrap.ts";
+import { scheduleGameJobs } from "./game-schedule-service.ts";
+import { dealTilesForGame } from "./tile-deal-service.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Game } from "../models/game.ts";
 import { GameParticipant } from "../models/game-participant.ts";
@@ -20,9 +24,8 @@ export interface StartGameResult {
 }
 
 /**
- * Phase B shell: create game row, four game teams, participants, persist resolved
- * lobby team slots. Phase C: clone map (84 nodes), deal 136 tiles, visibility
- * groups, scheduled jobs.
+ * Creates a full playable game from a ready lobby: teams, map clone, tile deal,
+ * visibility bootstrap, and pending scheduled jobs. Job execution is Phase D.
  */
 export async function startFromLobby(
   lobbyId: string,
@@ -125,6 +128,12 @@ export async function startFromLobby(
       { transaction },
     );
 
+    await cloneMapTemplateToGame(
+      game.id,
+      lobby.mapTemplateId,
+      transaction,
+    );
+
     const gameTeamIdBySlot = new Map<GameTeamSlot, string>();
     for (let slot = 1; slot <= 4; slot += 1) {
       const definition = teamDefinitions[slot - 1];
@@ -161,6 +170,24 @@ export async function startFromLobby(
         { transaction },
       );
     }
+
+    await dealTilesForGame(game.id, gameTeamIdBySlot, transaction);
+
+    await bootstrapGameVisibility(
+      game.id,
+      gameTeamIdBySlot,
+      startedAt,
+      lobby.defaultStartNodeCode,
+      transaction,
+    );
+
+    await scheduleGameJobs(
+      game.id,
+      startedAt,
+      endsAt,
+      lobby.visibilityPhaseIntervalSeconds,
+      transaction,
+    );
 
     lobby.status = "closed";
     await lobby.save({ transaction });

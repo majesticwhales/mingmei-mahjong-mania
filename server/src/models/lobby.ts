@@ -54,6 +54,10 @@ export class Lobby extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 4 })
   declare minPlayersToStart: number;
 
+  /** Station code on the lobby map where all teams start (from template by default). */
+  @Column({ type: DataType.STRING(64), allowNull: true })
+  declare defaultStartNodeCode: string | null;
+
   @Column({ type: DataType.DATE, allowNull: true })
   declare configUpdatedAt: Date | null;
 

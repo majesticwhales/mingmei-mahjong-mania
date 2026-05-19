@@ -17,6 +17,25 @@ function parseOptionalString(value: unknown): string | undefined {
   return value;
 }
 
+function parseOptionalNullableStartNodeCode(
+  value: unknown,
+): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new HttpError(
+      400,
+      "validation_error",
+      "defaultStartNodeCode must be a non-empty station code or null",
+    );
+  }
+  return value;
+}
+
 function parseOptionalPositiveInt(
   value: unknown,
   fieldName: string,
@@ -81,6 +100,9 @@ lobbiesRouter.post(
         body.minPlayersToStart,
         "minPlayersToStart",
       ),
+      defaultStartNodeCode: parseOptionalNullableStartNodeCode(
+        body.defaultStartNodeCode,
+      ),
     });
     res.status(201).json({ lobby });
   }),
@@ -115,6 +137,9 @@ lobbiesRouter.patch(
         minPlayersToStart: parseOptionalPositiveInt(
           body.minPlayersToStart,
           "minPlayersToStart",
+        ),
+        defaultStartNodeCode: parseOptionalNullableStartNodeCode(
+          body.defaultStartNodeCode,
         ),
       },
     );
