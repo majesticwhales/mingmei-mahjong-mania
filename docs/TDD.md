@@ -59,7 +59,7 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 | Hand order | **Server-sorted** (`suit_sort_order` → `rank`); client renders as given |
 | Tile visibility | Scheduled **quarter unlock** + **ephemeral** view while checked in at a station |
 | Game config | **Lobby**, editable by **host only**; snapshotted to `games` at start |
-| Lobby start | `min_players_to_start` (default **4**); every member assigned to a team |
+| Lobby start | `min_players_to_start` (default **4**); every member picks a team (1–4); **>= 1 player per team** before start; multiple players may share the same team |
 | Travel | **Any station** on check-in (honor + geofence); skipping stations OK |
 | Commands | `CHECK_IN`, `CHECK_OUT`, `SWAP_TILE`, `SWAP_LOCATION_TILES` (separate) |
 | Team commands | **Any member** on that team (`game_participants`) |
@@ -367,7 +367,21 @@ Sequelize model: `User` (`server/src/models/user.ts`).
 
 **Config:** only `host_user_id` may `PATCH /api/lobbies/:id/config`.
 
-**Start rule:** member count ≥ `min_players_to_start` and all members have `team_slot` 1–4 (none in random pool).
+**Start rule:**
+
+- Member count ≥ `min_players_to_start` (default **4**; must be ≥ 4 so all teams can be staffed).
+- **Each team 1–4 has at least one member** after resolving assignments (many players may share the same team).
+- Mode-specific rules below.
+
+**`team_assignment_mode`:**
+
+| Mode | Lobby behavior | At game start (`GameStartService`) |
+|------|----------------|-------------------------------------|
+| `pick` | Every member must choose `team_slot` 1–4 before start. | Use picks as-is. |
+| `random` | Members may leave `team_slot` null until start. | Assign **all** members across teams 1–4 **as evenly as possible** (shuffle order, then repeatedly place each player on a currently smallest team; random tie-break). |
+| `mixed` | Members may pick a team or stay in the random pool (`null`). | Keep picks; assign pool members on top of existing counts using the same **even distribution** algorithm. Readiness: enough pool players to fill any team with zero picks. |
+
+Even distribution implementation: `server/src/services/even-team-assignment.ts` (`assignTeamsEvenly`, `resolveTeamsForGameStart`).
 
 #### `lobby_members`
 
@@ -375,7 +389,7 @@ Sequelize model: `User` (`server/src/models/user.ts`).
 
 #### `lobby_team_assignments`
 
-`lobby_id`, `user_id`, `team_slot` (1–4, nullable = random pool at start).
+`lobby_id`, `user_id`, `team_slot` — which of the four game teams (1–4) the user chose. **Not unique per lobby:** many users may share the same `team_slot`. `null` = random pool (assigned evenly at start in `random` / `mixed` modes).
 
 #### `games`
 
@@ -390,7 +404,7 @@ Sequelize model: `User` (`server/src/models/user.ts`).
 
 #### `game_participants`
 
-`game_id`, `user_id`, `game_team_id`.
+`game_id`, `user_id`, `game_team_id`. Many rows may reference the same `game_team_id` when several lobby members chose the same team. All participants on a team share that team’s hand and may issue commands for it.
 
 ### 4.2 Teams (catalog vs runtime)
 
@@ -587,7 +601,7 @@ Optional (later): `game_event_media` (`event_id`, `media_asset_id`) for multiple
 ```mermaid
 stateDiagram-v2
   [*] --> LobbyWaiting: create_lobby
-  LobbyWaiting --> LobbyReady: min_players_all_on_teams
+  LobbyWaiting --> LobbyReady: min_players_and_all_teams_staffed
   LobbyReady --> GameActive: host_starts
   GameActive --> GameEnding: GAME_END_job
   GameEnding --> GameEnded: queue_drained

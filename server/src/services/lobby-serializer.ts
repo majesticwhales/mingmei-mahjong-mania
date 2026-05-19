@@ -2,6 +2,11 @@ import type { Lobby, LobbyStatus, TeamAssignmentMode } from "../models/lobby.ts"
 import type { LobbyMember } from "../models/lobby-member.ts";
 import type { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import type { User } from "../models/user.ts";
+import {
+  canStaffMissingTeamsWithPool,
+  emptyTeamCounts,
+  GAME_TEAM_SLOTS,
+} from "./even-team-assignment.ts";
 
 export interface LobbyMemberDto {
   userId: string;
@@ -15,6 +20,12 @@ export interface LobbyReadinessDto {
   reasons: string[];
   memberCount: number;
   minPlayersToStart: number;
+  /** Player count per team slot 1–4 (picked members only; random pool not included). */
+  playersPerTeam: Record<string, number>;
+  /** Team slots 1–4 with zero picked players. */
+  missingTeams: number[];
+  /** Members waiting for random assignment at start. */
+  unassignedCount: number;
 }
 
 export interface LobbyConfigDto {
@@ -35,6 +46,30 @@ export interface LobbyDetailDto {
   readiness: LobbyReadinessDto;
 }
 
+function countPlayersPerTeam(
+  members: LobbyMember[],
+  assignmentByUser: Map<string, number | null | undefined>,
+): Record<string, number> {
+  const counts = emptyTeamCounts();
+  for (const member of members) {
+    const slot = assignmentByUser.get(member.userId);
+    if (slot != null && slot >= 1 && slot <= 4) {
+      counts[String(slot)] += 1;
+    }
+  }
+  return counts;
+}
+
+function countUnassigned(
+  members: LobbyMember[],
+  assignmentByUser: Map<string, number | null | undefined>,
+): number {
+  return members.filter((m) => {
+    const slot = assignmentByUser.get(m.userId);
+    return slot == null || slot < 1 || slot > 4;
+  }).length;
+}
+
 export function computeReadiness(
   lobby: Lobby,
   members: LobbyMember[],
@@ -43,6 +78,7 @@ export function computeReadiness(
   const reasons: string[] = [];
   const memberCount = members.length;
   const minPlayersToStart = lobby.minPlayersToStart;
+  const mode = lobby.teamAssignmentMode;
 
   if (lobby.status !== "waiting") {
     reasons.push(`Lobby status is "${lobby.status}", not waiting`);
@@ -56,20 +92,38 @@ export function computeReadiness(
   const assignmentByUser = new Map(
     teamAssignments.map((a) => [a.userId, a.teamSlot]),
   );
-  for (const member of members) {
-    const slot = assignmentByUser.get(member.userId);
-    if (slot == null || slot < 1 || slot > 4) {
-      reasons.push("All members must pick a team (slots 1–4)");
-      break;
-    }
-  }
+  const playersPerTeam = countPlayersPerTeam(members, assignmentByUser);
+  const unassignedCount = countUnassigned(members, assignmentByUser);
+  const missingTeams = GAME_TEAM_SLOTS.filter(
+    (team) => playersPerTeam[String(team)] === 0,
+  );
 
-  const slotsUsed = teamAssignments
-    .map((a) => a.teamSlot)
-    .filter((s): s is number => s != null && s >= 1 && s <= 4);
-  const uniqueSlots = new Set(slotsUsed);
-  if (uniqueSlots.size !== slotsUsed.length) {
-    reasons.push("Duplicate team slots assigned");
+  if (mode === "pick") {
+    if (unassignedCount > 0) {
+      reasons.push("All members must pick a team (1–4)");
+    }
+    if (missingTeams.length > 0) {
+      reasons.push(
+        `Each team needs at least one player (missing: ${missingTeams.join(", ")})`,
+      );
+    }
+  } else if (mode === "random") {
+    if (memberCount < GAME_TEAM_SLOTS.length) {
+      reasons.push(
+        `Need at least ${GAME_TEAM_SLOTS.length} players for random team assignment`,
+      );
+    }
+    // At start, assignTeamsEvenly guarantees each team gets ≥1 when n ≥ 4
+  } else if (mode === "mixed") {
+    const { ok, missingTeams: stillMissing } = canStaffMissingTeamsWithPool(
+      playersPerTeam,
+      unassignedCount,
+    );
+    if (!ok) {
+      reasons.push(
+        `Not enough unassigned players to fill teams ${stillMissing.join(", ")} (pick a team or wait for random assign at start)`,
+      );
+    }
   }
 
   return {
@@ -77,6 +131,9 @@ export function computeReadiness(
     reasons,
     memberCount,
     minPlayersToStart,
+    playersPerTeam,
+    missingTeams: [...missingTeams],
+    unassignedCount,
   };
 }
 

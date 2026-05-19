@@ -5,6 +5,7 @@ import { LobbyMember } from "../models/lobby-member.ts";
 import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import { MapTemplate } from "../models/map-template.ts";
 import { User } from "../models/user.ts";
+import { GAME_TEAM_SLOTS } from "./even-team-assignment.ts";
 import {
   computeReadiness,
   type LobbyDetailDto,
@@ -12,7 +13,6 @@ import {
 } from "./lobby-serializer.ts";
 
 const DEFAULT_TEMPLATE_NAME = "TTC 2026";
-const TEAM_SLOTS = [1, 2, 3, 4] as const;
 
 export interface CreateLobbyOptions {
   mapTemplateId?: string;
@@ -88,11 +88,12 @@ function assertIsHost(lobby: Lobby, userId: string) {
   }
 }
 
+/** teamSlot is the game team index (1–4); multiple users may pick the same team. */
 function validateTeamSlot(teamSlot: number | null) {
   if (teamSlot === null) {
     return;
   }
-  if (!TEAM_SLOTS.includes(teamSlot as (typeof TEAM_SLOTS)[number])) {
+  if (!GAME_TEAM_SLOTS.includes(teamSlot as (typeof GAME_TEAM_SLOTS)[number])) {
     throw new HttpError(
       400,
       "validation_error",
@@ -139,11 +140,11 @@ export async function createLobby(
       "visibilityPhaseIntervalSeconds must be positive",
     );
   }
-  if (minPlayersToStart < 2 || minPlayersToStart > 4) {
+  if (minPlayersToStart < 4) {
     throw new HttpError(
       400,
       "validation_error",
-      "minPlayersToStart must be between 2 and 4",
+      "minPlayersToStart must be at least 4 (one player per team minimum)",
     );
   }
 
@@ -251,15 +252,6 @@ export async function pickTeam(
   assertLobbyWaiting(lobby);
   assertIsMember(members, userId);
 
-  if (teamSlot != null) {
-    const taken = teamAssignments.find(
-      (a) => a.userId !== userId && a.teamSlot === teamSlot,
-    );
-    if (taken) {
-      throw new HttpError(409, "team_slot_taken", `Team slot ${teamSlot} is taken`);
-    }
-  }
-
   const assignment = teamAssignments.find((a) => a.userId === userId);
   if (!assignment) {
     throw new HttpError(500, "internal_error", "Missing team assignment row");
@@ -309,11 +301,11 @@ export async function updateConfig(
     lobby.teamAssignmentMode = patch.teamAssignmentMode;
   }
   if (patch.minPlayersToStart != null) {
-    if (patch.minPlayersToStart < 2 || patch.minPlayersToStart > 4) {
+    if (patch.minPlayersToStart < 4) {
       throw new HttpError(
         400,
         "validation_error",
-        "minPlayersToStart must be between 2 and 4",
+        "minPlayersToStart must be at least 4 (one player per team minimum)",
       );
     }
     lobby.minPlayersToStart = patch.minPlayersToStart;
