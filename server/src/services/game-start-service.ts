@@ -5,6 +5,7 @@ import {
 } from "./even-team-assignment.ts";
 import { cloneMapTemplateToGame } from "./map-clone-service.ts";
 import { computeReadiness } from "./lobby-serializer.ts";
+import { bootstrapGameVisibility } from "./game-visibility-bootstrap.ts";
 import { dealTilesForGame } from "./tile-deal-service.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Game } from "../models/game.ts";
@@ -23,8 +24,8 @@ export interface StartGameResult {
 
 /**
  * Phase B shell: create game row, four game teams, participants, persist resolved
- * lobby team slots. Phase C: map clone + tile deal (done), visibility
- * groups, scheduled jobs.
+ * lobby team slots. Phase C: map clone, tile deal, visibility bootstrap (done);
+ * scheduled jobs pending (Phase C commit 5).
  */
 export async function startFromLobby(
   lobbyId: string,
@@ -171,6 +172,14 @@ export async function startFromLobby(
     }
 
     await dealTilesForGame(game.id, gameTeamIdBySlot, transaction);
+
+    await bootstrapGameVisibility(
+      game.id,
+      gameTeamIdBySlot,
+      startedAt,
+      lobby.defaultStartNodeCode,
+      transaction,
+    );
 
     lobby.status = "closed";
     await lobby.save({ transaction });

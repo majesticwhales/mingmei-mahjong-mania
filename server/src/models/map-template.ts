@@ -26,6 +26,10 @@ export class MapTemplate extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 84 })
   declare nodeCount: number;
 
+  /** Station code on this template where all teams spawn (e.g. "bay"). */
+  @Column({ type: DataType.STRING(64), allowNull: true })
+  declare defaultStartNodeCode: string | null;
+
   @HasMany(() => MapTemplateNode)
   declare nodes?: MapTemplateNode[];
 
