@@ -1,3 +1,5 @@
+import { shuffleInPlace } from "../lib/shuffle.ts";
+
 /** Game team indices (map to team_definitions at game start). */
 export const GAME_TEAM_SLOTS = [1, 2, 3, 4] as const;
 
@@ -17,13 +19,6 @@ export function countsFromSlots(
     }
   }
   return counts;
-}
-
-function shuffleInPlace<T>(items: T[]): void {
-  for (let i = items.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [items[i], items[j]] = [items[j], items[i]];
-  }
 }
 
 /**
