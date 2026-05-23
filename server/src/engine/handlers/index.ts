@@ -2,6 +2,8 @@ import type { CommandHandler } from "../process-command.ts";
 import type { CommandType } from "../types.ts";
 import { checkInHandler } from "./check-in.ts";
 import { checkOutHandler } from "./check-out.ts";
+import { swapLocationTilesHandler } from "./swap-location-tiles.ts";
+import { swapTileHandler } from "./swap-tile.ts";
 
 /**
  * Built-in command handlers. Imported by `process-command.ts` as the
@@ -12,4 +14,6 @@ export const builtinCommandHandlers: ReadonlyMap<CommandType, CommandHandler> =
   new Map<CommandType, CommandHandler>([
     ["CHECK_IN", checkInHandler],
     ["CHECK_OUT", checkOutHandler],
+    ["SWAP_TILE", swapTileHandler],
+    ["SWAP_LOCATION_TILES", swapLocationTilesHandler],
   ]);
