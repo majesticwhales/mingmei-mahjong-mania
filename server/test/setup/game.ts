@@ -1,9 +1,12 @@
 import type { Transaction } from "sequelize";
-import type { GameTeamSlot } from "../../src/services/even-team-assignment.ts";
+import { GAME_TEAM_SLOTS, type GameTeamSlot } from "../../src/services/even-team-assignment.ts";
 import { cloneMapTemplateToGame } from "../../src/services/map-clone-service.ts";
 import { Game } from "../../src/models/game.ts";
+import { GameParticipant } from "../../src/models/game-participant.ts";
 import { GameTeam } from "../../src/models/game-team.ts";
 import { Lobby } from "../../src/models/lobby.ts";
+import { LobbyMember } from "../../src/models/lobby-member.ts";
+import { LobbyTeamAssignment } from "../../src/models/lobby-team-assignment.ts";
 import { MapTemplate } from "../../src/models/map-template.ts";
 import { TeamDefinition } from "../../src/models/team-definition.ts";
 import { getSequelize } from "./db.ts";
@@ -98,4 +101,70 @@ export async function withGameShell<T>(
     const shell = await createGameShell(lobbyId, transaction);
     return fn(shell, transaction);
   });
+}
+
+export interface ParticipantFixture {
+  userId: string;
+  gameTeamId: string;
+  teamSlot: GameTeamSlot;
+}
+
+export interface GameShellWithParticipants extends GameShell {
+  userIds: string[];
+  participants: ParticipantFixture[];
+}
+
+/**
+ * Light fixture for engine tests: a Game + 4 GameTeams + GameParticipants
+ * matching the lobby's team assignments. Skips the map clone and tile deal
+ * that `startFromLobby` does, so tests that only need authz + dispatch
+ * stay cheap. Requires every lobby member to have a non-null `team_slot`
+ * (i.e. lobby was created with `assignTeams: true`).
+ */
+export async function createGameShellWithParticipants(
+  lobbyId: string,
+  transaction: Transaction,
+): Promise<GameShellWithParticipants> {
+  const shell = await createGameShell(lobbyId, transaction);
+
+  const [members, assignments] = await Promise.all([
+    LobbyMember.findAll({ where: { lobbyId }, transaction }),
+    LobbyTeamAssignment.findAll({ where: { lobbyId }, transaction }),
+  ]);
+  const slotByUserId = new Map(
+    assignments.map((a) => [a.userId, a.teamSlot]),
+  );
+
+  const participants: ParticipantFixture[] = [];
+  for (const member of members) {
+    const slot = slotByUserId.get(member.userId);
+    if (slot == null || !GAME_TEAM_SLOTS.includes(slot as GameTeamSlot)) {
+      throw new Error(
+        `createGameShellWithParticipants requires every lobby member to have a teamSlot (user ${member.userId})`,
+      );
+    }
+    const gameTeamId = shell.gameTeamIdBySlot.get(slot as GameTeamSlot);
+    if (!gameTeamId) {
+      throw new Error(`Missing game team for slot ${slot}`);
+    }
+    await GameParticipant.create(
+      {
+        gameId: shell.gameId,
+        userId: member.userId,
+        gameTeamId,
+      },
+      { transaction },
+    );
+    participants.push({
+      userId: member.userId,
+      gameTeamId,
+      teamSlot: slot as GameTeamSlot,
+    });
+  }
+
+  return {
+    ...shell,
+    userIds: members.map((m) => m.userId),
+    participants,
+  };
 }
