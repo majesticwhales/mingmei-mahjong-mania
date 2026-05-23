@@ -11,6 +11,12 @@ export interface LobbyPlayersFixture {
 export async function createLobbyWithFourPlayers(options?: {
   teamAssignmentMode?: TeamAssignmentMode;
   assignTeams?: boolean;
+  /**
+   * Override the starting station for game start. Pass `null` to make teams
+   * start without a current node (useful for testing first CHECK_IN). Omit
+   * to fall through to the template's default (`bay` on TTC 2026).
+   */
+  defaultStartNodeCode?: string | null;
 }): Promise<LobbyPlayersFixture> {
   const users = await Promise.all([
     registerUser(),
@@ -22,6 +28,7 @@ export async function createLobbyWithFourPlayers(options?: {
   const hostId = users[0]!.user.id;
   const lobby = await lobbyService.createLobby(hostId, {
     teamAssignmentMode: options?.teamAssignmentMode ?? "pick",
+    defaultStartNodeCode: options?.defaultStartNodeCode,
   });
 
   for (let i = 1; i < 4; i += 1) {

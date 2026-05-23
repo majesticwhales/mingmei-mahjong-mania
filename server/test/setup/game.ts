@@ -1,6 +1,7 @@
 import type { Transaction } from "sequelize";
 import { GAME_TEAM_SLOTS, type GameTeamSlot } from "../../src/services/even-team-assignment.ts";
 import { cloneMapTemplateToGame } from "../../src/services/map-clone-service.ts";
+import { startFromLobby } from "../../src/services/game-start-service.ts";
 import { Game } from "../../src/models/game.ts";
 import { GameParticipant } from "../../src/models/game-participant.ts";
 import { GameTeam } from "../../src/models/game-team.ts";
@@ -9,6 +10,7 @@ import { LobbyMember } from "../../src/models/lobby-member.ts";
 import { LobbyTeamAssignment } from "../../src/models/lobby-team-assignment.ts";
 import { MapTemplate } from "../../src/models/map-template.ts";
 import { TeamDefinition } from "../../src/models/team-definition.ts";
+import { createLobbyWithFourPlayers } from "./lobby.ts";
 import { getSequelize } from "./db.ts";
 
 export interface GameShell {
@@ -107,6 +109,62 @@ export interface ParticipantFixture {
   userId: string;
   gameTeamId: string;
   teamSlot: GameTeamSlot;
+}
+
+export interface StartedGameFixture {
+  gameId: string;
+  hostUserId: string;
+  userIds: string[];
+  gameTeamIdBySlot: Map<GameTeamSlot, string>;
+  participants: ParticipantFixture[];
+}
+
+/**
+ * Fully bootstrap a started game (lobby → `startFromLobby`). Returns the
+ * mapping from team slot to game-team id so engine tests can address a
+ * specific team without re-querying. Pass `defaultStartNodeCode: null` to
+ * make teams start unchecked (useful for first-CHECK_IN tests); omit to
+ * inherit the template default.
+ */
+export async function setupStartedGame(
+  options: { defaultStartNodeCode?: string | null } = {},
+): Promise<StartedGameFixture> {
+  const { lobbyId, hostId, userIds } = await createLobbyWithFourPlayers({
+    defaultStartNodeCode: options.defaultStartNodeCode,
+  });
+  const { gameId } = await startFromLobby(lobbyId, hostId);
+
+  const teams = await GameTeam.findAll({
+    where: { gameId },
+    include: [{ model: TeamDefinition, attributes: ["sortOrder"] }],
+  });
+  const gameTeamIdBySlot = new Map<GameTeamSlot, string>();
+  for (const team of teams) {
+    const sortOrder = team.teamDefinition?.sortOrder;
+    if (sortOrder == null) {
+      throw new Error(`Game team ${team.id} missing team definition sort order`);
+    }
+    gameTeamIdBySlot.set((sortOrder + 1) as GameTeamSlot, team.id);
+  }
+
+  const dbParticipants = await GameParticipant.findAll({ where: { gameId } });
+  const participants: ParticipantFixture[] = dbParticipants.map((p) => {
+    const slot = [...gameTeamIdBySlot.entries()].find(
+      ([, id]) => id === p.gameTeamId,
+    )?.[0];
+    if (slot == null) {
+      throw new Error(`No slot found for participant ${p.id}`);
+    }
+    return { userId: p.userId, gameTeamId: p.gameTeamId, teamSlot: slot };
+  });
+
+  return {
+    gameId,
+    hostUserId: hostId,
+    userIds,
+    gameTeamIdBySlot,
+    participants,
+  };
 }
 
 export interface GameShellWithParticipants extends GameShell {

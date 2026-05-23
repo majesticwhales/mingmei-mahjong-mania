@@ -6,6 +6,7 @@ import { GameEvent } from "../models/game-event.ts";
 import { GameParticipant } from "../models/game-participant.ts";
 import { appendEvent } from "./event-log.ts";
 import { type Broadcaster, noopBroadcaster } from "./broadcaster.ts";
+import { builtinCommandHandlers } from "./handlers/index.ts";
 import type { CommandType, EventType } from "./types.ts";
 
 export interface ProcessCommandInput {
@@ -53,11 +54,12 @@ export interface ProcessCommandResult {
 }
 
 /**
- * Default command handler registry. Populated by subsequent Phase D chunks
- * (CHECK_IN/CHECK_OUT in D-3, tile swaps in D-4).
+ * Default command handler registry. Re-exports the built-in handlers so
+ * callers can rely on a single canonical map without importing each handler
+ * individually. Tests may pass their own map via `processCommand` options.
  */
 export const defaultCommandHandlers: ReadonlyMap<CommandType, CommandHandler> =
-  new Map();
+  builtinCommandHandlers;
 
 /**
  * Orchestrate a single command: load game, authorize the user, dispatch to
