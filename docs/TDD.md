@@ -1,7 +1,7 @@
 # Mahjong Jet Lag — Technical Design Document
 
 **Status:** Living document (v1 infrastructure)  
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-24
 
 ---
 
@@ -16,12 +16,27 @@ This document defines **infrastructure and architecture** for *mahjong-jet-lag* 
 - Normalized relational game state (minimal JSONB on state tables)
 - Event log + per-game command queue
 - Socket.IO realtime + team-scoped state projections
-- Map template cloning (84 nodes per game)
+- Map template cloning (**configurable node count** per template)
 - Station check-in with **required photo**, geolocation (warn + allow)
 - **Cloudflare R2** media storage (MinIO locally)
 - DB-backed scheduler (visibility phases, notifications, game end)
+- **Per-lobby static notification schedule** (`lobby_notifications`)
 - Challenge system **schema + media plumbing** (resolver logic when product defines cards)
 - **Riichi hand evaluation** module (stub → full scoring; see [§3.9](#39-mahjong-hand-evaluation-riichi))
+
+### Abstraction layer vs rule layer
+
+The infrastructure below the dotted line is intentionally agnostic to the specific game rules product ends up shipping. The engine knows about:
+
+- **N nodes** on a map (per map template)
+- **M tiles** at each node (`tiles_per_node`, configurable per lobby)
+- **K tiles** in each hand (`hand_size`, configurable per lobby)
+- A primitive for **swapping placements** between any two locations (node ↔ node, hand ↔ node)
+- An **append-only event log** that records every state-changing action
+- A **scheduler** that can fire static notification templates at configurable game-relative times
+- **Visibility groups + phases** as a configurable mechanic (N phases, N groups) layered on top of the placement model
+
+Specific rules (the exact tile catalog, exact visibility schedule, exact challenge mechanics, exact scoring) live above this layer and can shift without schema migrations.
 
 ### Out of scope (v1)
 
@@ -31,7 +46,7 @@ This document defines **infrastructure and architecture** for *mahjong-jet-lag* 
 - Multi-server Redis (design allows it later; ship single-node first)
 - Mobile push (FCM/APNs) — Socket-only notifications for v1
 - Specific challenge card rules until product defines decks
-- Custom per-lobby notification copy
+- Catalog of notification templates (the lobby stores opaque template keys; the actual text lookup table is a rule-layer concern)
 - User-initiated media deletion (GDPR) — post-v1
 
 Hand **styling** is a client concern; hand **order** is always server-provided.
@@ -43,7 +58,7 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 - **Models:** `server/src/models/`, registered in `server/src/config/database.ts`.
 - **CLI:** From `server/`, `npm run db:migrate`, `npm run db:seed`, `npm run db:migrate:status`.
 
-**Phase A (schema):** All tables in [§4](#4-data-model) are migrated. Catalog seeds: `team_definitions`, `tile_types` (136), `challenge_types`, `map_template` **TTC 2026** (84 stations; WGS84 `latitude`/`longitude` and schematic layout in `seeders/data/ttc2026-network.cjs`).
+**Phase A (schema):** All tables in [§4](#4-data-model) are migrated. Catalog seeds: `team_definitions`, `tile_types` (136 for the standard riichi catalog, but the engine reads the count dynamically), `challenge_types`, `map_template` **TTC 2026** (84 stations; WGS84 `latitude`/`longitude` and schematic layout in `seeders/data/ttc2026-network.cjs`). The 84/136/13/4 combination is the **default configuration**, not a hard constraint.
 
 ---
 
@@ -53,11 +68,14 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 |------|----------|
 | Map | Static **templates** cloned into per-game rows at start |
 | Auth | Registered users only (`users` + JWT) |
-| Tile set | Standard **136** tiles/game: **84** on map + **13** × 4 team hands |
-| Map size | Exactly **84** nodes (21 per visibility group) |
+| Tile catalog | Per-game tile set drawn from `tile_types` (standard riichi seed = 136 rows; engine reads count dynamically). Closed set per game: no mid-game create/destroy. |
+| Map size | **Configurable per template** (`map_templates.node_count`); standard TTC 2026 = 84 |
+| Tiles per node | **Configurable per lobby** (`tiles_per_node`, default 1); snapshotted onto `games.tiles_per_node` at start |
+| Hand size | **Configurable per lobby** (`hand_size`, default 13); snapshotted onto `games.hand_size` at start |
+| Tile count invariant | `tiles_per_node × node_count + hand_size × team_count` must equal the game's tile catalog size (Fisher–Yates draws the entire deck) |
 | Deal | **Fisher–Yates** shuffle; random always |
 | Hand order | **Server-sorted** (`suit_sort_order` → `rank`); client renders as given |
-| Tile visibility | Scheduled **quarter unlock** + **ephemeral** view while checked in at a station |
+| Visibility phases | **Configurable count** `visibility_phase_count` (default 4); N phases ⇒ N visibility groups; phase 0 reveals home group, phase N-1 reveals all. Ephemeral view while checked in remains independent. |
 | Game config | **Lobby**, editable by **host only**; snapshotted to `games` at start |
 | Lobby start | `min_players_to_start` (default **4**); every member picks a team (1–4); **>= 1 player per team** before start; multiple players may share the same team |
 | Travel | **Any station** on check-in (honor + geofence); skipping stations OK |
@@ -68,10 +86,10 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 | Media retention | **365 days**, then delete (lifecycle rule + sweeper) |
 | Object storage | **Cloudflare R2** (prod), **MinIO** (dev) |
 | Geolocation | Browser API; **warn + allow**; log flags on events |
-| Notifications | **Static server templates** over Socket (v1) |
+| Notifications | Per-lobby `lobby_notifications` rows (`at_seconds`, opaque `template` key, optional `data` JSONB); copied into `game_scheduled_jobs` as `NOTIFICATION` rows at game start; broadcast over Socket |
 | Game end | Drain **in-flight** command queue, then `ended` |
 | Realtime | Commands → queue → engine → `game_events` → broadcast |
-| State storage | Relational tables; JSONB only on events/commands/challenge params |
+| State storage | Relational tables; JSONB only on events/commands/challenge params/notification data |
 | Hand scoring | **Riichi** ruleset; `HandEvaluationService`; stub in infra phase, wired to **game summary** + **challenges** later |
 
 ---
@@ -117,39 +135,41 @@ flowchart TB
 
 ### 3.1 Core invariants
 
-- **Closed tile set:** 136 `game_tiles` per game — 84 on map, 13 per hand × 4 teams. No mid-game create/destroy.
-- **One tile per map node:** Each `game_node` has exactly one `game_tile_placements` row with `game_node_id` set (84 map placements total).
+- **Closed tile set:** the game's tile catalog (number of `tile_types` rows, e.g. 136 for the riichi seed) is partitioned across `game_tile_placements` at deal time. No mid-game create/destroy. `tiles_per_node × node_count + hand_size × team_count` must equal the catalog size.
+- **`tiles_per_node` per map node:** Each `game_node` has exactly `games.tiles_per_node` `game_tile_placements` rows with `game_node_id` set (default 1; configurable per lobby).
 - **One placement per tile:** Each `game_tile` has exactly one `game_tile_placements` row — either on a node or in a team hand (XOR via DB check).
-- **Fixed hand size:** 13 tiles per team hand (`games.hand_size = 13`).
+- **Configurable hand size:** Each team hand has exactly `games.hand_size` tiles (default 13).
 - **Checked-in gate:** Station actions require `current_game_node_id` set.
-- **Swap at station:** `SWAP_TILE` only at `current_game_node_id`; exchanges hand tile ↔ location tile; counts unchanged.
+- **Swap at station:** `SWAP_TILE` only at `current_game_node_id`; exchanges a specific hand tile ↔ a specific station tile (caller chooses both); counts unchanged.
 - **Visibility:** Clients never infer fog-of-war; server projection only.
 - **No rival position on map:** Other teams’ locations are not in live projection; use `game_events`.
 
 ### 3.2 Progressive visibility (global game state)
 
+Visibility is parameterized by `games.visibility_phase_count` (`N`, default 4). N phases ⇒ N visibility groups ⇒ (N-1) `VISIBILITY_PHASE_ADVANCE` jobs scheduled at `started_at + interval × k` for `k = 1 … N-1`.
+
 **At game start:**
 
-1. Random partition of 84 nodes into 4 groups of 21 (`game_node_visibility_groups`).
-2. Random unique home group per team (`game_team_home_groups`).
-3. `visibility_phase = 0` — each team sees face-up tiles only in home group on map.
-4. Schedule `VISIBILITY_PHASE_ADVANCE` jobs at `started_at + interval × k` (k = 1,2,3) and `GAME_END` at `ends_at`.
+1. Random partition of all `game_nodes` into N groups (`game_node_visibility_groups`). Sizes differ by at most 1 when `node_count` doesn't divide evenly.
+2. Random home group per team (`game_team_home_groups`). Group assignment is **independent of team count**: when `team_count <= N` each team can get a unique home; when `team_count > N` teams may share a home group; when `team_count < N` some groups have no home team.
+3. `visibility_phase = 0` — each team sees face-up tiles only in its home group on map.
+4. Schedule (N-1) `VISIBILITY_PHASE_ADVANCE` jobs plus `GAME_END` at `ends_at`. When `N = 1`, no advance jobs are scheduled and everything is visible from start.
 
 **Unlock order per team:**
 
 ```text
 visible_groups(team, phase) = first (phase + 1) entries of
-  [home, (home+1)%4, (home+2)%4, (home+3)%4]
+  [home, (home+1) % N, (home+2) % N, …, (home+N-1) % N]
 ```
 
-| Phase | Map visibility per team |
-|-------|-------------------------|
-| 0 | Home quarter only |
-| 1 | 2 quarters |
-| 2 | 3 quarters |
+| Phase | Map visibility per team (for `N = 4`) |
+|-------|---------------------------------------|
+| 0 | Home group only |
+| 1 | 2 groups |
+| 2 | 3 groups |
 | 3 | Full map |
 
-All teams advance phase on the **same schedule**; which quarters are visible differs by home group.
+All teams advance phase on the **same schedule**; which groups are visible differs by home group.
 
 **On phase advance (scheduler):** bump phase, upsert `game_location_team_visibility` (`source = phase`), emit `VISIBILITY_PHASE_ADVANCED`, broadcast state.
 
@@ -181,13 +201,13 @@ canSwap(team, node) =
 
 ### 3.4 Station commands and travel
 
-| Command | Description |
-|---------|-------------|
-| `CHECK_IN` | Requires prior photo upload (`media_asset_id`). Sets `current_game_node_id` to any station. |
-| `CHECK_OUT` | Clears `current_game_node_id`. |
-| `SWAP_TILE` | Hand ↔ location at current station (swap two `game_tile_placements` targets). |
-| `SWAP_LOCATION_TILES` | Swap tiles between two map nodes (challenges). Uses shared `TileSwapService`. |
-| *(future)* | Additional station actions while checked in. |
+| Command | Payload | Description |
+|---------|---------|-------------|
+| `CHECK_IN` | `{ nodeId }` | Requires prior photo upload (`media_asset_id`) (Phase G). Sets `current_game_node_id` to any station; implicit check-out first if already checked in elsewhere. |
+| `CHECK_OUT` | `{}` | Clears `current_game_node_id`. |
+| `SWAP_TILE` | `{ handTileId, stationTileId }` | Exchanges a specific hand tile with a specific tile at the team's current station. Both tile ids are caller-chosen since a station may hold N tiles (`games.tiles_per_node`). |
+| `SWAP_LOCATION_TILES` | `{ tileAId, tileBId }` | Swap two tiles between map nodes (challenges). Uses shared `TileSwapService`. Implemented in Phase H. |
+| *(future)* | | Additional station actions while checked in. |
 
 **Travel:** No adjacency requirement. Geolocation optional on check-in/swap — allow always, warn if outside geofence or poor `accuracy_meters`.
 
@@ -361,6 +381,8 @@ Sequelize model: `User` (`server/src/models/user.ts`).
 | `map_template_id` | FK |
 | `game_duration_seconds` | |
 | `visibility_phase_interval_seconds` | |
+| `visibility_phase_count` | INT NOT NULL DEFAULT 4 (sourced from `map_template.default_visibility_phase_count`); snapshotted to `games.visibility_phase_count` at start. `>= 1`. |
+| `tiles_per_node` | INT NOT NULL DEFAULT 1 (sourced from `map_template.default_tiles_per_node`); snapshotted to `games.tiles_per_node` at start. `>= 1`. |
 | `team_assignment_mode` | `pick` \| `random` \| `mixed` |
 | `min_players_to_start` | default **4** |
 | `config_updated_at` | |
@@ -391,13 +413,30 @@ Even distribution implementation: `server/src/services/even-team-assignment.ts` 
 
 `lobby_id`, `user_id`, `team_slot` — which of the four game teams (1–4) the user chose. **Not unique per lobby:** many users may share the same `team_slot`. `null` = random pool (assigned evenly at start in `random` / `mixed` modes).
 
+#### `lobby_notifications`
+
+Per-lobby schedule of static notification templates that fire during the game. Host-managed via REST while the lobby is `waiting`. Copied into `game_scheduled_jobs` as `NOTIFICATION` rows at game start (`run_at = started_at + at_seconds × 1000`, `payload = { template, data }`).
+
+| Column | Notes |
+|--------|--------|
+| `id` | UUID PK |
+| `lobby_id` | FK → `lobbies` (ON DELETE CASCADE) |
+| `at_seconds` | INT NOT NULL CHECK `>= 0`; offset in seconds from `games.started_at`. |
+| `template` | VARCHAR(64) NOT NULL; opaque template key (no enum catalog in v1). |
+| `data` | JSONB; optional template-specific payload (e.g. `{ minutesLeft: 10 }`). |
+| `created_at`, `updated_at` | |
+
+Index: `(lobby_id, at_seconds)`. Same `at_seconds` may repeat (two distinct templates may fire at the same time).
+
 #### `games`
 
 | Column | Notes |
 |--------|--------|
 | `status` | `active` \| `ending` \| `ended` |
-| `hand_size` | always **13** |
-| `visibility_phase` | 0–3 |
+| `hand_size` | snapshot from `map_template.default_hand_size` (default 13) |
+| `tiles_per_node` | INT NOT NULL DEFAULT 1; snapshot from `lobby.tiles_per_node` at start |
+| `visibility_phase` | 0 … `visibility_phase_count - 1` |
+| `visibility_phase_count` | INT NOT NULL DEFAULT 4; snapshot from `lobby.visibility_phase_count` at start |
 | `started_at`, `ends_at`, `duration_seconds` | |
 | `visibility_phase_interval_seconds` | snapshot from lobby |
 | `config_version` | |
@@ -422,7 +461,15 @@ Seeded: `east`, `south`, `west`, `north` (`20260517180000-seed-team-definitions.
 
 #### `map_templates`
 
-`name`, `description`, `node_count` (must be **84**), `default_duration_seconds`, `default_hand_size`.
+| Column | Notes |
+|--------|-------|
+| `name`, `description` | |
+| `node_count` | Number of stations on this template (TTC 2026 = 84). The cloner trusts the value; not constrained to 84. |
+| `default_duration_seconds` | Default `games.duration_seconds` if not overridden on the lobby. |
+| `default_hand_size` | Default `lobby.hand_size`. Standard riichi = 13. |
+| `default_tiles_per_node` | Default `lobby.tiles_per_node`. Default 1. |
+| `default_visibility_phase_count` | Default `lobby.visibility_phase_count`. Default 4. |
+| `default_start_node_code` | Station code where teams spawn at game start (nullable; null = teams start unchecked). |
 
 #### `map_template_nodes`
 
@@ -464,14 +511,16 @@ Layout fields (including `lineIds[]` string codes) are **not secret** and are in
 
 #### `tile_types`
 
-34 types × 4 copies in seed = 136 logical types.  
+Tile catalog for the standard riichi seed: 34 types × 4 copies = 136 rows.  
 `suit`, `rank`, `copy_index` (0–3), `suit_sort_order`, `display_name`.
+
+The engine never hard-codes the count: `tile_types.count()` is the source of truth for the game's catalog size. Future map templates / game modes may seed alternate catalogs.
 
 Red fives: `(man|pin|sou, rank 5, copy_index 0)` — see [§3.6](#36-tile-identity-and-red-fives). No boolean column.
 
 #### `game_tiles`
 
-136 rows per game: `tile_type_id`, `copy_index` (must match the referenced `tile_types.copy_index`).
+One row per tile in the catalog (e.g. 136 for the riichi seed): `tile_type_id`, `copy_index` (must match the referenced `tile_types.copy_index`).
 
 #### `game_tile_placements`
 
@@ -479,12 +528,12 @@ Where each `game_tile` lives — **exactly one** of:
 
 | Column | Meaning |
 |--------|---------|
-| `game_node_id` | On the map at that station (84 rows at deal) |
-| `game_team_id` | In that team’s hand (13 rows per team) |
+| `game_node_id` | On the map at that station |
+| `game_team_id` | In that team’s hand |
 
-`game_tile_id` is unique. `game_node_id` is unique when set (one tile per node). DB check: `(game_node_id IS NOT NULL) XOR (game_team_id IS NOT NULL)`.
+`game_tile_id` is unique. `game_node_id` is **not unique** (a node may hold up to `games.tiles_per_node` tiles); a non-unique index supports lookups by node. DB check: `(game_node_id IS NOT NULL) XOR (game_team_id IS NOT NULL)`.
 
-**Deal:** Shuffle all 136 `game_tiles` → create 84 node placements → 13 team placements per team in fixed team order. Hand sort order is applied in the engine when projecting, not persisted.
+**Deal:** Shuffle all catalog tiles → create `tiles_per_node` placements at each `game_node` → `hand_size` placements per team in fixed team order. Required invariant at deal time: `tiles_per_node × node_count + hand_size × team_count = catalog_size`. Hand sort order is applied in the engine when projecting, not persisted.
 
 ### 4.5 Positions and visibility
 
@@ -520,9 +569,9 @@ Set at game start from lobby config (when product defines it). Other keys may be
 
 | `job_type` | Effect |
 |------------|--------|
-| `VISIBILITY_PHASE_ADVANCE` | Phase++, recompute visibility, event + broadcast |
-| `GAME_END` | `ending` → drain queue → `ended` |
-| `NOTIFICATION` | Static template message via `game.notification` |
+| `VISIBILITY_PHASE_ADVANCE` | Phase++, recompute visibility, event + broadcast. `(N - 1)` rows seeded at game start (`N = games.visibility_phase_count`). |
+| `GAME_END` | `ending` → drain queue → `ended`. One row seeded at game start. |
+| `NOTIFICATION` | Broadcasts a static notification via `broadcaster.emitNotification`. Rows are seeded at game start by copying every `lobby_notifications` row into `game_scheduled_jobs` (`run_at = started_at + at_seconds × 1000`, `payload = { template, data }`). |
 
 ### 4.7 Media
 
@@ -609,7 +658,7 @@ stateDiagram-v2
 ```
 
 1. Host creates lobby; members join and pick teams.
-2. Host starts → validate 84 nodes → clone map → deal tiles → partition visibility → schedule jobs.
+2. Host starts → validate tile-count invariant (`tiles_per_node × node_count + hand_size × team_count == catalog_size`) → clone map → deal tiles → partition visibility into `visibility_phase_count` groups → schedule phase + notification jobs.
 3. Active play via command queue + scheduler.
 4. End → summary with photo URLs for participants.
 
@@ -652,10 +701,12 @@ Delivered on join/reconnect and after every processed command (v1: **full snapsh
 
 1. **Do not send all location tiles.** Hidden tiles must be **absent** from the payload (not `tile: null` with a “secret” object the client could inspect). The server is the only authority on who sees what.
 2. **Do not send `visibilityPhase`.** The client does not need the global phase index; fog-of-war is already applied in what tile data is included. Optional **`nextVisibilityChangeAt`** (ISO timestamp) is enough for a countdown banner.
-3. **One realtime channel, not a separate “station” API for v1.** After `CHECK_IN`, the next `game.state` includes an **`atStation`** block with the tile. A second HTTP call would duplicate state and risk drift between Socket and REST.
+3. **One realtime channel, not a separate “station” API for v1.** After `CHECK_IN`, the next `game.state` includes an **`atStation`** block with the tile(s). A second HTTP call would duplicate state and risk drift between Socket and REST.
 4. **Split map view vs station view** in the JSON shape:
-   - **`mapNodes`** — 84 entries; `tile` present only when **phase-visible on the map** (`faceUpOnMap`).
-   - **`atStation`** — present when checked in; always includes the **current station tile** even if that node is fogged on the map.
+   - **`mapNodes`** — one entry per `game_node`; `tile`/`tiles` present only when **phase-visible on the map** (`faceUpOnMap`).
+   - **`atStation`** — present when checked in; always includes the **current station tile(s)** even if that node is fogged on the map.
+
+> When `games.tiles_per_node = 1` (the default), projections currently expose a singular `tile` field on `mapNodes[]` and `atStation`. When `tiles_per_node > 1`, the field becomes `tiles[]`; sites that issue `SWAP_TILE` must address a specific tile via `stationTileId`. The wire shape change is scoped to the projection phase (Phase G); the engine accepts the new payload from chunk 7 of the Phase D refactor onward.
 
 The client renders the map from `mapNodes` and the station panel from `atStation` without re-deriving visibility rules.
 
@@ -665,7 +716,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 |-------|--------|
 | `gameId`, `status`, `endsAt` | Shared |
 | `nextVisibilityChangeAt` | Optional; for UI timer only |
-| `mapNodes[]` | Layout fields for all 84 nodes; `lineIds[]` (string codes); `tile` only if phase-visible on map |
+| `mapNodes[]` | Layout fields per `game_node`; `lineIds[]` (string codes); `tile` (default config) or `tiles[]` (when `tiles_per_node > 1`) only if phase-visible on map |
 | `mapLines[]` | Line catalog (`code`, `name`, `shortName`, `color`, `renderMetadata`) — sent once / on reconnect |
 | `mapEdges[]` | Static graph (`fromNodeId`, `toNodeId`) — sent once / on reconnect |
 | `atStation` | When checked in: `nodeId`, `code`, `tile` (always) |
@@ -690,7 +741,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 
 `isRedFive` is **computed** when building the snapshot (`isRedFiveForGame` + `red_fives_enabled`). Include `copyIndex` so the client can reconcile with catalog conventions.
 
-**`mapNodes[]`** — one per map node, fixed length 84. Layout fields are always present; **`tile`** is conditional:
+**`mapNodes[]`** — one entry per `game_node` (length = `games.node_count`). Layout fields are always present; **`tile`** is conditional:
 
 ```json
 {
@@ -754,7 +805,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 ```
 
 - Populated whenever `current_game_node_id` is set.
-- Tile is **always** included here, even when the same node has no `tile` on the map (fogged quarter + checked in).
+- Tile is **always** included here, even when the same node has no `tile` on the map (fogged visibility group + checked in).
 
 **Why not let the client render from full data?**  
 Exposing every location’s tile in `game.state` would leak map state via devtools/network and breaks competitive play. Any “hidden” UI must be based on **missing data**, not client-side filtering.
@@ -818,7 +869,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 |-------|------|
 | **A** | This doc; all §4 migrations; catalog seeds (`team_definitions`, `tile_types`, `challenge_types`, `map_template` **TTC 2026** with full WGS84 coords in `seeders/data/ttc2026-network.cjs`) |
 | **B** | Auth + lobby HTTP APIs; **host** `POST /api/lobbies/:id/start` validates readiness, resolves teams (`even-team-assignment.ts`), persists `team_slot`, creates `games` + four `game_teams` + `game_participants`, closes lobby |
-| **C** | Extend **same** `GameStartService`: clone map (84 nodes/edges/lines), create 136 `game_tiles` + placements, visibility groups, scheduled jobs |
+| **C** | Extend **same** `GameStartService`: clone map (template `node_count`), create one `game_tile` per catalog entry + placements (`tiles_per_node` per node + `hand_size` per team), visibility groups, scheduled jobs |
 | **D** | Engine, queue, scheduler, event tests |
 | **E** | Socket.IO, projections (sorted hands), reconnect |
 | **F** | Geolocation warn/allow |
@@ -830,17 +881,19 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 
 ## 10. Open items (non-blocking)
 
+The infra layer is intentionally rule-agnostic. Items marked **rule layer** describe questions that will be answered by whatever rule set product picks (riichi, TTC variant, etc.) and do **not** block the infra phases.
+
 | Item | Status |
 |------|--------|
 | Deal algorithm | Resolved — Fisher–Yates |
-| Notification copy | Resolved — static templates |
-| Challenge definitions | Waiting on product |
-| Custom lobby notifications | Deferred |
+| Notification copy | Resolved — opaque `template` key per `lobby_notifications` row; concrete text catalog is a rule-layer concern |
+| Challenge definitions | Waiting on product (rule layer) |
 | GDPR media delete | Deferred |
-| Challenge photo visibility during game | Likely same as check-in; confirm with product |
-| Riichi: dora / red dora / full yaku list | Defer; confirm with product |
-| 13 vs 14 tiles for evaluation API | Convention TBD when implementing Phase I-b |
-| Scoring affects game winner | TBD — summary ranking only vs mechanical win condition |
+| Challenge photo visibility during game | Likely same as check-in; confirm with product (rule layer) |
+| Riichi: dora / red dora / full yaku list | Rule layer — defer; confirm with product |
+| 13 vs 14 tiles for evaluation API | Rule layer — convention TBD when implementing Phase I-b |
+| Scoring affects game winner | Rule layer — summary ranking only vs mechanical win condition |
+| Per-template notification defaults | Future — `map_templates` could seed a default notification set; not in v1 |
 
 ---
 
@@ -855,8 +908,14 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 - [x] Add `game_events`, `game_command_queue`, `game_scheduled_jobs`
 - [x] Add `media_assets`
 - [x] Add challenge tables (challenge_types seeder; decks/cards empty)
-- [x] Seeds: `team_definitions`, `tile_types` (136), `challenge_types`
+- [x] Seeds: `team_definitions`, `tile_types` (136 rows for the standard riichi catalog), `challenge_types`
 - [x] Seed: `map_template` **TTC 2026** (`server/seeders/data/ttc2026-network.cjs` → `20260517202000-seed-map-template-ttc2026.cjs`). All 84 stations have entrance `latitude`/`longitude` plus schematic `x`/`y`/`labelAnchor` in the seed file, which is the canonical map source for the DB-backed client.
+- [ ] Phase D abstraction-layer relaxation (`2026052*-relax-abstraction-layer.cjs`):
+  - Drop unique index `game_tile_placements_game_node_id_unique`; add non-unique index on `game_node_id`.
+  - `map_templates`: add `default_tiles_per_node INT NOT NULL DEFAULT 1`, `default_visibility_phase_count INT NOT NULL DEFAULT 4`.
+  - `lobbies`: add `tiles_per_node INT NOT NULL DEFAULT 1`, `visibility_phase_count INT NOT NULL DEFAULT 4`.
+  - `games`: add `tiles_per_node INT NOT NULL DEFAULT 1`, `visibility_phase_count INT NOT NULL DEFAULT 4`.
+  - Create `lobby_notifications (id, lobby_id FK CASCADE, at_seconds, template, data JSONB, timestamps)` + index `(lobby_id, at_seconds)`.
 
 ---
 
@@ -888,7 +947,7 @@ Phase D+ adds engine/scheduler/socket suites under the same tree.
 
 ## Appendix: example `game.state` (team-scoped snapshot)
 
-Team is checked in at `STN_42` (fogged on map). Home quarter nodes include `STN_01` with a visible tile.
+Team is checked in at `STN_42` (fogged on map). Home group nodes include `STN_01` with a visible tile. Example uses the default `tiles_per_node = 1` config.
 
 ```json
 {
@@ -969,7 +1028,7 @@ Team is checked in at `STN_42` (fogged on map). Home quarter nodes include `STN_
 
 Notes:
 
-- `mapNodes` is abbreviated (84 items in production); `STN_02` has **no** `tile` key—client shows face-down on map.
+- `mapNodes` is abbreviated (one entry per `game_node`; 84 items for the TTC 2026 template); `STN_02` has **no** `tile` key—client shows face-down on map.
 - `STN_42` tile appears under **`atStation`**, not under `mapNodes` (still fogged on map).
 - After `CHECK_OUT`, `atStation` becomes `null`; `STN_42` remains without `tile` in `mapNodes` until phase unlock.
 - `mapEdges` carries the static graph; no tile data on edges.
