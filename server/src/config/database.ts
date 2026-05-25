@@ -23,6 +23,7 @@ import { GameTeamPosition } from "../models/game-team-position.ts";
 import { GameTilePlacement } from "../models/game-tile-placement.ts";
 import { Lobby } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
+import { LobbyNotification } from "../models/lobby-notification.ts";
 import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import { MapTemplate } from "../models/map-template.ts";
 import { MediaAsset } from "../models/media-asset.ts";
@@ -56,6 +57,7 @@ export const sequelize = new Sequelize(databaseUrl, {
     TileType,
     Lobby,
     LobbyMember,
+    LobbyNotification,
     LobbyTeamAssignment,
     Game,
     GameTeam,

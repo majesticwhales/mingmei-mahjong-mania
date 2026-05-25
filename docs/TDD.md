@@ -29,7 +29,7 @@ This document defines **infrastructure and architecture** for *mahjong-jet-lag* 
 The infrastructure below the dotted line is intentionally agnostic to the specific game rules product ends up shipping. The engine knows about:
 
 - **N nodes** on a map (per map template)
-- **M tiles** at each node (`tiles_per_node`, configurable per lobby)
+- **M slot capacity** at each node (`slots_per_node`, configurable per lobby — the dealer fills this many tiles at game start; runtime counts may shift)
 - **K tiles** in each hand (`hand_size`, configurable per lobby)
 - A primitive for **swapping placements** between any two locations (node ↔ node, hand ↔ node)
 - An **append-only event log** that records every state-changing action
@@ -70,9 +70,9 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 | Auth | Registered users only (`users` + JWT) |
 | Tile catalog | Per-game tile set drawn from `tile_types` (standard riichi seed = 136 rows; engine reads count dynamically). Closed set per game: no mid-game create/destroy. |
 | Map size | **Configurable per template** (`map_templates.node_count`); standard TTC 2026 = 84 |
-| Tiles per node | **Configurable per lobby** (`tiles_per_node`, default 1); snapshotted onto `games.tiles_per_node` at start |
+| Slots per node | **Configurable per lobby** (`slots_per_node`, default 1); snapshotted onto `games.slots_per_node` at start. Capacity, not realized count — actual tiles per node may diverge from this value as commands move tiles around. |
 | Hand size | **Configurable per lobby** (`hand_size`, default 13); snapshotted onto `games.hand_size` at start |
-| Tile count invariant | `tiles_per_node × node_count + hand_size × team_count` must equal the game's tile catalog size (Fisher–Yates draws the entire deck) |
+| Deal-time invariant | `slots_per_node × node_count + hand_size × team_count` must equal the game's tile catalog size (Fisher–Yates draws the entire deck and fills every slot + hand at start) |
 | Deal | **Fisher–Yates** shuffle; random always |
 | Hand order | **Server-sorted** (`suit_sort_order` → `rank`); client renders as given |
 | Visibility phases | **Configurable count** `visibility_phase_count` (default 4); N phases ⇒ N visibility groups; phase 0 reveals home group, phase N-1 reveals all. Ephemeral view while checked in remains independent. |
@@ -135,8 +135,8 @@ flowchart TB
 
 ### 3.1 Core invariants
 
-- **Closed tile set:** the game's tile catalog (number of `tile_types` rows, e.g. 136 for the riichi seed) is partitioned across `game_tile_placements` at deal time. No mid-game create/destroy. `tiles_per_node × node_count + hand_size × team_count` must equal the catalog size.
-- **`tiles_per_node` per map node:** Each `game_node` has exactly `games.tiles_per_node` `game_tile_placements` rows with `game_node_id` set (default 1; configurable per lobby).
+- **Closed tile set:** the game's tile catalog (number of `tile_types` rows, e.g. 136 for the riichi seed) is partitioned across `game_tile_placements` at deal time. No mid-game create/destroy. The deal-time invariant is `slots_per_node × node_count + hand_size × team_count = catalog_size`.
+- **`slots_per_node` capacity per map node:** Capacity is set by `games.slots_per_node` (default 1; configurable per lobby). The dealer fills exactly `slots_per_node` `game_tile_placements` rows per `game_node` at deal time. Runtime tile counts at a node may differ as the engine moves tiles, but never exceed the slot capacity (handlers enforce this).
 - **One placement per tile:** Each `game_tile` has exactly one `game_tile_placements` row — either on a node or in a team hand (XOR via DB check).
 - **Configurable hand size:** Each team hand has exactly `games.hand_size` tiles (default 13).
 - **Checked-in gate:** Station actions require `current_game_node_id` set.
@@ -205,7 +205,7 @@ canSwap(team, node) =
 |---------|---------|-------------|
 | `CHECK_IN` | `{ nodeId }` | Requires prior photo upload (`media_asset_id`) (Phase G). Sets `current_game_node_id` to any station; implicit check-out first if already checked in elsewhere. |
 | `CHECK_OUT` | `{}` | Clears `current_game_node_id`. |
-| `SWAP_TILE` | `{ handTileId, stationTileId }` | Exchanges a specific hand tile with a specific tile at the team's current station. Both tile ids are caller-chosen since a station may hold N tiles (`games.tiles_per_node`). |
+| `SWAP_TILE` | `{ handTileId, stationTileId }` | Exchanges a specific hand tile with a specific tile at the team's current station. Both tile ids are caller-chosen since a station may hold up to `games.slots_per_node` tiles. |
 | `SWAP_LOCATION_TILES` | `{ tileAId, tileBId }` | Swap two tiles between map nodes (challenges). Uses shared `TileSwapService`. Implemented in Phase H. |
 | *(future)* | | Additional station actions while checked in. |
 
@@ -382,7 +382,7 @@ Sequelize model: `User` (`server/src/models/user.ts`).
 | `game_duration_seconds` | |
 | `visibility_phase_interval_seconds` | |
 | `visibility_phase_count` | INT NOT NULL DEFAULT 4 (sourced from `map_template.default_visibility_phase_count`); snapshotted to `games.visibility_phase_count` at start. `>= 1`. |
-| `tiles_per_node` | INT NOT NULL DEFAULT 1 (sourced from `map_template.default_tiles_per_node`); snapshotted to `games.tiles_per_node` at start. `>= 1`. |
+| `slots_per_node` | INT NOT NULL DEFAULT 1 (sourced from `map_template.default_slots_per_node`); snapshotted to `games.slots_per_node` at start. `>= 1`. Capacity, not realized count. |
 | `team_assignment_mode` | `pick` \| `random` \| `mixed` |
 | `min_players_to_start` | default **4** |
 | `config_updated_at` | |
@@ -434,7 +434,7 @@ Index: `(lobby_id, at_seconds)`. Same `at_seconds` may repeat (two distinct temp
 |--------|--------|
 | `status` | `active` \| `ending` \| `ended` |
 | `hand_size` | snapshot from `map_template.default_hand_size` (default 13) |
-| `tiles_per_node` | INT NOT NULL DEFAULT 1; snapshot from `lobby.tiles_per_node` at start |
+| `slots_per_node` | INT NOT NULL DEFAULT 1; snapshot from `lobby.slots_per_node` at start. Capacity, not realized count. |
 | `visibility_phase` | 0 … `visibility_phase_count - 1` |
 | `visibility_phase_count` | INT NOT NULL DEFAULT 4; snapshot from `lobby.visibility_phase_count` at start |
 | `started_at`, `ends_at`, `duration_seconds` | |
@@ -467,7 +467,7 @@ Seeded: `east`, `south`, `west`, `north` (`20260517180000-seed-team-definitions.
 | `node_count` | Number of stations on this template (TTC 2026 = 84). The cloner trusts the value; not constrained to 84. |
 | `default_duration_seconds` | Default `games.duration_seconds` if not overridden on the lobby. |
 | `default_hand_size` | Default `lobby.hand_size`. Standard riichi = 13. |
-| `default_tiles_per_node` | Default `lobby.tiles_per_node`. Default 1. |
+| `default_slots_per_node` | Default tile-slot capacity at each node on this template. Lobbies inherit it as `slots_per_node` (default 1). Map authors can model "roughly even but not identical" distributions by picking a slot count that, combined with the catalog and hand sizes, leaves room for the deal-time invariant to hold. |
 | `default_visibility_phase_count` | Default `lobby.visibility_phase_count`. Default 4. |
 | `default_start_node_code` | Station code where teams spawn at game start (nullable; null = teams start unchecked). |
 
@@ -531,9 +531,9 @@ Where each `game_tile` lives — **exactly one** of:
 | `game_node_id` | On the map at that station |
 | `game_team_id` | In that team’s hand |
 
-`game_tile_id` is unique. `game_node_id` is **not unique** (a node may hold up to `games.tiles_per_node` tiles); a non-unique index supports lookups by node. DB check: `(game_node_id IS NOT NULL) XOR (game_team_id IS NOT NULL)`.
+`game_tile_id` is unique. `game_node_id` is **not unique** (a node may hold up to `games.slots_per_node` tiles); a non-unique index supports lookups by node. DB check: `(game_node_id IS NOT NULL) XOR (game_team_id IS NOT NULL)`.
 
-**Deal:** Shuffle all catalog tiles → create `tiles_per_node` placements at each `game_node` → `hand_size` placements per team in fixed team order. Required invariant at deal time: `tiles_per_node × node_count + hand_size × team_count = catalog_size`. Hand sort order is applied in the engine when projecting, not persisted.
+**Deal:** Shuffle all catalog tiles → create `slots_per_node` placements at each `game_node` → `hand_size` placements per team in fixed team order. Required invariant at deal time: `slots_per_node × node_count + hand_size × team_count = catalog_size`. Hand sort order is applied in the engine when projecting, not persisted.
 
 ### 4.5 Positions and visibility
 
@@ -658,7 +658,7 @@ stateDiagram-v2
 ```
 
 1. Host creates lobby; members join and pick teams.
-2. Host starts → validate tile-count invariant (`tiles_per_node × node_count + hand_size × team_count == catalog_size`) → clone map → deal tiles → partition visibility into `visibility_phase_count` groups → schedule phase + notification jobs.
+2. Host starts → validate deal-time invariant (`slots_per_node × node_count + hand_size × team_count == catalog_size`) → clone map → deal tiles → partition visibility into `visibility_phase_count` groups → schedule phase + notification jobs.
 3. Active play via command queue + scheduler.
 4. End → summary with photo URLs for participants.
 
@@ -706,7 +706,7 @@ Delivered on join/reconnect and after every processed command (v1: **full snapsh
    - **`mapNodes`** — one entry per `game_node`; `tile`/`tiles` present only when **phase-visible on the map** (`faceUpOnMap`).
    - **`atStation`** — present when checked in; always includes the **current station tile(s)** even if that node is fogged on the map.
 
-> When `games.tiles_per_node = 1` (the default), projections currently expose a singular `tile` field on `mapNodes[]` and `atStation`. When `tiles_per_node > 1`, the field becomes `tiles[]`; sites that issue `SWAP_TILE` must address a specific tile via `stationTileId`. The wire shape change is scoped to the projection phase (Phase G); the engine accepts the new payload from chunk 7 of the Phase D refactor onward.
+> When `games.slots_per_node = 1` (the default), projections currently expose a singular `tile` field on `mapNodes[]` and `atStation`. When `slots_per_node > 1`, the field becomes `tiles[]`; sites that issue `SWAP_TILE` must address a specific tile via `stationTileId`. The wire shape change is scoped to the projection phase (Phase G); the engine accepts the new payload from chunk 7 of the Phase D refactor onward.
 
 The client renders the map from `mapNodes` and the station panel from `atStation` without re-deriving visibility rules.
 
@@ -716,7 +716,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 |-------|--------|
 | `gameId`, `status`, `endsAt` | Shared |
 | `nextVisibilityChangeAt` | Optional; for UI timer only |
-| `mapNodes[]` | Layout fields per `game_node`; `lineIds[]` (string codes); `tile` (default config) or `tiles[]` (when `tiles_per_node > 1`) only if phase-visible on map |
+| `mapNodes[]` | Layout fields per `game_node`; `lineIds[]` (string codes); `tile` (default config) or `tiles[]` (when `slots_per_node > 1`) only if phase-visible on map |
 | `mapLines[]` | Line catalog (`code`, `name`, `shortName`, `color`, `renderMetadata`) — sent once / on reconnect |
 | `mapEdges[]` | Static graph (`fromNodeId`, `toNodeId`) — sent once / on reconnect |
 | `atStation` | When checked in: `nodeId`, `code`, `tile` (always) |
@@ -869,7 +869,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 |-------|------|
 | **A** | This doc; all §4 migrations; catalog seeds (`team_definitions`, `tile_types`, `challenge_types`, `map_template` **TTC 2026** with full WGS84 coords in `seeders/data/ttc2026-network.cjs`) |
 | **B** | Auth + lobby HTTP APIs; **host** `POST /api/lobbies/:id/start` validates readiness, resolves teams (`even-team-assignment.ts`), persists `team_slot`, creates `games` + four `game_teams` + `game_participants`, closes lobby |
-| **C** | Extend **same** `GameStartService`: clone map (template `node_count`), create one `game_tile` per catalog entry + placements (`tiles_per_node` per node + `hand_size` per team), visibility groups, scheduled jobs |
+| **C** | Extend **same** `GameStartService`: clone map (template `node_count`), create one `game_tile` per catalog entry + placements (`slots_per_node` per node + `hand_size` per team), visibility groups, scheduled jobs |
 | **D** | Engine, queue, scheduler, event tests |
 | **E** | Socket.IO, projections (sorted hands), reconnect |
 | **F** | Geolocation warn/allow |
@@ -912,9 +912,9 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
 - [x] Seed: `map_template` **TTC 2026** (`server/seeders/data/ttc2026-network.cjs` → `20260517202000-seed-map-template-ttc2026.cjs`). All 84 stations have entrance `latitude`/`longitude` plus schematic `x`/`y`/`labelAnchor` in the seed file, which is the canonical map source for the DB-backed client.
 - [ ] Phase D abstraction-layer relaxation (`2026052*-relax-abstraction-layer.cjs`):
   - Drop unique index `game_tile_placements_game_node_id_unique`; add non-unique index on `game_node_id`.
-  - `map_templates`: add `default_tiles_per_node INT NOT NULL DEFAULT 1`, `default_visibility_phase_count INT NOT NULL DEFAULT 4`.
-  - `lobbies`: add `tiles_per_node INT NOT NULL DEFAULT 1`, `visibility_phase_count INT NOT NULL DEFAULT 4`.
-  - `games`: add `tiles_per_node INT NOT NULL DEFAULT 1`, `visibility_phase_count INT NOT NULL DEFAULT 4`.
+  - `map_templates`: add `default_slots_per_node INT NOT NULL DEFAULT 1`, `default_visibility_phase_count INT NOT NULL DEFAULT 4`.
+  - `lobbies`: add `slots_per_node INT NOT NULL DEFAULT 1`, `visibility_phase_count INT NOT NULL DEFAULT 4`.
+  - `games`: add `slots_per_node INT NOT NULL DEFAULT 1`, `visibility_phase_count INT NOT NULL DEFAULT 4`.
   - Create `lobby_notifications (id, lobby_id FK CASCADE, at_seconds, template, data JSONB, timestamps)` + index `(lobby_id, at_seconds)`.
 
 ---
@@ -947,7 +947,7 @@ Phase D+ adds engine/scheduler/socket suites under the same tree.
 
 ## Appendix: example `game.state` (team-scoped snapshot)
 
-Team is checked in at `STN_42` (fogged on map). Home group nodes include `STN_01` with a visible tile. Example uses the default `tiles_per_node = 1` config.
+Team is checked in at `STN_42` (fogged on map). Home group nodes include `STN_01` with a visible tile. Example uses the default `slots_per_node = 1` config.
 
 ```json
 {

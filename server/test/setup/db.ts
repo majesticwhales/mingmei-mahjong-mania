@@ -25,6 +25,7 @@ const MUTABLE_TABLES = [
   "game_teams",
   "games",
   "lobby_team_assignments",
+  "lobby_notifications",
   "lobby_members",
   "lobbies",
   "media_assets",

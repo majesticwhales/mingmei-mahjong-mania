@@ -8,6 +8,7 @@ import {
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
 import { LobbyMember } from "./lobby-member.ts";
+import { LobbyNotification } from "./lobby-notification.ts";
 import { LobbyTeamAssignment } from "./lobby-team-assignment.ts";
 import { MapTemplate } from "./map-template.ts";
 import { User } from "./user.ts";
@@ -44,6 +45,18 @@ export class Lobby extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false })
   declare visibilityPhaseIntervalSeconds: number;
 
+  /** Number of visibility phases / groups for this lobby. Snapshotted to `games.visibility_phase_count` at start. */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 4 })
+  declare visibilityPhaseCount: number;
+
+  /**
+   * Tile-slot capacity at each node. The dealer fills this many tiles per node at
+   * game start; runtime tile counts may diverge as commands move tiles around.
+   * Snapshotted to `games.slots_per_node` at start.
+   */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })
+  declare slotsPerNode: number;
+
   @Column({
     type: DataType.STRING(16),
     allowNull: false,
@@ -66,4 +79,7 @@ export class Lobby extends BaseModel {
 
   @HasMany(() => LobbyTeamAssignment)
   declare teamAssignments?: LobbyTeamAssignment[];
+
+  @HasMany(() => LobbyNotification)
+  declare notifications?: LobbyNotification[];
 }

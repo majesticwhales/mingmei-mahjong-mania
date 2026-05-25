@@ -59,8 +59,19 @@ export class Game extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 13 })
   declare handSize: number;
 
+  /**
+   * Tile-slot capacity at each node. Snapshotted from `lobby.slots_per_node` at game start.
+   * Determines how many tiles the dealer places at each node; runtime counts may shift.
+   */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })
+  declare slotsPerNode: number;
+
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   declare visibilityPhase: number;
+
+  /** Snapshotted from `lobby.visibility_phase_count` at game start. Determines number of visibility groups. */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 4 })
+  declare visibilityPhaseCount: number;
 
   @Column({ type: DataType.INTEGER, allowNull: false })
   declare visibilityPhaseIntervalSeconds: number;
