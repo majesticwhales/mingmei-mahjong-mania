@@ -18,11 +18,18 @@ import {
   type GameTeamSlot,
 } from "./even-team-assignment.ts";
 
+/**
+ * Bootstrap visibility state for a freshly cloned game map. Caller passes
+ * `visibilityPhaseCount` (= number of visibility groups). Edge case
+ * `visibilityPhaseCount === 1` is supported: every node lands in the single
+ * group 0, every team's home is group 0, and phase 0 reveals everything.
+ */
 export async function bootstrapGameVisibility(
   gameId: string,
   gameTeamIdBySlot: Map<GameTeamSlot, string>,
   startedAt: Date,
   defaultStartNodeCode: string | null,
+  visibilityPhaseCount: number,
   transaction: Transaction,
 ): Promise<void> {
   const teamIdsInSlotOrder = GAME_TEAM_SLOTS.map((slot) => {
@@ -44,7 +51,7 @@ export async function bootstrapGameVisibility(
   });
   const nodeIds = nodes.map((node) => node.id);
 
-  const groupsByIndex = partitionNodesIntoGroups(nodeIds);
+  const groupsByIndex = partitionNodesIntoGroups(nodeIds, visibilityPhaseCount);
   const nodeIdToGroupIndex = new Map<string, VisibilityGroupIndex>();
   for (const [groupIndex, groupNodeIds] of groupsByIndex) {
     for (const nodeId of groupNodeIds) {
@@ -60,7 +67,10 @@ export async function bootstrapGameVisibility(
     { transaction },
   );
 
-  const homeGroupByTeamId = assignHomeGroupsToTeams(teamIdsInSlotOrder);
+  const homeGroupByTeamId = assignHomeGroupsToTeams(
+    teamIdsInSlotOrder,
+    visibilityPhaseCount,
+  );
 
   await GameTeamHomeGroup.bulkCreate(
     teamIdsInSlotOrder.map((gameTeamId) => ({
@@ -81,7 +91,11 @@ export async function bootstrapGameVisibility(
 
   for (const gameTeamId of teamIdsInSlotOrder) {
     const homeGroup = homeGroupByTeamId.get(gameTeamId)!;
-    const visibleGroups = visibleGroupIndices(homeGroup, 0);
+    const visibleGroups = visibleGroupIndices(
+      homeGroup,
+      0,
+      visibilityPhaseCount,
+    );
     const visibleNodeIds = new Set<string>();
     for (const groupIndex of visibleGroups) {
       for (const nodeId of groupsByIndex.get(groupIndex) ?? []) {

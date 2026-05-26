@@ -1,5 +1,4 @@
 import type { Transaction } from "sequelize";
-import { EXPECTED_MAP_NODE_COUNT } from "../game/visibility-groups.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { shuffleInPlace } from "../lib/shuffle.ts";
 import { GameNode } from "../models/game-node.ts";
@@ -34,13 +33,6 @@ export async function dealTilesForGame(
     attributes: ["id"],
     transaction,
   });
-  if (nodes.length !== EXPECTED_MAP_NODE_COUNT) {
-    throw new HttpError(
-      500,
-      "internal_error",
-      `Expected ${EXPECTED_MAP_NODE_COUNT} game nodes, got ${nodes.length}`,
-    );
-  }
 
   const gameTiles = await GameTile.bulkCreate(
     tileTypes.map((tileType) => ({

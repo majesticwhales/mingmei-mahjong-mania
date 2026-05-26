@@ -1,5 +1,4 @@
 import type { Transaction } from "sequelize";
-import { EXPECTED_MAP_NODE_COUNT } from "../game/visibility-groups.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { GameEdge } from "../models/game-edge.ts";
 import { GameLine } from "../models/game-line.ts";
@@ -48,18 +47,11 @@ export async function cloneMapTemplateToGame(
   const templateLines = template.lines ?? [];
   const templateEdges = template.edges ?? [];
 
-  if (template.nodeCount !== EXPECTED_MAP_NODE_COUNT) {
+  if (templateNodes.length !== template.nodeCount) {
     throw new HttpError(
       500,
       "internal_error",
-      `Map template must have ${EXPECTED_MAP_NODE_COUNT} nodes (has nodeCount ${template.nodeCount})`,
-    );
-  }
-  if (templateNodes.length !== EXPECTED_MAP_NODE_COUNT) {
-    throw new HttpError(
-      500,
-      "internal_error",
-      `Map template must have ${EXPECTED_MAP_NODE_COUNT} node rows (has ${templateNodes.length})`,
+      `Map template node rows (${templateNodes.length}) do not match nodeCount (${template.nodeCount})`,
     );
   }
 

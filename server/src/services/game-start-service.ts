@@ -178,6 +178,7 @@ export async function startFromLobby(
       gameTeamIdBySlot,
       startedAt,
       lobby.defaultStartNodeCode,
+      game.visibilityPhaseCount,
       transaction,
     );
 
@@ -186,6 +187,7 @@ export async function startFromLobby(
       startedAt,
       endsAt,
       lobby.visibilityPhaseIntervalSeconds,
+      game.visibilityPhaseCount,
       transaction,
     );
 
