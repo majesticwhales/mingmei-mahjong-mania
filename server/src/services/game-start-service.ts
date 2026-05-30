@@ -171,7 +171,13 @@ export async function startFromLobby(
       );
     }
 
-    await dealTilesForGame(game.id, gameTeamIdBySlot, transaction);
+    await dealTilesForGame(
+      game.id,
+      gameTeamIdBySlot,
+      game.slotsPerNode,
+      game.handSize,
+      transaction,
+    );
 
     await bootstrapGameVisibility(
       game.id,

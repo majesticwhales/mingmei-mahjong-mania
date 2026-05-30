@@ -10,29 +10,65 @@ import {
   type GameTeamSlot,
 } from "./even-team-assignment.ts";
 
-const EXPECTED_TILE_COUNT = 136;
-const HAND_SIZE = 13;
-
+/**
+ * Deal tiles for a freshly cloned game map. The dealer:
+ *
+ * 1. Validates the closed-set invariant:
+ *    `slotsPerNode × nodeCount + handSize × teamCount === catalogSize`
+ *    where `catalogSize = COUNT(*) FROM tile_types`. Both ends of the
+ *    deal must consume the full shuffled catalog.
+ * 2. Creates one `game_tiles` row per `tile_types` row.
+ * 3. Fisher–Yates shuffles the tile ids.
+ * 4. Places `slotsPerNode` tiles at each `game_node` (in `code` order for
+ *    determinism on rerun).
+ * 5. Deals `handSize` tiles into each team's hand, in `GAME_TEAM_SLOTS`
+ *    order. The team count is `gameTeamIdBySlot.size`.
+ */
 export async function dealTilesForGame(
   gameId: string,
   gameTeamIdBySlot: Map<GameTeamSlot, string>,
+  slotsPerNode: number,
+  handSize: number,
   transaction: Transaction,
 ): Promise<void> {
-  const tileTypes = await TileType.findAll({ transaction });
-  if (tileTypes.length !== EXPECTED_TILE_COUNT) {
+  if (!Number.isInteger(slotsPerNode) || slotsPerNode < 1) {
     throw new HttpError(
       500,
       "internal_error",
-      `Expected ${EXPECTED_TILE_COUNT} tile types in catalog, got ${tileTypes.length}`,
+      `slotsPerNode must be a positive integer, got ${slotsPerNode}`,
+    );
+  }
+  if (!Number.isInteger(handSize) || handSize < 1) {
+    throw new HttpError(
+      500,
+      "internal_error",
+      `handSize must be a positive integer, got ${handSize}`,
     );
   }
 
-  const nodes = await GameNode.findAll({
-    where: { gameId },
-    order: [["code", "ASC"]],
-    attributes: ["id"],
-    transaction,
-  });
+  const [tileTypes, nodes] = await Promise.all([
+    TileType.findAll({ transaction }),
+    GameNode.findAll({
+      where: { gameId },
+      order: [["code", "ASC"]],
+      attributes: ["id"],
+      transaction,
+    }),
+  ]);
+
+  const catalogSize = tileTypes.length;
+  const teamCount = gameTeamIdBySlot.size;
+  const required = slotsPerNode * nodes.length + handSize * teamCount;
+
+  if (required !== catalogSize) {
+    throw new HttpError(
+      500,
+      "internal_error",
+      `Tile catalog mismatch: slotsPerNode (${slotsPerNode}) × nodes (${nodes.length}) ` +
+      `+ handSize (${handSize}) × teams (${teamCount}) = ${required}, ` +
+      `but tile catalog has ${catalogSize} entries`,
+    );
+  }
 
   const gameTiles = await GameTile.bulkCreate(
     tileTypes.map((tileType) => ({
@@ -52,25 +88,26 @@ export async function dealTilesForGame(
     gameTeamId: string | null;
   }> = [];
 
-  for (let i = 0; i < nodes.length; i += 1) {
-    placements.push({
-      gameTileId: shuffledTileIds[i]!,
-      gameNodeId: nodes[i]!.id,
-      gameTeamId: null,
-    });
+  let offset = 0;
+  for (const node of nodes) {
+    for (let s = 0; s < slotsPerNode; s += 1) {
+      placements.push({
+        gameTileId: shuffledTileIds[offset]!,
+        gameNodeId: node.id,
+        gameTeamId: null,
+      });
+      offset += 1;
+    }
   }
 
-  let offset = nodes.length;
   for (const slot of GAME_TEAM_SLOTS) {
     const gameTeamId = gameTeamIdBySlot.get(slot);
     if (!gameTeamId) {
-      throw new HttpError(
-        500,
-        "internal_error",
-        `Missing game team for slot ${slot}`,
-      );
+      // Skip slots that aren't represented in this game (in case a future
+      // configuration allows teamCount != GAME_TEAM_SLOTS.length).
+      continue;
     }
-    for (let h = 0; h < HAND_SIZE; h += 1) {
+    for (let h = 0; h < handSize; h += 1) {
       placements.push({
         gameTileId: shuffledTileIds[offset]!,
         gameNodeId: null,

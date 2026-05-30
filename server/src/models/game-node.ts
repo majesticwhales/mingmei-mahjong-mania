@@ -69,8 +69,12 @@ export class GameNode extends BaseModel {
   @HasMany(() => GameNodeLine)
   declare nodeLines?: GameNodeLine[];
 
-  @HasOne(() => GameTilePlacement)
-  declare tilePlacement?: GameTilePlacement;
+  /**
+   * A node may hold up to `games.slots_per_node` placements; chunk 2 dropped
+   * the legacy unique index on `game_node_id`, so this is a one-to-many.
+   */
+  @HasMany(() => GameTilePlacement)
+  declare tilePlacements?: GameTilePlacement[];
 
   @HasOne(() => GameNodeVisibilityGroup)
   declare visibilityGroup?: GameNodeVisibilityGroup;
