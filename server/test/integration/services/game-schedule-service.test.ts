@@ -20,6 +20,7 @@ describe("scheduleGameJobs", () => {
         shell.endsAt,
         shell.visibilityPhaseIntervalSeconds,
         4,
+        [],
         transaction,
       );
 
@@ -59,6 +60,7 @@ describe("scheduleGameJobs", () => {
         shell.endsAt,
         shell.visibilityPhaseIntervalSeconds,
         1,
+        [],
         transaction,
       );
 
@@ -84,6 +86,7 @@ describe("scheduleGameJobs", () => {
         shell.endsAt,
         shell.visibilityPhaseIntervalSeconds,
         6,
+        [],
         transaction,
       );
 
@@ -119,9 +122,72 @@ describe("scheduleGameJobs", () => {
           shell.endsAt,
           shell.visibilityPhaseIntervalSeconds,
           0,
+          [],
           transaction,
         ),
       ).rejects.toThrow(/visibilityPhaseCount/);
+    });
+  });
+
+  it("creates a NOTIFICATION job per entry with offset-based runAt and payload", async () => {
+    const { lobbyId } = await createLobbyWithFourPlayers({ assignTeams: false });
+
+    await withGameShell(lobbyId, async (shell, transaction) => {
+      await scheduleGameJobs(
+        shell.gameId,
+        shell.startedAt,
+        shell.endsAt,
+        shell.visibilityPhaseIntervalSeconds,
+        1,
+        [
+          { atSeconds: 0, template: "game_start", data: null },
+          {
+            atSeconds: 600,
+            template: "time_warning",
+            data: { minutesLeft: 10 },
+          },
+        ],
+        transaction,
+      );
+
+      const notifications = await GameScheduledJob.findAll({
+        where: { gameId: shell.gameId, jobType: "NOTIFICATION" },
+        order: [["runAt", "ASC"]],
+        transaction,
+      });
+
+      expect(notifications).toHaveLength(2);
+      expect(notifications[0]!.runAt.getTime()).toBe(shell.startedAt.getTime());
+      expect(notifications[0]!.payload).toEqual({
+        template: "game_start",
+        data: null,
+      });
+      expect(notifications[1]!.runAt.getTime()).toBe(
+        shell.startedAt.getTime() + 600 * 1000,
+      );
+      expect(notifications[1]!.payload).toEqual({
+        template: "time_warning",
+        data: { minutesLeft: 10 },
+      });
+      expect(notifications.every((j) => j.status === "pending")).toBe(true);
+    });
+  });
+
+  it("rejects notifications with negative atSeconds", async () => {
+    const { lobbyId } = await createLobbyWithFourPlayers({ assignTeams: false });
+
+    await withGameShell(lobbyId, async (shell, transaction) => {
+      await expect(
+        scheduleGameJobs(
+          shell.gameId,
+          shell.startedAt,
+          shell.endsAt,
+          shell.visibilityPhaseIntervalSeconds,
+          1,
+          [{ atSeconds: -1, template: "bad", data: null }],
+          transaction,
+        ),
+      ).rejects.toThrow(/atSeconds/);
     });
   });
 });

@@ -85,4 +85,75 @@ describe("lobby-service", () => {
     const detail = await lobbyService.getLobbyForUser(lobbyId, hostId);
     expect(detail.readiness.ready).toBe(true);
   });
+
+  it("defaults slotsPerNode and visibilityPhaseCount from the template", async () => {
+    const host = await registerUser();
+    const lobby = await lobbyService.createLobby(host.user.id);
+
+    expect(lobby.config.slotsPerNode).toBe(1);
+    expect(lobby.config.visibilityPhaseCount).toBe(4);
+  });
+
+  it("accepts host overrides for slotsPerNode and visibilityPhaseCount on create", async () => {
+    const host = await registerUser();
+    const lobby = await lobbyService.createLobby(host.user.id, {
+      slotsPerNode: 3,
+      visibilityPhaseCount: 6,
+    });
+
+    expect(lobby.config.slotsPerNode).toBe(3);
+    expect(lobby.config.visibilityPhaseCount).toBe(6);
+  });
+
+  it("rejects non-positive slotsPerNode / visibilityPhaseCount on create", async () => {
+    const host = await registerUser();
+
+    await expect(
+      lobbyService.createLobby(host.user.id, { slotsPerNode: 0 }),
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "validation_error",
+    } satisfies Partial<HttpError>);
+
+    await expect(
+      lobbyService.createLobby(host.user.id, { visibilityPhaseCount: 0 }),
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "validation_error",
+    } satisfies Partial<HttpError>);
+  });
+
+  it("host can update slotsPerNode and visibilityPhaseCount via updateConfig", async () => {
+    const host = await registerUser();
+    const created = await lobbyService.createLobby(host.user.id);
+
+    const updated = await lobbyService.updateConfig(created.id, host.user.id, {
+      slotsPerNode: 2,
+      visibilityPhaseCount: 5,
+    });
+
+    expect(updated.config.slotsPerNode).toBe(2);
+    expect(updated.config.visibilityPhaseCount).toBe(5);
+  });
+
+  it("rejects non-positive slotsPerNode / visibilityPhaseCount via updateConfig", async () => {
+    const host = await registerUser();
+    const created = await lobbyService.createLobby(host.user.id);
+
+    await expect(
+      lobbyService.updateConfig(created.id, host.user.id, { slotsPerNode: -1 }),
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "validation_error",
+    } satisfies Partial<HttpError>);
+
+    await expect(
+      lobbyService.updateConfig(created.id, host.user.id, {
+        visibilityPhaseCount: 0,
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "validation_error",
+    } satisfies Partial<HttpError>);
+  });
 });
