@@ -3,15 +3,17 @@ import type {
   SchedulerJobHandler,
   SchedulerJobHandlerRegistry,
 } from "../job-handler.ts";
+import { gameEndHandler } from "./game-end.ts";
+import { notificationHandler } from "./notification.ts";
+import { visibilityPhaseAdvanceHandler } from "./visibility-phase-advance.ts";
 
 /**
- * Built-in scheduler job handlers.
- *
- * Empty for chunk 1 of the Phase D scheduler buildout — `runSchedulerTick`
- * dispatches to whichever registry the caller supplies, and chunk 2 will
- * populate this default registry with the `VISIBILITY_PHASE_ADVANCE`,
- * `GAME_END`, and `NOTIFICATION` handlers. Tests that exercise the
- * orchestrator before chunk 2 lands pass their own registry.
+ * Built-in scheduler job handlers. `runSchedulerTick` dispatches against
+ * this registry by default; tests may pass their own.
  */
 export const builtinSchedulerHandlers: SchedulerJobHandlerRegistry =
-  new Map<ScheduledJobType, SchedulerJobHandler>();
+  new Map<ScheduledJobType, SchedulerJobHandler>([
+    ["VISIBILITY_PHASE_ADVANCE", visibilityPhaseAdvanceHandler],
+    ["GAME_END", gameEndHandler],
+    ["NOTIFICATION", notificationHandler],
+  ]);
