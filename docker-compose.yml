@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mahjong_jet_lag
+      POSTGRES_DB: mingmei_mahjong_mania
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

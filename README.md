@@ -1,4 +1,4 @@
-# mahjong-jet-lag
+# mingmei-mahjong-mania
 
 A full-stack TypeScript app with a React frontend and an Express API backend.
 
@@ -26,7 +26,7 @@ nvm use 22
 Clone or download the project, then install dependencies from the repo root:
 
 ```bash
-cd mahjong-jet-lag
+cd mingmei-mahjong-mania
 npm install
 npm install --prefix client
 npm install --prefix server
@@ -35,7 +35,7 @@ npm install --prefix server
 Or install everything in one step:
 
 ```bash
-cd mahjong-jet-lag
+cd mingmei-mahjong-mania
 npm install && npm install --prefix client && npm install --prefix server
 ```
 
@@ -68,10 +68,10 @@ npm install && npm install --prefix client && npm install --prefix server
 5. Create the **test** database (once):
 
    ```sql
-   CREATE DATABASE mahjong_jet_lag_test;
+   CREATE DATABASE mingmei_mahjong_mania_test;
    ```
 
-   Or via Docker: `docker exec -it <postgres_container> psql -U postgres -c "CREATE DATABASE mahjong_jet_lag_test;"`
+   Or via Docker: `docker exec -it <postgres_container> psql -U postgres -c "CREATE DATABASE mingmei_mahjong_mania_test;"`
 
    Ensure `DATABASE_URL_TEST` in `server/.env` points at it (see `server/.env.example`).
 
@@ -157,7 +157,7 @@ Define Sequelize models in `server/src/models/` to match your schema.
 ## Project structure
 
 ```text
-mahjong-jet-lag/
+mingmei-mahjong-mania/
 ├── client/              # React + Vite frontend
 │   └── src/
 ├── server/              # Express API

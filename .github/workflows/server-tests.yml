@@ -28,7 +28,7 @@ jobs:
 
     env:
       NODE_ENV: test
-      DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/mahjong_jet_lag_test
+      DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/mingmei_mahjong_mania_test
       JWT_SECRET: ci-test-jwt-secret
 
     steps:

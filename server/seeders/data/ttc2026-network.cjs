@@ -16,7 +16,7 @@
 module.exports = {
   template: {
     name: 'TTC 2026',
-    description: 'Toronto subway schematic (Lines 1, 2, 5) for mahjong-jet-lag',
+    description: 'Toronto subway schematic (Lines 1, 2, 5) for mingmei-mahjong-mania',
     defaultDurationSeconds: 7200,
     defaultHandSize: 13,
     nodeCount: 84,

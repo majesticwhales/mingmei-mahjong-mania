@@ -1,4 +1,4 @@
-# Mahjong Jet Lag — Technical Design Document
+# Mingmei's Mahjong Mania — Technical Design Document
 
 **Status:** Living document (v1 infrastructure)  
 **Last updated:** 2026-05-24
@@ -7,7 +7,7 @@
 
 ## 1. Purpose and scope
 
-This document defines **infrastructure and architecture** for *mahjong-jet-lag* before deep game UX work. The backend is the **source of truth** for game state, ordering, and visibility; clients primarily render projections and send commands.
+This document defines **infrastructure and architecture** for *mingmei-mahjong-mania* before deep game UX work. The backend is the **source of truth** for game state, ordering, and visibility; clients primarily render projections and send commands.
 
 ### In scope (v1 infra)
 
