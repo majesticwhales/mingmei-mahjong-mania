@@ -38,6 +38,33 @@ export class MapTemplate extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 4 })
   declare defaultVisibilityPhaseCount: number;
 
+  /**
+   * Per-slot unlock offsets in seconds from `games.started_at`, one entry per
+   * `slot_index`. Length must equal `defaultSlotsPerNode`; the first entry
+   * must be 0 (slot 0 always unlocked); all entries must be `>= 0`. Lobbies
+   * inherit this as `slotUnlockOffsetsSeconds`.
+   */
+  @Column({
+    type: DataType.ARRAY(DataType.INTEGER),
+    allowNull: false,
+    defaultValue: [0],
+  })
+  declare defaultSlotUnlockOffsetsSeconds: number[];
+
+  /**
+   * Per-slot map-visibility flags, one entry per `slot_index`. When false,
+   * that slot never appears face-up on the map regardless of phase; tiles in
+   * it are only visible to a team checked in at the station. Length must
+   * equal `defaultSlotsPerNode`; the first entry must be `true` (slot 0
+   * follows phase visibility). Lobbies inherit this as `slotMapVisible`.
+   */
+  @Column({
+    type: DataType.ARRAY(DataType.BOOLEAN),
+    allowNull: false,
+    defaultValue: [true],
+  })
+  declare defaultSlotMapVisible: boolean[];
+
   /** Station code on this template where all teams spawn (e.g. "bay"). */
   @Column({ type: DataType.STRING(64), allowNull: true })
   declare defaultStartNodeCode: string | null;

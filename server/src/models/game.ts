@@ -66,6 +66,35 @@ export class Game extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })
   declare slotsPerNode: number;
 
+  /**
+   * Per-slot unlock offsets in seconds from `startedAt`, snapshotted from
+   * `lobby.slotUnlockOffsetsSeconds` at start. Length === `slotsPerNode`;
+   * first entry is 0; all entries `>= 0`. Slot `k` is unlocked once
+   * `now >= startedAt + slotUnlockOffsetsSeconds[k] * 1000`. Engine handlers
+   * read this to reject `SWAP_TILE` against locked slots; the scheduler
+   * seeds one `SLOT_UNLOCKED` job per non-zero offset (chunk 4).
+   */
+  @Column({
+    type: DataType.ARRAY(DataType.INTEGER),
+    allowNull: false,
+    defaultValue: [0],
+  })
+  declare slotUnlockOffsetsSeconds: number[];
+
+  /**
+   * Per-slot map-visibility flags, snapshotted from `lobby.slotMapVisible` at
+   * start. Length === `slotsPerNode`; first entry is `true`. When false, the
+   * projection layer omits that slot's tile from map output regardless of
+   * phase visibility; the slot is still revealed via `atStation` once
+   * unlocked. Phase E enforces this at projection time.
+   */
+  @Column({
+    type: DataType.ARRAY(DataType.BOOLEAN),
+    allowNull: false,
+    defaultValue: [true],
+  })
+  declare slotMapVisible: boolean[];
+
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   declare visibilityPhase: number;
 

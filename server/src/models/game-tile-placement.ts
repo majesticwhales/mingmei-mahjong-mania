@@ -32,4 +32,16 @@ export class GameTilePlacement extends BaseModel {
 
   @BelongsTo(() => GameTeam)
   declare gameTeam?: GameTeam;
+
+  /**
+   * Slot ordinal at the node this tile occupies, in `[0, games.slots_per_node)`.
+   * Set iff `gameNodeId` is set; null for hand placements. A partial unique
+   * index on `(game_node_id, slot_index) WHERE game_node_id IS NOT NULL`
+   * enforces at most one tile per addressable slot. Slot identity is a
+   * property of the node, not the tile: SWAP_TILE swaps `slotIndex` along
+   * with `gameNodeId`/`gameTeamId` so the incoming hand tile lands in the
+   * vacated slot (chunk 3).
+   */
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  declare slotIndex: number | null;
 }
