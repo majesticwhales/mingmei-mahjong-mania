@@ -36,6 +36,18 @@ export interface LobbyConfigDto {
   visibilityPhaseCount: number;
   /** Tile-slot capacity at each node (snapshotted to `games.slots_per_node`). */
   slotsPerNode: number;
+  /**
+   * Per-slot unlock offsets in seconds from game start. Length equals
+   * `slotsPerNode`. Entry `[0]` is always `0`. See TDD §3.3 / §4.1.
+   * Snapshotted to `games.slot_unlock_offsets_seconds` at start.
+   */
+  slotUnlockOffsetsSeconds: number[];
+  /**
+   * Per-slot map-visibility flags. Length equals `slotsPerNode`. Entry
+   * `[0]` is always `true`. When `false`, slot k's tile is never face-up
+   * on the map regardless of phase. Snapshotted to `games.slot_map_visible`.
+   */
+  slotMapVisible: boolean[];
   teamAssignmentMode: TeamAssignmentMode;
   minPlayersToStart: number;
   /** Station code where all teams spawn at game start (null = no default). */
@@ -177,6 +189,8 @@ export function serializeLobbyDetail(
       visibilityPhaseIntervalSeconds: lobby.visibilityPhaseIntervalSeconds,
       visibilityPhaseCount: lobby.visibilityPhaseCount,
       slotsPerNode: lobby.slotsPerNode,
+      slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
+      slotMapVisible: lobby.slotMapVisible,
       teamAssignmentMode: lobby.teamAssignmentMode,
       minPlayersToStart: lobby.minPlayersToStart,
       defaultStartNodeCode: lobby.defaultStartNodeCode,

@@ -4,10 +4,12 @@ import type {
   CommandResult,
 } from "../process-command.ts";
 import { HttpError } from "../../lib/http-error.ts";
+import { Game } from "../../models/game.ts";
 import { GameNode } from "../../models/game-node.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { GameTilePlacement } from "../../models/game-tile-placement.ts";
 import { swapPlacements } from "../tile-swap-service.ts";
+import { assertSlotUnlocked } from "../../services/slot-visibility.ts";
 
 interface SwapTilePayload {
   /** `game_tiles.id` of a tile currently in the issuing team's hand. */
@@ -105,6 +107,41 @@ export const swapTileHandler: CommandHandler = {
         `Station ${position.currentGameNodeId} not found`,
       );
     }
+
+    // Per-slot lock check (TDD §3.3 `canSwapSlot`, formalized in chunk 6
+    // via `services/slot-visibility.ts`). The station tile occupies some
+    // `slot_index` on the node; the helper consults
+    // `games.slot_unlock_offsets_seconds[slot_index]` against wall clock
+    // and rejects with `409 slot_locked` when still locked. Independent
+    // of whether the `SLOT_UNLOCKED` scheduled job has fired (that job
+    // exists for replay/broadcast, not gameplay).
+    const stationSlotIndex = stationPlacement.slotIndex;
+    if (stationSlotIndex == null) {
+      // Belt-and-suspenders: chunk 3's CHECK guarantees this is unreachable
+      // for any row with `game_node_id` set, but the type system can't see
+      // that, so fail loud rather than silently treating it as slot 0.
+      throw new HttpError(
+        500,
+        "internal_error",
+        `Station placement for tile ${stationTileId} is missing slot_index`,
+      );
+    }
+    const game = await Game.findByPk(ctx.gameId, {
+      transaction: ctx.transaction,
+      attributes: ["id", "startedAt", "slotUnlockOffsetsSeconds"],
+    });
+    if (!game) {
+      throw new HttpError(
+        500,
+        "internal_error",
+        `Game ${ctx.gameId} not found mid-handler`,
+      );
+    }
+    assertSlotUnlocked(
+      game,
+      stationSlotIndex,
+      `Slot ${stationSlotIndex} at ${station.code}`,
+    );
 
     await swapPlacements(
       ctx.transaction,

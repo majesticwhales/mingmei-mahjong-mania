@@ -5,6 +5,7 @@ import type {
 } from "../job-handler.ts";
 import { gameEndHandler } from "./game-end.ts";
 import { notificationHandler } from "./notification.ts";
+import { slotUnlockedHandler } from "./slot-unlocked.ts";
 import { visibilityPhaseAdvanceHandler } from "./visibility-phase-advance.ts";
 
 /**
@@ -16,4 +17,5 @@ export const builtinSchedulerHandlers: SchedulerJobHandlerRegistry =
     ["VISIBILITY_PHASE_ADVANCE", visibilityPhaseAdvanceHandler],
     ["GAME_END", gameEndHandler],
     ["NOTIFICATION", notificationHandler],
+    ["SLOT_UNLOCKED", slotUnlockedHandler],
   ]);

@@ -57,6 +57,34 @@ export class Lobby extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })
   declare slotsPerNode: number;
 
+  /**
+   * Per-slot unlock offsets (seconds from `games.started_at`) for this lobby.
+   * Length === `slotsPerNode`; first entry is 0; all entries `>= 0`. Sourced
+   * from `mapTemplate.defaultSlotUnlockOffsetsSeconds` on lobby creation,
+   * editable by the host, snapshotted to `games.slotUnlockOffsetsSeconds` at
+   * start. Uniform across all nodes and all teams in the game.
+   */
+  @Column({
+    type: DataType.ARRAY(DataType.INTEGER),
+    allowNull: false,
+    defaultValue: [0],
+  })
+  declare slotUnlockOffsetsSeconds: number[];
+
+  /**
+   * Per-slot map-visibility flags. Length === `slotsPerNode`; first entry is
+   * `true` (slot 0 follows phase rules). When false, that slot index never
+   * shows face-up on the map regardless of phase; it's only visible to a
+   * team checked in at the station. Sourced from
+   * `mapTemplate.defaultSlotMapVisible` on lobby creation, editable by host.
+   */
+  @Column({
+    type: DataType.ARRAY(DataType.BOOLEAN),
+    allowNull: false,
+    defaultValue: [true],
+  })
+  declare slotMapVisible: boolean[];
+
   @Column({
     type: DataType.STRING(16),
     allowNull: false,

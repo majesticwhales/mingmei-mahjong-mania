@@ -12,7 +12,7 @@ import {
 import { runSchedulerTick } from "../../../src/scheduler/run-tick.ts";
 import { builtinSchedulerHandlers } from "../../../src/scheduler/handlers/index.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
-import { setupStartedGame } from "../../setup/game.ts";
+import { setupLightweightGame, setupStartedGame } from "../../setup/game.ts";
 
 type MockBroadcaster = {
   emitEvent: ReturnType<
@@ -59,7 +59,7 @@ describe("VISIBILITY_PHASE_ADVANCE handler", () => {
   });
 
   it("advances visibility_phase, emits VISIBILITY_PHASE_ADVANCED, and broadcasts", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     await insertJob(gameId, "VISIBILITY_PHASE_ADVANCE", { targetPhase: 1 });
 
@@ -81,7 +81,7 @@ describe("VISIBILITY_PHASE_ADVANCE handler", () => {
   });
 
   it("drains a 3-phase sequence in order", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const base = Date.now() - 60 * 1000;
     await insertJob(
@@ -121,7 +121,7 @@ describe("VISIBILITY_PHASE_ADVANCE handler", () => {
   });
 
   it("fails out-of-order advances loudly", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const job = await insertJob(gameId, "VISIBILITY_PHASE_ADVANCE", {
       targetPhase: 2,
@@ -139,7 +139,7 @@ describe("VISIBILITY_PHASE_ADVANCE handler", () => {
   });
 
   it("fails when targetPhase exceeds visibilityPhaseCount", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const job = await insertJob(gameId, "VISIBILITY_PHASE_ADVANCE", {
       targetPhase: 4,
@@ -153,7 +153,7 @@ describe("VISIBILITY_PHASE_ADVANCE handler", () => {
   });
 
   it("fails when targetPhase is missing or non-integer", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const a = await insertJob(gameId, "VISIBILITY_PHASE_ADVANCE", {});
     const b = await insertJob(gameId, "VISIBILITY_PHASE_ADVANCE", {
@@ -177,7 +177,7 @@ describe("GAME_END handler", () => {
   });
 
   it("flips an active game to ended and emits GAME_ENDED", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     await insertJob(gameId, "GAME_END", null);
 
@@ -202,7 +202,7 @@ describe("GAME_END handler", () => {
   });
 
   it("is idempotent on an already-ended game (no event, no failure)", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     await Game.update({ status: "ended" }, { where: { id: gameId } });
     await insertJob(gameId, "GAME_END", null);
@@ -221,7 +221,7 @@ describe("NOTIFICATION handler", () => {
   });
 
   it("emits a NOTIFICATION event and broadcasts emitNotification", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     await insertJob(gameId, "NOTIFICATION", {
       template: "time_warning",
@@ -247,7 +247,7 @@ describe("NOTIFICATION handler", () => {
   });
 
   it("normalizes a missing data field to null in both event and broadcast", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     await insertJob(gameId, "NOTIFICATION", { template: "game_start" });
 
@@ -262,7 +262,7 @@ describe("NOTIFICATION handler", () => {
   });
 
   it("fails when the template is missing", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const job = await insertJob(gameId, "NOTIFICATION", { data: { x: 1 } });
 
@@ -274,7 +274,7 @@ describe("NOTIFICATION handler", () => {
   });
 
   it("fails when data is not an object or null", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const job = await insertJob(gameId, "NOTIFICATION", {
       template: "x",
@@ -289,12 +289,84 @@ describe("NOTIFICATION handler", () => {
   });
 });
 
+describe("SLOT_UNLOCKED handler", () => {
+  beforeEach(async () => {
+    await truncateMutableTables(await getSequelize());
+  });
+
+  it("emits a SLOT_UNLOCKED event with the slotIndex payload and broadcasts state", async () => {
+    const { gameId } = await setupLightweightGame({
+      participantCount: 0,
+      slotsPerNode: 3,
+      slotUnlockOffsetsSeconds: [0, 60, 120],
+    });
+    await clearJobs(gameId);
+    await insertJob(gameId, "SLOT_UNLOCKED", { slotIndex: 1 });
+
+    const broadcaster = mockBroadcaster();
+    const result = await runSchedulerTick({
+      handlers: builtinSchedulerHandlers,
+      broadcaster,
+    });
+
+    expect(result).toEqual({ processed: 1, failed: 0 });
+
+    const events = await GameEvent.findAll({ where: { gameId } });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.eventType).toBe("SLOT_UNLOCKED");
+    expect(events[0]!.payload).toEqual({ slotIndex: 1 });
+    expect(events[0]!.actorUserId).toBeNull();
+    expect(events[0]!.actorGameTeamId).toBeNull();
+
+    expect(broadcaster.emitState).toHaveBeenCalledWith(gameId);
+  });
+
+  it("fails when slotIndex is 0 (slot 0 is never scheduled)", async () => {
+    const { gameId } = await setupLightweightGame({
+      participantCount: 0,
+      slotsPerNode: 2,
+      slotUnlockOffsetsSeconds: [0, 60],
+    });
+    await clearJobs(gameId);
+    const job = await insertJob(gameId, "SLOT_UNLOCKED", { slotIndex: 0 });
+
+    const result = await runSchedulerTick({
+      handlers: builtinSchedulerHandlers,
+    });
+    expect(result).toEqual({ processed: 0, failed: 1 });
+
+    const persisted = await GameScheduledJob.findByPk(job.id);
+    expect(persisted?.status).toBe("failed");
+    expect(persisted?.errorMessage).toMatch(/slotIndex/);
+  });
+
+  it("fails when slotIndex >= slotsPerNode", async () => {
+    const { gameId } = await setupLightweightGame({
+      participantCount: 0,
+      slotsPerNode: 2,
+      slotUnlockOffsetsSeconds: [0, 60],
+    });
+    await clearJobs(gameId);
+    const job = await insertJob(gameId, "SLOT_UNLOCKED", { slotIndex: 5 });
+
+    const result = await runSchedulerTick({
+      handlers: builtinSchedulerHandlers,
+    });
+    expect(result).toEqual({ processed: 0, failed: 1 });
+
+    const persisted = await GameScheduledJob.findByPk(job.id);
+    expect(persisted?.errorMessage).toMatch(/out of range/);
+  });
+});
+
 describe("builtinSchedulerHandlers end-to-end", () => {
   beforeEach(async () => {
     await truncateMutableTables(await getSequelize());
   });
 
   it("drains the full set of jobs scheduled at game start (3 advances + 1 end)", async () => {
+    // Intentionally uses `setupStartedGame` because this test asserts the
+    // 3 phase-advance + 1 game-end jobs that `startFromLobby` seeds.
     const { gameId } = await setupStartedGame();
     // The default lobby schedules every job in the future relative to startedAt;
     // pull them into the past so this tick can claim all four at once.

@@ -25,6 +25,7 @@ export const NOTIFICATION_TYPES = [
   "VISIBILITY_PHASE_ADVANCED",
   "GAME_ENDED",
   "NOTIFICATION",
+  "SLOT_UNLOCKED",
 ] as const;
 
 

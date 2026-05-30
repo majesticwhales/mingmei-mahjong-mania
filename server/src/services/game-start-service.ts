@@ -126,6 +126,8 @@ export async function startFromLobby(
         visibilityPhase: 0,
         visibilityPhaseCount: lobby.visibilityPhaseCount,
         visibilityPhaseIntervalSeconds: lobby.visibilityPhaseIntervalSeconds,
+        slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
+        slotMapVisible: lobby.slotMapVisible,
         configVersion: 1,
       },
       { transaction },
@@ -198,16 +200,19 @@ export async function startFromLobby(
     });
 
     await scheduleGameJobs(
-      game.id,
-      startedAt,
-      endsAt,
-      lobby.visibilityPhaseIntervalSeconds,
-      game.visibilityPhaseCount,
-      notifications.map((n) => ({
-        atSeconds: n.atSeconds,
-        template: n.template,
-        data: n.data,
-      })),
+      {
+        gameId: game.id,
+        startedAt,
+        endsAt,
+        visibilityPhaseIntervalSeconds: lobby.visibilityPhaseIntervalSeconds,
+        visibilityPhaseCount: game.visibilityPhaseCount,
+        slotUnlockOffsetsSeconds: game.slotUnlockOffsetsSeconds,
+        notifications: notifications.map((n) => ({
+          atSeconds: n.atSeconds,
+          template: n.template,
+          data: n.data,
+        })),
+      },
       transaction,
     );
 

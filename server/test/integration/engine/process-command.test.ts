@@ -7,8 +7,7 @@ import { processCommand } from "../../../src/engine/process-command.ts";
 import type { CommandType } from "../../../src/engine/types.ts";
 import { Game } from "../../../src/models/game.ts";
 import { GameEvent } from "../../../src/models/game-event.ts";
-import { createGameShellWithParticipants } from "../../setup/game.ts";
-import { createLobbyWithFourPlayers } from "../../setup/lobby.ts";
+import { setupLightweightGame } from "../../setup/game.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 import { RecordingBroadcaster } from "../../setup/recording-broadcaster.ts";
 
@@ -28,11 +27,7 @@ describe("processCommand", () => {
   });
 
   async function setupFixture() {
-    const { lobbyId } = await createLobbyWithFourPlayers();
-    const sequelize = await getSequelize();
-    return sequelize.transaction((tx) =>
-      createGameShellWithParticipants(lobbyId, tx),
-    );
+    return setupLightweightGame();
   }
 
   it("rejects unknown command types before any DB work", async () => {

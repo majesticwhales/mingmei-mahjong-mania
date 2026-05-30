@@ -156,4 +156,139 @@ describe("lobby-service", () => {
       code: "validation_error",
     } satisfies Partial<HttpError>);
   });
+
+  describe("per-slot rules arrays (chunk 5)", () => {
+    it("defaults slotUnlockOffsetsSeconds and slotMapVisible from the template", async () => {
+      const host = await registerUser();
+      const lobby = await lobbyService.createLobby(host.user.id);
+
+      expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0]);
+      expect(lobby.config.slotMapVisible).toEqual([true]);
+    });
+
+    it("accepts host overrides on create when length matches slotsPerNode", async () => {
+      const host = await registerUser();
+      const lobby = await lobbyService.createLobby(host.user.id, {
+        slotsPerNode: 3,
+        slotUnlockOffsetsSeconds: [0, 300, 900],
+        slotMapVisible: [true, false, false],
+      });
+
+      expect(lobby.config.slotsPerNode).toBe(3);
+      expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 300, 900]);
+      expect(lobby.config.slotMapVisible).toEqual([true, false, false]);
+    });
+
+    it("rejects on create when arrays mismatch slotsPerNode", async () => {
+      const host = await registerUser();
+      await expect(
+        lobbyService.createLobby(host.user.id, {
+          slotsPerNode: 3,
+          slotUnlockOffsetsSeconds: [0, 300],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+
+    it("rejects slot 0 with a non-zero offset", async () => {
+      const host = await registerUser();
+      await expect(
+        lobbyService.createLobby(host.user.id, {
+          slotsPerNode: 2,
+          slotUnlockOffsetsSeconds: [60, 0],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+
+    it("rejects slot 0 with map_visible = false", async () => {
+      const host = await registerUser();
+      await expect(
+        lobbyService.createLobby(host.user.id, {
+          slotsPerNode: 2,
+          slotMapVisible: [false, true],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+
+    it("host can update both arrays via updateConfig", async () => {
+      const host = await registerUser();
+      const created = await lobbyService.createLobby(host.user.id, {
+        slotsPerNode: 2,
+      });
+
+      const updated = await lobbyService.updateConfig(
+        created.id,
+        host.user.id,
+        {
+          slotUnlockOffsetsSeconds: [0, 600],
+          slotMapVisible: [true, false],
+        },
+      );
+
+      expect(updated.config.slotUnlockOffsetsSeconds).toEqual([0, 600]);
+      expect(updated.config.slotMapVisible).toEqual([true, false]);
+    });
+
+    it("auto-pads arrays with 0 / true when slotsPerNode grows and arrays aren't repatched", async () => {
+      const host = await registerUser();
+      const created = await lobbyService.createLobby(host.user.id, {
+        slotsPerNode: 2,
+        slotUnlockOffsetsSeconds: [0, 60],
+        slotMapVisible: [true, false],
+      });
+
+      const updated = await lobbyService.updateConfig(
+        created.id,
+        host.user.id,
+        { slotsPerNode: 4 },
+      );
+
+      expect(updated.config.slotsPerNode).toBe(4);
+      expect(updated.config.slotUnlockOffsetsSeconds).toEqual([0, 60, 0, 0]);
+      expect(updated.config.slotMapVisible).toEqual([true, false, true, true]);
+    });
+
+    it("auto-truncates arrays when slotsPerNode shrinks and arrays aren't repatched", async () => {
+      const host = await registerUser();
+      const created = await lobbyService.createLobby(host.user.id, {
+        slotsPerNode: 3,
+        slotUnlockOffsetsSeconds: [0, 60, 120],
+      });
+
+      const updated = await lobbyService.updateConfig(
+        created.id,
+        host.user.id,
+        { slotsPerNode: 1 },
+      );
+
+      expect(updated.config.slotsPerNode).toBe(1);
+      expect(updated.config.slotUnlockOffsetsSeconds).toEqual([0]);
+    });
+
+    it("rejects update when explicit array length doesn't match resulting slotsPerNode", async () => {
+      const host = await registerUser();
+      const created = await lobbyService.createLobby(host.user.id, {
+        slotsPerNode: 2,
+      });
+
+      await expect(
+        lobbyService.updateConfig(created.id, host.user.id, {
+          slotsPerNode: 3,
+          slotUnlockOffsetsSeconds: [0, 60], // wrong length
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+
+    it("rejects negative offset entries on update", async () => {
+      const host = await registerUser();
+      const created = await lobbyService.createLobby(host.user.id, {
+        slotsPerNode: 2,
+      });
+
+      await expect(
+        lobbyService.updateConfig(created.id, host.user.id, {
+          slotUnlockOffsetsSeconds: [0, -10],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+  });
 });

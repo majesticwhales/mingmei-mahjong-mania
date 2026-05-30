@@ -3,7 +3,7 @@ import { sequelize } from "../../../src/config/database.ts";
 import { claimDueJob } from "../../../src/scheduler/claim-due-job.ts";
 import { GameScheduledJob } from "../../../src/models/game-scheduled-job.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
-import { setupStartedGame } from "../../setup/game.ts";
+import { setupLightweightGame } from "../../setup/game.ts";
 
 async function clearJobs(gameId: string): Promise<void> {
   await GameScheduledJob.destroy({ where: { gameId } });
@@ -33,7 +33,7 @@ describe("claimDueJob", () => {
   });
 
   it("returns null when no jobs are pending", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
 
     const claimed = await sequelize.transaction((t) =>
@@ -43,7 +43,7 @@ describe("claimDueJob", () => {
   });
 
   it("returns null when all pending jobs are still in the future", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const future = new Date(Date.now() + 60 * 1000);
     await insertJob(gameId, { runAt: future });
@@ -55,7 +55,7 @@ describe("claimDueJob", () => {
   });
 
   it("ignores jobs in non-pending statuses", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const past = new Date(Date.now() - 60 * 1000);
     await insertJob(gameId, { runAt: past, status: "done" });
@@ -69,7 +69,7 @@ describe("claimDueJob", () => {
   });
 
   it("claims the oldest due job and flips its status to processing", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const t0 = new Date(Date.now() - 60 * 1000);
     const t1 = new Date(Date.now() - 30 * 1000);
@@ -89,7 +89,7 @@ describe("claimDueJob", () => {
   });
 
   it("uses created_at as the tiebreaker when run_at is identical", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const sameRunAt = new Date(Date.now() - 60 * 1000);
     const first = await insertJob(gameId, { runAt: sameRunAt });
@@ -105,7 +105,7 @@ describe("claimDueJob", () => {
   });
 
   it("two concurrent claims pick distinct jobs (skip locked)", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const past = new Date(Date.now() - 60 * 1000);
     await insertJob(gameId, { runAt: past });
@@ -130,7 +130,7 @@ describe("claimDueJob", () => {
   });
 
   it("returns null when the only due job is already locked by another worker", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const past = new Date(Date.now() - 60 * 1000);
     const only = await insertJob(gameId, { runAt: past });

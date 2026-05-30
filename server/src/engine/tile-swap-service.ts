@@ -7,6 +7,12 @@ export interface PlacementSnapshot {
   gameTileId: string;
   gameNodeId: string | null;
   gameTeamId: string | null;
+  /**
+   * Slot ordinal at `gameNodeId` (0-based). Non-null iff `gameNodeId` is
+   * non-null. Included so callers can observe the vacated slot a tile
+   * occupied before the swap (e.g. for replay logs / projections).
+   */
+  slotIndex: number | null;
 }
 
 export interface SwapPlacementsResult {
@@ -15,16 +21,25 @@ export interface SwapPlacementsResult {
 }
 
 /**
- * Mechanically exchange the `game_node_id` / `game_team_id` targets of the
- * two `game_tile_placements` rows identified by the supplied game-tile ids.
+ * Mechanically exchange the `game_node_id` / `game_team_id` / `slot_index`
+ * targets of the two `game_tile_placements` rows identified by the supplied
+ * game-tile ids.
  *
  * Shared low-level primitive for:
  *   - `SWAP_TILE` (hand <-> node at current station)
  *   - `SWAP_LOCATION_TILES` (node <-> node; arrives with the challenge phase)
  *
+ * Per the per-slot rules rollout (TDD §4.4): slot identity belongs to the
+ * node, not the tile, so an incoming hand tile takes the exact slot the
+ * outgoing station tile vacated, and a node-to-node swap exchanges slots
+ * along with nodes. All three columns (`game_node_id`, `game_team_id`,
+ * `slot_index`) move together, which simultaneously keeps the XOR
+ * invariant (one of node/team set) and the `slot_index NOT NULL iff
+ * game_node_id NOT NULL` invariant satisfied.
+ *
  * Implemented as a single UPDATE so both rows mutate atomically with respect
- * to any concurrent readers (and to keep the door open to future per-slot
- * uniqueness constraints without revisiting the call site).
+ * to any concurrent readers and to satisfy the partial unique index on
+ * `(game_node_id, slot_index)` without an intermediate-state collision.
  *
  * No semantic validation: the caller is responsible for ensuring the
  * resulting placements still satisfy the XOR invariant (one of node/team set
@@ -66,11 +81,13 @@ export async function swapPlacements(
       gameTileId: a.gameTileId,
       gameNodeId: a.gameNodeId,
       gameTeamId: a.gameTeamId,
+      slotIndex: a.slotIndex,
     },
     b: {
       gameTileId: b.gameTileId,
       gameNodeId: b.gameNodeId,
       gameTeamId: b.gameTeamId,
+      slotIndex: b.slotIndex,
     },
   };
 
@@ -79,11 +96,12 @@ export async function swapPlacements(
      SET
        game_node_id = src.new_node_id,
        game_team_id = src.new_team_id,
-       updated_at = NOW()
+       slot_index   = src.new_slot_index,
+       updated_at   = NOW()
      FROM (VALUES
-       (CAST(:tileA AS uuid), CAST(:aNewNode AS uuid), CAST(:aNewTeam AS uuid)),
-       (CAST(:tileB AS uuid), CAST(:bNewNode AS uuid), CAST(:bNewTeam AS uuid))
-     ) AS src(game_tile_id, new_node_id, new_team_id)
+       (CAST(:tileA AS uuid), CAST(:aNewNode AS uuid), CAST(:aNewTeam AS uuid), CAST(:aNewSlot AS integer)),
+       (CAST(:tileB AS uuid), CAST(:bNewNode AS uuid), CAST(:bNewTeam AS uuid), CAST(:bNewSlot AS integer))
+     ) AS src(game_tile_id, new_node_id, new_team_id, new_slot_index)
      WHERE p.game_tile_id = src.game_tile_id`,
     {
       replacements: {
@@ -91,8 +109,10 @@ export async function swapPlacements(
         tileB: gameTileIdB,
         aNewNode: b.gameNodeId,
         aNewTeam: b.gameTeamId,
+        aNewSlot: b.slotIndex,
         bNewNode: a.gameNodeId,
         bNewTeam: a.gameTeamId,
+        bNewSlot: a.slotIndex,
       },
       transaction,
     },
