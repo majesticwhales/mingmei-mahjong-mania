@@ -6,8 +6,8 @@ on:
   pull_request:
 
 jobs:
-  server-typecheck:
-    name: Server typecheck
+  server-checks:
+    name: Server lint + typecheck
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -20,10 +20,11 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
 
-  client-typecheck:
-    name: Client typecheck
+  client-checks:
+    name: Client lint + typecheck
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -36,6 +37,7 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
 
   server-tests:
