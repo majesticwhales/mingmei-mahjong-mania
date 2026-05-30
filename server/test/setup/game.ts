@@ -1,4 +1,4 @@
-import type { Transaction } from "sequelize";
+import { QueryTypes, type Transaction } from "sequelize";
 import { GAME_TEAM_SLOTS, type GameTeamSlot } from "../../src/services/even-team-assignment.ts";
 import { cloneMapTemplateToGame } from "../../src/services/map-clone-service.ts";
 import { startFromLobby } from "../../src/services/game-start-service.ts";
@@ -272,7 +272,7 @@ async function getAnyTemplateNodeId(): Promise<string> {
   if (cachedTemplateNodeId == null) {
     const [row] = await (await getSequelize()).query<{ id: string }>(
       'SELECT id FROM map_template_nodes LIMIT 1',
-      { type: "SELECT" as const },
+      { type: QueryTypes.SELECT },
     );
     if (!row?.id) {
       throw new Error(
