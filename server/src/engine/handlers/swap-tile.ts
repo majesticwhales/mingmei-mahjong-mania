@@ -11,31 +11,48 @@ import { swapPlacements } from "../tile-swap-service.ts";
 
 interface SwapTilePayload {
   /** `game_tiles.id` of a tile currently in the issuing team's hand. */
-  tileId: string;
+  handTileId: string;
+  /**
+   * `game_tiles.id` of the specific tile at the team's current station to
+   * receive in exchange. Required because a station may hold up to
+   * `games.slots_per_node` tiles; the caller picks which one to take.
+   */
+  stationTileId: string;
 }
 
-function parsePayload(payload: Record<string, unknown>): SwapTilePayload {
-  const tileId = payload.tileId;
-  if (typeof tileId !== "string" || tileId.length === 0) {
+function parseTileId(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || value.length === 0) {
     throw new HttpError(
       400,
       "invalid_payload",
-      "SWAP_TILE requires a string tileId in the payload",
+      `SWAP_TILE requires a string ${fieldName} in the payload`,
     );
   }
-  return { tileId };
+  return value;
+}
+
+function parsePayload(payload: Record<string, unknown>): SwapTilePayload {
+  const handTileId = parseTileId(payload.handTileId, "handTileId");
+  const stationTileId = parseTileId(payload.stationTileId, "stationTileId");
+  if (handTileId === stationTileId) {
+    throw new HttpError(
+      400,
+      "invalid_payload",
+      "handTileId and stationTileId must reference different tiles",
+    );
+  }
+  return { handTileId, stationTileId };
 }
 
 /**
- * Exchange one of the team's hand tiles with the tile currently at the
- * team's checked-in station. Requires the team to be at a station per
- * TDD §3.3 `canSwap`. The station tile is server-determined (the unique
- * placement at `position.current_game_node_id`); the client only chooses
- * which hand tile to give up.
+ * Exchange one of the team's hand tiles with one of the tiles at the team's
+ * checked-in station. Requires the team to be at a station per TDD §3.3
+ * `canSwap`. Both tiles are caller-chosen: with `games.slots_per_node > 1`
+ * a station may hold multiple tiles and the server cannot disambiguate.
  */
 export const swapTileHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
-    const { tileId: handTileId } = parsePayload(ctx.payload);
+    const { handTileId, stationTileId } = parsePayload(ctx.payload);
 
     const position = await GameTeamPosition.findOne({
       where: { gameTeamId: ctx.gameTeamId },
@@ -49,10 +66,17 @@ export const swapTileHandler: CommandHandler = {
       );
     }
 
-    const handPlacement = await GameTilePlacement.findOne({
-      where: { gameTileId: handTileId },
+    const placements = await GameTilePlacement.findAll({
+      where: { gameTileId: [handTileId, stationTileId] },
       transaction: ctx.transaction,
     });
+    const handPlacement = placements.find(
+      (p) => p.gameTileId === handTileId,
+    );
+    const stationPlacement = placements.find(
+      (p) => p.gameTileId === stationTileId,
+    );
+
     if (!handPlacement || handPlacement.gameTeamId !== ctx.gameTeamId) {
       throw new HttpError(
         400,
@@ -60,16 +84,14 @@ export const swapTileHandler: CommandHandler = {
         `Tile ${handTileId} is not in this team's hand`,
       );
     }
-
-    const stationPlacement = await GameTilePlacement.findOne({
-      where: { gameNodeId: position.currentGameNodeId },
-      transaction: ctx.transaction,
-    });
-    if (!stationPlacement) {
+    if (
+      !stationPlacement ||
+      stationPlacement.gameNodeId !== position.currentGameNodeId
+    ) {
       throw new HttpError(
-        500,
-        "internal_error",
-        `No tile placement at station ${position.currentGameNodeId}`,
+        400,
+        "tile_not_at_station",
+        `Tile ${stationTileId} is not at the team's current station`,
       );
     }
 
@@ -98,7 +120,7 @@ export const swapTileHandler: CommandHandler = {
             nodeId: station.id,
             nodeCode: station.code,
             handTileId: handPlacement.gameTileId,
-            nodeTileId: stationPlacement.gameTileId,
+            stationTileId: stationPlacement.gameTileId,
           },
         },
       ],

@@ -11,7 +11,7 @@ describe("SWAP_TILE handler", () => {
     await truncateMutableTables(await getSequelize());
   });
 
-  it("swaps a hand tile with the station tile and emits a SWAP_TILE event", async () => {
+  it("swaps the requested hand and station tiles and emits a SWAP_TILE event", async () => {
     const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
     const participant = fixture.participants[0]!;
     const bay = await GameNode.findOne({
@@ -31,7 +31,7 @@ describe("SWAP_TILE handler", () => {
       gameTeamId: participant.gameTeamId,
       userId: participant.userId,
       commandType: "SWAP_TILE",
-      payload: { tileId: handTileId },
+      payload: { handTileId, stationTileId },
     });
 
     expect(result.events).toHaveLength(1);
@@ -41,7 +41,7 @@ describe("SWAP_TILE handler", () => {
       nodeId: bay!.id,
       nodeCode: "bay",
       handTileId,
-      nodeTileId: stationTileId,
+      stationTileId,
     });
 
     const [refreshedHand, refreshedStation] = await Promise.all([
@@ -60,6 +60,9 @@ describe("SWAP_TILE handler", () => {
     const handPlacement = await GameTilePlacement.findOne({
       where: { gameTeamId: participant.gameTeamId },
     });
+    const someStationTile = await GameTilePlacement.findOne({
+      where: { gameTeamId: null },
+    });
 
     await expect(
       processCommand({
@@ -67,12 +70,15 @@ describe("SWAP_TILE handler", () => {
         gameTeamId: participant.gameTeamId,
         userId: participant.userId,
         commandType: "SWAP_TILE",
-        payload: { tileId: handPlacement!.gameTileId },
+        payload: {
+          handTileId: handPlacement!.gameTileId,
+          stationTileId: someStationTile!.gameTileId,
+        },
       }),
     ).rejects.toMatchObject({ status: 409, code: "not_checked_in" });
   });
 
-  it("rejects with tile_not_in_hand when the tile belongs to another team", async () => {
+  it("rejects with tile_not_in_hand when handTileId belongs to another team", async () => {
     const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
     const onTeamOne = fixture.participants[0]!;
     const otherTeamId = fixture.participants.find(
@@ -81,6 +87,12 @@ describe("SWAP_TILE handler", () => {
     const otherHandTile = await GameTilePlacement.findOne({
       where: { gameTeamId: otherTeamId },
     });
+    const bay = await GameNode.findOne({
+      where: { gameId: fixture.gameId, code: "bay" },
+    });
+    const stationPlacement = await GameTilePlacement.findOne({
+      where: { gameNodeId: bay!.id },
+    });
 
     await expect(
       processCommand({
@@ -88,12 +100,87 @@ describe("SWAP_TILE handler", () => {
         gameTeamId: onTeamOne.gameTeamId,
         userId: onTeamOne.userId,
         commandType: "SWAP_TILE",
-        payload: { tileId: otherHandTile!.gameTileId },
+        payload: {
+          handTileId: otherHandTile!.gameTileId,
+          stationTileId: stationPlacement!.gameTileId,
+        },
       }),
     ).rejects.toMatchObject({ status: 400, code: "tile_not_in_hand" });
   });
 
-  it("rejects with tile_not_in_hand when the tileId is unknown", async () => {
+  it("rejects with tile_not_in_hand when handTileId is unknown", async () => {
+    const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
+    const participant = fixture.participants[0]!;
+    const bay = await GameNode.findOne({
+      where: { gameId: fixture.gameId, code: "bay" },
+    });
+    const stationPlacement = await GameTilePlacement.findOne({
+      where: { gameNodeId: bay!.id },
+    });
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "SWAP_TILE",
+        payload: {
+          handTileId: randomUUID(),
+          stationTileId: stationPlacement!.gameTileId,
+        },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "tile_not_in_hand" });
+  });
+
+  it("rejects with tile_not_at_station when stationTileId is at a different node", async () => {
+    const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
+    const participant = fixture.participants[0]!;
+    const handPlacement = await GameTilePlacement.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    const elsewhere = await GameNode.findOne({
+      where: { gameId: fixture.gameId, code: "bloor-yonge" },
+    });
+    const otherStationTile = await GameTilePlacement.findOne({
+      where: { gameNodeId: elsewhere!.id },
+    });
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "SWAP_TILE",
+        payload: {
+          handTileId: handPlacement!.gameTileId,
+          stationTileId: otherStationTile!.gameTileId,
+        },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "tile_not_at_station" });
+  });
+
+  it("rejects with tile_not_at_station when stationTileId is unknown", async () => {
+    const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
+    const participant = fixture.participants[0]!;
+    const handPlacement = await GameTilePlacement.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "SWAP_TILE",
+        payload: {
+          handTileId: handPlacement!.gameTileId,
+          stationTileId: randomUUID(),
+        },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "tile_not_at_station" });
+  });
+
+  it("rejects with invalid_payload when handTileId is missing", async () => {
     const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
     const participant = fixture.participants[0]!;
 
@@ -103,14 +190,17 @@ describe("SWAP_TILE handler", () => {
         gameTeamId: participant.gameTeamId,
         userId: participant.userId,
         commandType: "SWAP_TILE",
-        payload: { tileId: randomUUID() },
+        payload: { stationTileId: randomUUID() },
       }),
-    ).rejects.toMatchObject({ status: 400, code: "tile_not_in_hand" });
+    ).rejects.toMatchObject({ status: 400, code: "invalid_payload" });
   });
 
-  it("rejects with invalid_payload when tileId is missing", async () => {
+  it("rejects with invalid_payload when stationTileId is missing", async () => {
     const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
     const participant = fixture.participants[0]!;
+    const handPlacement = await GameTilePlacement.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
 
     await expect(
       processCommand({
@@ -118,7 +208,26 @@ describe("SWAP_TILE handler", () => {
         gameTeamId: participant.gameTeamId,
         userId: participant.userId,
         commandType: "SWAP_TILE",
-        payload: {},
+        payload: { handTileId: handPlacement!.gameTileId },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "invalid_payload" });
+  });
+
+  it("rejects with invalid_payload when handTileId === stationTileId", async () => {
+    const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
+    const participant = fixture.participants[0]!;
+    const handPlacement = await GameTilePlacement.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    const same = handPlacement!.gameTileId;
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "SWAP_TILE",
+        payload: { handTileId: same, stationTileId: same },
       }),
     ).rejects.toMatchObject({ status: 400, code: "invalid_payload" });
   });

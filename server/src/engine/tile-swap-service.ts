@@ -22,10 +22,9 @@ export interface SwapPlacementsResult {
  *   - `SWAP_TILE` (hand <-> node at current station)
  *   - `SWAP_LOCATION_TILES` (node <-> node; arrives with the challenge phase)
  *
- * Implemented as a single UPDATE so PostgreSQL's unique index on
- * `game_node_id` is only evaluated at end-of-statement; a sequential two-row
- * update would collide on the transient "two placements pointing at the
- * same node" state.
+ * Implemented as a single UPDATE so both rows mutate atomically with respect
+ * to any concurrent readers (and to keep the door open to future per-slot
+ * uniqueness constraints without revisiting the call site).
  *
  * No semantic validation: the caller is responsible for ensuring the
  * resulting placements still satisfy the XOR invariant (one of node/team set
