@@ -14,6 +14,7 @@ import { GameParticipant } from "../models/game-participant.ts";
 import { GameTeam } from "../models/game-team.ts";
 import { Lobby } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
+import { LobbyNotification } from "../models/lobby-notification.ts";
 import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import { MapTemplate } from "../models/map-template.ts";
 import { TeamDefinition } from "../models/team-definition.ts";
@@ -190,12 +191,23 @@ export async function startFromLobby(
       transaction,
     );
 
+    const notifications = await LobbyNotification.findAll({
+      where: { lobbyId },
+      order: [["atSeconds", "ASC"]],
+      transaction,
+    });
+
     await scheduleGameJobs(
       game.id,
       startedAt,
       endsAt,
       lobby.visibilityPhaseIntervalSeconds,
       game.visibilityPhaseCount,
+      notifications.map((n) => ({
+        atSeconds: n.atSeconds,
+        template: n.template,
+        data: n.data,
+      })),
       transaction,
     );
 
