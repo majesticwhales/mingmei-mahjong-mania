@@ -44,6 +44,12 @@ module.exports = {
         { transaction },
       );
 
+      await queryInterface.removeIndex(
+        'game_tile_placements',
+        'game_tile_placements_game_node_id_idx',
+        { transaction },
+      );
+
       await queryInterface.addIndex('game_tile_placements', ['game_node_id'], {
         name: 'game_tile_placements_game_node_id_idx',
         transaction,
