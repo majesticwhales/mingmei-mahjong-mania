@@ -22,6 +22,8 @@ export interface CreateLobbyOptions {
   mapTemplateId?: string;
   gameDurationSeconds?: number;
   visibilityPhaseIntervalSeconds?: number;
+  visibilityPhaseCount?: number;
+  slotsPerNode?: number;
   teamAssignmentMode?: TeamAssignmentMode;
   minPlayersToStart?: number;
   defaultStartNodeCode?: string | null;
@@ -31,6 +33,8 @@ export interface UpdateLobbyConfigPatch {
   mapTemplateId?: string;
   gameDurationSeconds?: number;
   visibilityPhaseIntervalSeconds?: number;
+  visibilityPhaseCount?: number;
+  slotsPerNode?: number;
   teamAssignmentMode?: TeamAssignmentMode;
   minPlayersToStart?: number;
   defaultStartNodeCode?: string | null;
@@ -118,6 +122,16 @@ function validateTeamAssignmentMode(mode: string): asserts mode is TeamAssignmen
   }
 }
 
+function validatePositiveInt(value: number, fieldName: string): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      `${fieldName} must be a positive integer`,
+    );
+  }
+}
+
 export async function createLobby(
   hostUserId: string,
   options: CreateLobbyOptions = {},
@@ -125,9 +139,12 @@ export async function createLobby(
   const template = await resolveMapTemplate(options.mapTemplateId);
   const gameDurationSeconds =
     options.gameDurationSeconds ?? template.defaultDurationSeconds;
+  const visibilityPhaseCount =
+    options.visibilityPhaseCount ?? template.defaultVisibilityPhaseCount;
   const visibilityPhaseIntervalSeconds =
     options.visibilityPhaseIntervalSeconds ??
-    Math.floor(gameDurationSeconds / 4);
+    Math.floor(gameDurationSeconds / Math.max(visibilityPhaseCount, 1));
+  const slotsPerNode = options.slotsPerNode ?? template.defaultSlotsPerNode;
   const teamAssignmentMode = options.teamAssignmentMode ?? "pick";
   const minPlayersToStart = options.minPlayersToStart ?? 4;
 
@@ -146,6 +163,8 @@ export async function createLobby(
       "visibilityPhaseIntervalSeconds must be positive",
     );
   }
+  validatePositiveInt(visibilityPhaseCount, "visibilityPhaseCount");
+  validatePositiveInt(slotsPerNode, "slotsPerNode");
   if (minPlayersToStart < 4) {
     throw new HttpError(
       400,
@@ -173,6 +192,8 @@ export async function createLobby(
         mapTemplateId: template.id,
         gameDurationSeconds,
         visibilityPhaseIntervalSeconds,
+        visibilityPhaseCount,
+        slotsPerNode,
         teamAssignmentMode,
         minPlayersToStart,
         defaultStartNodeCode,
@@ -295,6 +316,12 @@ export async function updateConfig(
     if (patch.defaultStartNodeCode === undefined) {
       lobby.defaultStartNodeCode = template.defaultStartNodeCode;
     }
+    if (patch.slotsPerNode == null) {
+      lobby.slotsPerNode = template.defaultSlotsPerNode;
+    }
+    if (patch.visibilityPhaseCount == null) {
+      lobby.visibilityPhaseCount = template.defaultVisibilityPhaseCount;
+    }
   }
   if (patch.gameDurationSeconds != null) {
     if (patch.gameDurationSeconds < 60) {
@@ -315,6 +342,14 @@ export async function updateConfig(
       );
     }
     lobby.visibilityPhaseIntervalSeconds = patch.visibilityPhaseIntervalSeconds;
+  }
+  if (patch.visibilityPhaseCount != null) {
+    validatePositiveInt(patch.visibilityPhaseCount, "visibilityPhaseCount");
+    lobby.visibilityPhaseCount = patch.visibilityPhaseCount;
+  }
+  if (patch.slotsPerNode != null) {
+    validatePositiveInt(patch.slotsPerNode, "slotsPerNode");
+    lobby.slotsPerNode = patch.slotsPerNode;
   }
   if (patch.teamAssignmentMode != null) {
     validateTeamAssignmentMode(patch.teamAssignmentMode);

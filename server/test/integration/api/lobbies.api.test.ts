@@ -26,7 +26,36 @@ describe("POST /api/lobbies", () => {
     expect(res.status).toBe(201);
     expect(res.body.lobby.hostUserId).toBe(host.userId);
     expect(res.body.lobby.config.defaultStartNodeCode).toBe("bay");
+    expect(res.body.lobby.config.slotsPerNode).toBe(1);
+    expect(res.body.lobby.config.visibilityPhaseCount).toBe(4);
     expect(res.body.lobby.readiness.ready).toBe(false);
+  });
+
+  it("accepts slotsPerNode and visibilityPhaseCount overrides on create", async () => {
+    const agent = await getAgent();
+    const host = await registerViaApi(agent);
+
+    const res = await agent
+      .post("/api/lobbies")
+      .set(bearer(host.token))
+      .send({ slotsPerNode: 2, visibilityPhaseCount: 6 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.lobby.config.slotsPerNode).toBe(2);
+    expect(res.body.lobby.config.visibilityPhaseCount).toBe(6);
+  });
+
+  it("rejects non-positive slotsPerNode on create", async () => {
+    const agent = await getAgent();
+    const host = await registerViaApi(agent);
+
+    const res = await agent
+      .post("/api/lobbies")
+      .set(bearer(host.token))
+      .send({ slotsPerNode: 0 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("validation_error");
   });
 });
 
@@ -80,6 +109,26 @@ describe("PATCH /api/lobbies/:id/config", () => {
 
     expect(res.status).toBe(403);
     expect(res.body.error).toBe("forbidden");
+  });
+
+  it("host can patch slotsPerNode and visibilityPhaseCount", async () => {
+    const agent = await getAgent();
+    const host = await registerViaApi(agent);
+
+    const created = await agent
+      .post("/api/lobbies")
+      .set(bearer(host.token))
+      .send({});
+    const lobbyId = created.body.lobby.id as string;
+
+    const res = await agent
+      .patch(`/api/lobbies/${lobbyId}/config`)
+      .set(bearer(host.token))
+      .send({ slotsPerNode: 4, visibilityPhaseCount: 2 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.lobby.config.slotsPerNode).toBe(4);
+    expect(res.body.lobby.config.visibilityPhaseCount).toBe(2);
   });
 });
 

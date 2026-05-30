@@ -32,6 +32,10 @@ export interface LobbyConfigDto {
   mapTemplateId: string;
   gameDurationSeconds: number;
   visibilityPhaseIntervalSeconds: number;
+  /** Number of visibility phases / groups for this lobby (snapshotted to `games.visibility_phase_count`). */
+  visibilityPhaseCount: number;
+  /** Tile-slot capacity at each node (snapshotted to `games.slots_per_node`). */
+  slotsPerNode: number;
   teamAssignmentMode: TeamAssignmentMode;
   minPlayersToStart: number;
   /** Station code where all teams spawn at game start (null = no default). */
@@ -171,6 +175,8 @@ export function serializeLobbyDetail(
       mapTemplateId: lobby.mapTemplateId,
       gameDurationSeconds: lobby.gameDurationSeconds,
       visibilityPhaseIntervalSeconds: lobby.visibilityPhaseIntervalSeconds,
+      visibilityPhaseCount: lobby.visibilityPhaseCount,
+      slotsPerNode: lobby.slotsPerNode,
       teamAssignmentMode: lobby.teamAssignmentMode,
       minPlayersToStart: lobby.minPlayersToStart,
       defaultStartNodeCode: lobby.defaultStartNodeCode,

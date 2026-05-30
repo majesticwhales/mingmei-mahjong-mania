@@ -95,6 +95,14 @@ lobbiesRouter.post(
         body.visibilityPhaseIntervalSeconds,
         "visibilityPhaseIntervalSeconds",
       ),
+      visibilityPhaseCount: parseOptionalPositiveInt(
+        body.visibilityPhaseCount,
+        "visibilityPhaseCount",
+      ),
+      slotsPerNode: parseOptionalPositiveInt(
+        body.slotsPerNode,
+        "slotsPerNode",
+      ),
       teamAssignmentMode: parseTeamAssignmentMode(body.teamAssignmentMode),
       minPlayersToStart: parseOptionalPositiveInt(
         body.minPlayersToStart,
@@ -132,6 +140,14 @@ lobbiesRouter.patch(
         visibilityPhaseIntervalSeconds: parseOptionalPositiveInt(
           body.visibilityPhaseIntervalSeconds,
           "visibilityPhaseIntervalSeconds",
+        ),
+        visibilityPhaseCount: parseOptionalPositiveInt(
+          body.visibilityPhaseCount,
+          "visibilityPhaseCount",
+        ),
+        slotsPerNode: parseOptionalPositiveInt(
+          body.slotsPerNode,
+          "slotsPerNode",
         ),
         teamAssignmentMode: parseTeamAssignmentMode(body.teamAssignmentMode),
         minPlayersToStart: parseOptionalPositiveInt(
