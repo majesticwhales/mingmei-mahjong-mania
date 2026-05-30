@@ -24,6 +24,20 @@ export interface CreateLobbyOptions {
   visibilityPhaseIntervalSeconds?: number;
   visibilityPhaseCount?: number;
   slotsPerNode?: number;
+  /**
+   * Per-slot unlock offsets in seconds from game start. Length must equal
+   * the final `slotsPerNode`; entry `[0]` must be `0` (slot 0 always
+   * unlocked); all entries `>= 0` integers. Defaults to the template's
+   * `defaultSlotUnlockOffsetsSeconds`. See TDD §3.3 / §4.1.
+   */
+  slotUnlockOffsetsSeconds?: number[];
+  /**
+   * Per-slot map-visibility flags. Length must equal the final
+   * `slotsPerNode`; entry `[0]` must be `true` (slot 0 follows phase rules).
+   * When `false`, slot k's tile is never face-up on the map regardless of
+   * phase. Defaults to the template's `defaultSlotMapVisible`.
+   */
+  slotMapVisible?: boolean[];
   teamAssignmentMode?: TeamAssignmentMode;
   minPlayersToStart?: number;
   defaultStartNodeCode?: string | null;
@@ -35,6 +49,10 @@ export interface UpdateLobbyConfigPatch {
   visibilityPhaseIntervalSeconds?: number;
   visibilityPhaseCount?: number;
   slotsPerNode?: number;
+  /** See `CreateLobbyOptions.slotUnlockOffsetsSeconds`. */
+  slotUnlockOffsetsSeconds?: number[];
+  /** See `CreateLobbyOptions.slotMapVisible`. */
+  slotMapVisible?: boolean[];
   teamAssignmentMode?: TeamAssignmentMode;
   minPlayersToStart?: number;
   defaultStartNodeCode?: string | null;
@@ -132,6 +150,100 @@ function validatePositiveInt(value: number, fieldName: string): void {
   }
 }
 
+/**
+ * Validate the shape of `slotUnlockOffsetsSeconds` against the resolved
+ * `slotsPerNode`. Mirrors the DB CHECK constraint added by the chunk-5
+ * migration so the host gets a useful 400 rather than a 500-by-Postgres.
+ */
+function validateSlotUnlockOffsetsSeconds(
+  arr: number[],
+  slotsPerNode: number,
+): void {
+  if (!Array.isArray(arr)) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      "slotUnlockOffsetsSeconds must be an array",
+    );
+  }
+  if (arr.length !== slotsPerNode) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      `slotUnlockOffsetsSeconds length (${arr.length}) must equal slotsPerNode (${slotsPerNode})`,
+    );
+  }
+  if (arr[0] !== 0) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      "slotUnlockOffsetsSeconds[0] must be 0 (slot 0 is always unlocked)",
+    );
+  }
+  for (let i = 0; i < arr.length; i += 1) {
+    const v = arr[i]!;
+    if (!Number.isInteger(v) || v < 0) {
+      throw new HttpError(
+        400,
+        "validation_error",
+        `slotUnlockOffsetsSeconds[${i}] must be a non-negative integer`,
+      );
+    }
+  }
+}
+
+function validateSlotMapVisible(
+  arr: boolean[],
+  slotsPerNode: number,
+): void {
+  if (!Array.isArray(arr)) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      "slotMapVisible must be an array",
+    );
+  }
+  if (arr.length !== slotsPerNode) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      `slotMapVisible length (${arr.length}) must equal slotsPerNode (${slotsPerNode})`,
+    );
+  }
+  if (arr[0] !== true) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      "slotMapVisible[0] must be true (slot 0 follows phase rules)",
+    );
+  }
+  for (let i = 0; i < arr.length; i += 1) {
+    if (typeof arr[i] !== "boolean") {
+      throw new HttpError(
+        400,
+        "validation_error",
+        `slotMapVisible[${i}] must be a boolean`,
+      );
+    }
+  }
+}
+
+/**
+ * Resize a slot-shaped array to `slotsPerNode`. Used when `slotsPerNode`
+ * changes via patch and the host didn't supply replacement arrays — pads
+ * with `padValue` (0 for offsets, true for map-visibility) when growing
+ * and truncates when shrinking, preserving any host-set entries inside the
+ * new bounds. Slot 0 is always kept as `padValue`'s "always-unlocked" /
+ * "always-map-visible" semantics by construction (the source array has
+ * `[0]` already pinned to the right value, and we never touch index 0
+ * during resize).
+ */
+function resizeSlotArray<T>(source: T[], slotsPerNode: number, padValue: T): T[] {
+  if (source.length === slotsPerNode) return source.slice();
+  if (source.length > slotsPerNode) return source.slice(0, slotsPerNode);
+  return [...source, ...new Array<T>(slotsPerNode - source.length).fill(padValue)];
+}
+
 export async function createLobby(
   hostUserId: string,
   options: CreateLobbyOptions = {},
@@ -173,6 +285,18 @@ export async function createLobby(
     );
   }
 
+  // Per-slot rules arrays default to the template's defaults. The host can
+  // override either independently, but the resulting length must match
+  // `slotsPerNode` (we don't silently resize on create — they asked for
+  // these specific arrays).
+  const slotUnlockOffsetsSeconds =
+    options.slotUnlockOffsetsSeconds ??
+    template.defaultSlotUnlockOffsetsSeconds;
+  const slotMapVisible =
+    options.slotMapVisible ?? template.defaultSlotMapVisible;
+  validateSlotUnlockOffsetsSeconds(slotUnlockOffsetsSeconds, slotsPerNode);
+  validateSlotMapVisible(slotMapVisible, slotsPerNode);
+
   let defaultStartNodeCode =
     options.defaultStartNodeCode !== undefined
       ? options.defaultStartNodeCode
@@ -194,6 +318,8 @@ export async function createLobby(
         visibilityPhaseIntervalSeconds,
         visibilityPhaseCount,
         slotsPerNode,
+        slotUnlockOffsetsSeconds,
+        slotMapVisible,
         teamAssignmentMode,
         minPlayersToStart,
         defaultStartNodeCode,
@@ -322,6 +448,15 @@ export async function updateConfig(
     if (patch.visibilityPhaseCount == null) {
       lobby.visibilityPhaseCount = template.defaultVisibilityPhaseCount;
     }
+    // When the host swaps to a new template without explicitly setting the
+    // per-slot arrays, inherit the new template's defaults — mirrors the
+    // slotsPerNode / visibilityPhaseCount behavior above.
+    if (patch.slotUnlockOffsetsSeconds == null) {
+      lobby.slotUnlockOffsetsSeconds = template.defaultSlotUnlockOffsetsSeconds;
+    }
+    if (patch.slotMapVisible == null) {
+      lobby.slotMapVisible = template.defaultSlotMapVisible;
+    }
   }
   if (patch.gameDurationSeconds != null) {
     if (patch.gameDurationSeconds < 60) {
@@ -351,6 +486,35 @@ export async function updateConfig(
     validatePositiveInt(patch.slotsPerNode, "slotsPerNode");
     lobby.slotsPerNode = patch.slotsPerNode;
   }
+  // Per-slot arrays: explicit patch values override template inheritance.
+  // If the host changes `slotsPerNode` alone, we auto-resize the existing
+  // arrays (pad with 0 / true; truncate when shrinking) to stay aligned
+  // with the new cardinality. The DB CHECK constraint added by the
+  // chunk-5 migration also enforces this length match — these app-level
+  // checks just produce nicer error messages.
+  if (patch.slotUnlockOffsetsSeconds != null) {
+    lobby.slotUnlockOffsetsSeconds = patch.slotUnlockOffsetsSeconds;
+  } else if (lobby.slotUnlockOffsetsSeconds.length !== lobby.slotsPerNode) {
+    lobby.slotUnlockOffsetsSeconds = resizeSlotArray(
+      lobby.slotUnlockOffsetsSeconds,
+      lobby.slotsPerNode,
+      0,
+    );
+  }
+  if (patch.slotMapVisible != null) {
+    lobby.slotMapVisible = patch.slotMapVisible;
+  } else if (lobby.slotMapVisible.length !== lobby.slotsPerNode) {
+    lobby.slotMapVisible = resizeSlotArray(
+      lobby.slotMapVisible,
+      lobby.slotsPerNode,
+      true,
+    );
+  }
+  validateSlotUnlockOffsetsSeconds(
+    lobby.slotUnlockOffsetsSeconds,
+    lobby.slotsPerNode,
+  );
+  validateSlotMapVisible(lobby.slotMapVisible, lobby.slotsPerNode);
   if (patch.teamAssignmentMode != null) {
     validateTeamAssignmentMode(patch.teamAssignmentMode);
     lobby.teamAssignmentMode = patch.teamAssignmentMode;
