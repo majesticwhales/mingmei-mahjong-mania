@@ -29,7 +29,7 @@ export const notificationHandler: SchedulerJobHandler = {
       throw new Error("NOTIFICATION job is missing a string template");
     }
 
-    let data: Record<string, unknown> | null = null;
+    let data: Record<string, unknown> | null;
     if (payload.data === null || payload.data === undefined) {
       data = null;
     } else if (

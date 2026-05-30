@@ -51,7 +51,7 @@ describe("swapPlacements", () => {
   });
 
   it("exchanges targets between two node placements without unique-index collision", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    await setupStartedGame({ defaultStartNodeCode: null });
 
     const [first, second] = await GameTilePlacement.findAll({
       where: { gameTeamId: null },

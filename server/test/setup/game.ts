@@ -8,7 +8,6 @@ import { GameTeam } from "../../src/models/game-team.ts";
 import { Lobby } from "../../src/models/lobby.ts";
 import { LobbyMember } from "../../src/models/lobby-member.ts";
 import { LobbyTeamAssignment } from "../../src/models/lobby-team-assignment.ts";
-import { MapTemplate } from "../../src/models/map-template.ts";
 import { TeamDefinition } from "../../src/models/team-definition.ts";
 import { createLobbyWithFourPlayers } from "./lobby.ts";
 import { getSequelize } from "./db.ts";
