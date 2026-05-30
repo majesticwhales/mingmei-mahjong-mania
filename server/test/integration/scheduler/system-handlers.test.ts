@@ -289,6 +289,76 @@ describe("NOTIFICATION handler", () => {
   });
 });
 
+describe("SLOT_UNLOCKED handler", () => {
+  beforeEach(async () => {
+    await truncateMutableTables(await getSequelize());
+  });
+
+  it("emits a SLOT_UNLOCKED event with the slotIndex payload and broadcasts state", async () => {
+    const { gameId } = await setupLightweightGame({
+      participantCount: 0,
+      slotsPerNode: 3,
+      slotUnlockOffsetsSeconds: [0, 60, 120],
+    });
+    await clearJobs(gameId);
+    await insertJob(gameId, "SLOT_UNLOCKED", { slotIndex: 1 });
+
+    const broadcaster = mockBroadcaster();
+    const result = await runSchedulerTick({
+      handlers: builtinSchedulerHandlers,
+      broadcaster,
+    });
+
+    expect(result).toEqual({ processed: 1, failed: 0 });
+
+    const events = await GameEvent.findAll({ where: { gameId } });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.eventType).toBe("SLOT_UNLOCKED");
+    expect(events[0]!.payload).toEqual({ slotIndex: 1 });
+    expect(events[0]!.actorUserId).toBeNull();
+    expect(events[0]!.actorGameTeamId).toBeNull();
+
+    expect(broadcaster.emitState).toHaveBeenCalledWith(gameId);
+  });
+
+  it("fails when slotIndex is 0 (slot 0 is never scheduled)", async () => {
+    const { gameId } = await setupLightweightGame({
+      participantCount: 0,
+      slotsPerNode: 2,
+      slotUnlockOffsetsSeconds: [0, 60],
+    });
+    await clearJobs(gameId);
+    const job = await insertJob(gameId, "SLOT_UNLOCKED", { slotIndex: 0 });
+
+    const result = await runSchedulerTick({
+      handlers: builtinSchedulerHandlers,
+    });
+    expect(result).toEqual({ processed: 0, failed: 1 });
+
+    const persisted = await GameScheduledJob.findByPk(job.id);
+    expect(persisted?.status).toBe("failed");
+    expect(persisted?.errorMessage).toMatch(/slotIndex/);
+  });
+
+  it("fails when slotIndex >= slotsPerNode", async () => {
+    const { gameId } = await setupLightweightGame({
+      participantCount: 0,
+      slotsPerNode: 2,
+      slotUnlockOffsetsSeconds: [0, 60],
+    });
+    await clearJobs(gameId);
+    const job = await insertJob(gameId, "SLOT_UNLOCKED", { slotIndex: 5 });
+
+    const result = await runSchedulerTick({
+      handlers: builtinSchedulerHandlers,
+    });
+    expect(result).toEqual({ processed: 0, failed: 1 });
+
+    const persisted = await GameScheduledJob.findByPk(job.id);
+    expect(persisted?.errorMessage).toMatch(/out of range/);
+  });
+});
+
 describe("builtinSchedulerHandlers end-to-end", () => {
   beforeEach(async () => {
     await truncateMutableTables(await getSequelize());

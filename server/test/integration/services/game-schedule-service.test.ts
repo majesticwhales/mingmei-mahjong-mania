@@ -15,12 +15,15 @@ describe("scheduleGameJobs", () => {
 
     await withGameShell(lobbyId, async (shell, transaction) => {
       await scheduleGameJobs(
-        shell.gameId,
-        shell.startedAt,
-        shell.endsAt,
-        shell.visibilityPhaseIntervalSeconds,
-        4,
-        [],
+        {
+          gameId: shell.gameId,
+          startedAt: shell.startedAt,
+          endsAt: shell.endsAt,
+          visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
+          visibilityPhaseCount: 4,
+          slotUnlockOffsetsSeconds: [0],
+          notifications: [],
+        },
         transaction,
       );
 
@@ -55,12 +58,15 @@ describe("scheduleGameJobs", () => {
 
     await withGameShell(lobbyId, async (shell, transaction) => {
       await scheduleGameJobs(
-        shell.gameId,
-        shell.startedAt,
-        shell.endsAt,
-        shell.visibilityPhaseIntervalSeconds,
-        1,
-        [],
+        {
+          gameId: shell.gameId,
+          startedAt: shell.startedAt,
+          endsAt: shell.endsAt,
+          visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
+          visibilityPhaseCount: 1,
+          slotUnlockOffsetsSeconds: [0],
+          notifications: [],
+        },
         transaction,
       );
 
@@ -81,12 +87,15 @@ describe("scheduleGameJobs", () => {
 
     await withGameShell(lobbyId, async (shell, transaction) => {
       await scheduleGameJobs(
-        shell.gameId,
-        shell.startedAt,
-        shell.endsAt,
-        shell.visibilityPhaseIntervalSeconds,
-        6,
-        [],
+        {
+          gameId: shell.gameId,
+          startedAt: shell.startedAt,
+          endsAt: shell.endsAt,
+          visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
+          visibilityPhaseCount: 6,
+          slotUnlockOffsetsSeconds: [0],
+          notifications: [],
+        },
         transaction,
       );
 
@@ -117,12 +126,15 @@ describe("scheduleGameJobs", () => {
     await withGameShell(lobbyId, async (shell, transaction) => {
       await expect(
         scheduleGameJobs(
-          shell.gameId,
-          shell.startedAt,
-          shell.endsAt,
-          shell.visibilityPhaseIntervalSeconds,
-          0,
-          [],
+          {
+            gameId: shell.gameId,
+            startedAt: shell.startedAt,
+            endsAt: shell.endsAt,
+            visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
+            visibilityPhaseCount: 0,
+            slotUnlockOffsetsSeconds: [0],
+            notifications: [],
+          },
           transaction,
         ),
       ).rejects.toThrow(/visibilityPhaseCount/);
@@ -134,19 +146,22 @@ describe("scheduleGameJobs", () => {
 
     await withGameShell(lobbyId, async (shell, transaction) => {
       await scheduleGameJobs(
-        shell.gameId,
-        shell.startedAt,
-        shell.endsAt,
-        shell.visibilityPhaseIntervalSeconds,
-        1,
-        [
-          { atSeconds: 0, template: "game_start", data: null },
-          {
-            atSeconds: 600,
-            template: "time_warning",
-            data: { minutesLeft: 10 },
-          },
-        ],
+        {
+          gameId: shell.gameId,
+          startedAt: shell.startedAt,
+          endsAt: shell.endsAt,
+          visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
+          visibilityPhaseCount: 1,
+          slotUnlockOffsetsSeconds: [0],
+          notifications: [
+            { atSeconds: 0, template: "game_start", data: null },
+            {
+              atSeconds: 600,
+              template: "time_warning",
+              data: { minutesLeft: 10 },
+            },
+          ],
+        },
         transaction,
       );
 
@@ -179,15 +194,137 @@ describe("scheduleGameJobs", () => {
     await withGameShell(lobbyId, async (shell, transaction) => {
       await expect(
         scheduleGameJobs(
-          shell.gameId,
-          shell.startedAt,
-          shell.endsAt,
-          shell.visibilityPhaseIntervalSeconds,
-          1,
-          [{ atSeconds: -1, template: "bad", data: null }],
+          {
+            gameId: shell.gameId,
+            startedAt: shell.startedAt,
+            endsAt: shell.endsAt,
+            visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
+            visibilityPhaseCount: 1,
+            slotUnlockOffsetsSeconds: [0],
+            notifications: [{ atSeconds: -1, template: "bad", data: null }],
+          },
           transaction,
         ),
       ).rejects.toThrow(/atSeconds/);
+    });
+  });
+
+  describe("SLOT_UNLOCKED jobs (per-slot rules chunk 4)", () => {
+    it("seeds one SLOT_UNLOCKED job per non-zero offset (slot 0 always skipped)", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        // Three slots: slot 0 always 0, slot 1 unlocks at +300s,
+        // slot 2 unlocks at +900s.
+        await scheduleGameJobs(
+          {
+            gameId: shell.gameId,
+            startedAt: shell.startedAt,
+            endsAt: shell.endsAt,
+            visibilityPhaseIntervalSeconds:
+              shell.visibilityPhaseIntervalSeconds,
+            visibilityPhaseCount: 1,
+            slotUnlockOffsetsSeconds: [0, 300, 900],
+            notifications: [],
+          },
+          transaction,
+        );
+
+        const unlocks = await GameScheduledJob.findAll({
+          where: { gameId: shell.gameId, jobType: "SLOT_UNLOCKED" },
+          order: [["runAt", "ASC"]],
+          transaction,
+        });
+
+        expect(unlocks).toHaveLength(2);
+        expect(unlocks[0]!.payload).toEqual({ slotIndex: 1 });
+        expect(unlocks[0]!.runAt.getTime()).toBe(
+          shell.startedAt.getTime() + 300 * 1000,
+        );
+        expect(unlocks[1]!.payload).toEqual({ slotIndex: 2 });
+        expect(unlocks[1]!.runAt.getTime()).toBe(
+          shell.startedAt.getTime() + 900 * 1000,
+        );
+      });
+    });
+
+    it("skips slots whose offset is 0 (treated as 'unlocked at game start')", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        await scheduleGameJobs(
+          {
+            gameId: shell.gameId,
+            startedAt: shell.startedAt,
+            endsAt: shell.endsAt,
+            visibilityPhaseIntervalSeconds:
+              shell.visibilityPhaseIntervalSeconds,
+            visibilityPhaseCount: 1,
+            slotUnlockOffsetsSeconds: [0, 0, 120],
+            notifications: [],
+          },
+          transaction,
+        );
+
+        const unlocks = await GameScheduledJob.findAll({
+          where: { gameId: shell.gameId, jobType: "SLOT_UNLOCKED" },
+          transaction,
+        });
+        expect(unlocks).toHaveLength(1);
+        expect(unlocks[0]!.payload).toEqual({ slotIndex: 2 });
+      });
+    });
+
+    it("rejects slot 0 with a non-zero offset", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        await expect(
+          scheduleGameJobs(
+            {
+              gameId: shell.gameId,
+              startedAt: shell.startedAt,
+              endsAt: shell.endsAt,
+              visibilityPhaseIntervalSeconds:
+                shell.visibilityPhaseIntervalSeconds,
+              visibilityPhaseCount: 1,
+              slotUnlockOffsetsSeconds: [60, 0],
+              notifications: [],
+            },
+            transaction,
+          ),
+        ).rejects.toThrow(/slotUnlockOffsetsSeconds\[0\]/);
+      });
+    });
+
+    it("rejects a negative offset", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        await expect(
+          scheduleGameJobs(
+            {
+              gameId: shell.gameId,
+              startedAt: shell.startedAt,
+              endsAt: shell.endsAt,
+              visibilityPhaseIntervalSeconds:
+                shell.visibilityPhaseIntervalSeconds,
+              visibilityPhaseCount: 1,
+              slotUnlockOffsetsSeconds: [0, -10],
+              notifications: [],
+            },
+            transaction,
+          ),
+        ).rejects.toThrow(/slotUnlockOffsetsSeconds\[1\]/);
+      });
     });
   });
 });

@@ -11,7 +11,8 @@ import { Game } from "./game.ts";
 export type ScheduledJobType =
   | "VISIBILITY_PHASE_ADVANCE"
   | "GAME_END"
-  | "NOTIFICATION";
+  | "NOTIFICATION"
+  | "SLOT_UNLOCKED";
 
 export type ScheduledJobStatus =
   | "pending"

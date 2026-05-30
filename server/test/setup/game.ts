@@ -381,6 +381,14 @@ export interface LightweightGameOptions {
    * rows — phase-related tests should use `setupStartedGame` instead.
    */
   visibilityPhaseCount?: number;
+  /**
+   * `games.slot_unlock_offsets_seconds` snapshot. Defaults to `[0, 0, …]`
+   * with `slotsPerNode` entries (all slots unlocked at start), matching
+   * the column default in single-slot games. Entry `[0]` MUST be `0`.
+   * The fixture does NOT seed `SLOT_UNLOCKED` scheduled jobs for non-zero
+   * offsets — scheduler tests that need those should use `setupStartedGame`.
+   */
+  slotUnlockOffsetsSeconds?: number[];
 }
 
 export interface LightweightGameFixture {
@@ -425,7 +433,19 @@ export async function setupLightweightGame(
   const nodeTilesByCode = options.nodeTilesByCode ?? {};
   const slotsPerNode = options.slotsPerNode ?? 1;
   const visibilityPhaseCount = options.visibilityPhaseCount ?? 4;
+  const slotUnlockOffsetsSeconds =
+    options.slotUnlockOffsetsSeconds ?? new Array(slotsPerNode).fill(0);
 
+  if (slotUnlockOffsetsSeconds.length !== slotsPerNode) {
+    throw new Error(
+      `setupLightweightGame: slotUnlockOffsetsSeconds length (${slotUnlockOffsetsSeconds.length}) must equal slotsPerNode (${slotsPerNode})`,
+    );
+  }
+  if (slotUnlockOffsetsSeconds[0] !== 0) {
+    throw new Error(
+      `setupLightweightGame: slotUnlockOffsetsSeconds[0] must be 0; got ${slotUnlockOffsetsSeconds[0]}`,
+    );
+  }
   for (const count of Object.values(nodeTilesByCode)) {
     if (count > slotsPerNode) {
       throw new Error(
@@ -480,6 +500,8 @@ export async function setupLightweightGame(
         visibilityPhase: 0,
         visibilityPhaseCount,
         visibilityPhaseIntervalSeconds: ONE_HOUR_SECONDS,
+        slotUnlockOffsetsSeconds,
+        slotMapVisible: new Array(slotsPerNode).fill(true),
         configVersion: 1,
       },
       { transaction },

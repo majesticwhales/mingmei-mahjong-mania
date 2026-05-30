@@ -207,6 +207,61 @@ describe("SWAP_TILE handler", () => {
     ).rejects.toMatchObject({ status: 400, code: "invalid_payload" });
   });
 
+  it("rejects with slot_locked when the targeted slot's unlock offset is in the future", async () => {
+    // 2-slot station; slot 1 unlocks at +1 hour from "now". The hand tile
+    // tries to take slot 1 before that — must be rejected with 409
+    // slot_locked. (Slot 0 has offset 0 and stays swap-eligible.)
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      nodeTilesByCode: { bay: 2 },
+      slotsPerNode: 2,
+      slotUnlockOffsetsSeconds: [0, 60 * 60],
+    });
+    const participant = fixture.participants[0]!;
+    const slotOneTile = fixture.nodeTiles.find((t) => t.slotIndex === 1)!;
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "SWAP_TILE",
+        payload: {
+          handTileId: fixture.handTiles[0]!.gameTileId,
+          stationTileId: slotOneTile.gameTileId,
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "slot_locked" });
+  });
+
+  it("permits swap against slot 0 even when later slots are still locked", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      nodeTilesByCode: { bay: 2 },
+      slotsPerNode: 2,
+      slotUnlockOffsetsSeconds: [0, 60 * 60],
+    });
+    const participant = fixture.participants[0]!;
+    const slotZeroTile = fixture.nodeTiles.find((t) => t.slotIndex === 0)!;
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "SWAP_TILE",
+      payload: {
+        handTileId: fixture.handTiles[0]!.gameTileId,
+        stationTileId: slotZeroTile.gameTileId,
+      },
+    });
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]!.eventType).toBe("SWAP_TILE");
+  });
+
   it("rejects with invalid_payload when handTileId === stationTileId", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["bay"],
