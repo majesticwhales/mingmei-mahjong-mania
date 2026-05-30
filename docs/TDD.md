@@ -910,13 +910,13 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
 - [x] Add challenge tables (challenge_types seeder; decks/cards empty)
 - [x] Seeds: `team_definitions`, `tile_types` (136 rows for the standard riichi catalog), `challenge_types`
 - [x] Seed: `map_template` **TTC 2026** (`server/seeders/data/ttc2026-network.cjs` → `20260517202000-seed-map-template-ttc2026.cjs`). All 84 stations have entrance `latitude`/`longitude` plus schematic `x`/`y`/`labelAnchor` in the seed file, which is the canonical map source for the DB-backed client.
-- [ ] Phase D abstraction-layer relaxation (`2026052*-relax-abstraction-layer.cjs`):
+- [x] Phase D abstraction-layer relaxation (`20260524000000-relax-abstraction-layer.cjs`):
   - Drop unique index `game_tile_placements_game_node_id_unique`; add non-unique index on `game_node_id`.
   - `map_templates`: add `default_slots_per_node INT NOT NULL DEFAULT 1`, `default_visibility_phase_count INT NOT NULL DEFAULT 4`.
   - `lobbies`: add `slots_per_node INT NOT NULL DEFAULT 1`, `visibility_phase_count INT NOT NULL DEFAULT 4`.
   - `games`: add `slots_per_node INT NOT NULL DEFAULT 1`, `visibility_phase_count INT NOT NULL DEFAULT 4`.
   - Create `lobby_notifications (id, lobby_id FK CASCADE, at_seconds, template, data JSONB, timestamps)` + index `(lobby_id, at_seconds)`.
-- [ ] Phase D visibility-group constraint relaxation (`2026052*-relax-visibility-group-constraints.cjs`):
+- [x] Phase D visibility-group constraint relaxation (`20260524100000-relax-visibility-group-constraints.cjs`):
   - Replace `game_node_visibility_groups.group_index` range check (`0..3`) with non-negative check (`>= 0`) so `N > 4` works.
   - Replace `game_team_home_groups.group_index` range check the same way.
   - Drop unique index `game_team_home_groups_game_group_unique`; replace with a non-unique index (teams may share a home group when `team_count > visibility_phase_count`).
