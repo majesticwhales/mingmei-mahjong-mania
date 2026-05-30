@@ -86,6 +86,7 @@ export async function dealTilesForGame(
     gameTileId: string;
     gameNodeId: string | null;
     gameTeamId: string | null;
+    slotIndex: number | null;
   }> = [];
 
   let offset = 0;
@@ -95,6 +96,7 @@ export async function dealTilesForGame(
         gameTileId: shuffledTileIds[offset]!,
         gameNodeId: node.id,
         gameTeamId: null,
+        slotIndex: s,
       });
       offset += 1;
     }
@@ -112,6 +114,7 @@ export async function dealTilesForGame(
         gameTileId: shuffledTileIds[offset]!,
         gameNodeId: null,
         gameTeamId,
+        slotIndex: null,
       });
       offset += 1;
     }
