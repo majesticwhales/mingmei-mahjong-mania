@@ -204,6 +204,10 @@ canSwapSlot(team, node, slotIndex) =
 
 **Per-slot unlock (chunk 4):** Each addressable slot at a node has a uniform game-wide unlock offset (`games.slot_unlock_offsets_seconds[slotIndex]`). Slot 0 always has offset 0 (always unlocked at game start). Higher slots may carry positive offsets; `SWAP_TILE` rejects with `409 slot_locked` if the targeted slot is still locked at the wall-clock check. The rule is wall-clock-based and independent of whether the `SLOT_UNLOCKED` scheduled job has actually fired (the job exists for replay/broadcast, not gameplay).
 
+**Per-slot map visibility (chunk 5):** `games.slot_map_visible[slotIndex]` is a pure pass/no-pass gate orthogonal to the phase rules. When `false`, slot `k`'s tile is **never** exposed in `mapNodes[].tiles[]` regardless of `faceUpOnMap`. Slot 0 is always `true`. Once unlocked, the tile is still visible to a checked-in team via `atStation.tiles[]`. See §6.3.
+
+**Single source of truth (chunk 6):** Both rules above are exported as pure helpers in `server/src/services/slot-visibility.ts` (`isSlotUnlocked`, `assertSlotUnlocked`, `unlockedSlotIndices`, `isSlotMapVisible`, `mapVisibleSlotIndices`). The engine's `SWAP_TILE` handler and the (future) projection layer both consume this module — the per-slot rules live in exactly one place.
+
 **Projection rule:** The server computes `faceUpOnMap` / `faceUpForTeam` internally but **does not expose phase numbers or boolean flags to the client**. It emits **tile data only where that team may see it** (see [§6.3](#63-gamestate-projection-shape)).
 
 ### 3.4 Station commands and travel
@@ -789,6 +793,24 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 - Include **`tile`** only when `faceUpOnMap` is true for this team.
 - Omit `tile` (or use `null` consistently—pick one in implementation; **never** send placeholder tile identity for hidden nodes).
 
+**Per-slot extension (chunk 6 contract, slots_per_node > 1).** When `games.slots_per_node > 1`, replace the singular `tile` with `tiles[]` — an array of `{ slotIndex, tile }` objects, one entry per slot whose tile should be exposed on the map. The projection layer (Phase E) builds the array by:
+
+```
+includedTiles =
+  faceUpOnMap(team, node) ?
+    [ { slotIndex: k, tile: ... }
+      for k in mapVisibleSlotIndices(game.slot_map_visible, game.slots_per_node)
+      if a tile exists in placement (node, k) ]
+    : []
+```
+
+- A slot whose `slot_map_visible[k]` is `false` is **never** included here, regardless of phase. Its tile is only ever surfaced via `atStation.tiles[]` to a checked-in team after the slot unlocks.
+- `slotIndex` is required on every entry so the client can render slot-shaped UI (e.g. multi-tile stacks) without re-deriving order.
+- The fog rule still gates the whole array: when `faceUpOnMap` is false, `tiles` is omitted/`null` exactly as the singular `tile` would be.
+- For `slots_per_node = 1` (the default) the projection keeps emitting the singular `tile` field as documented above — the array shape only appears when the lobby/game opts into multiple slots, so existing clients are unaffected.
+
+Both `mapVisibleSlotIndices` and the unlock helpers live in `server/src/services/slot-visibility.ts`; the projection layer must consume them directly rather than re-implementing the rules.
+
 **`mapLines[]`** — line catalog for styling:
 
 ```json
@@ -820,6 +842,21 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 
 - Populated whenever `current_game_node_id` is set.
 - Tile is **always** included here, even when the same node has no `tile` on the map (fogged visibility group + checked in).
+
+**Per-slot extension (chunk 6 contract, slots_per_node > 1).** With multiple slots, replace the singular `tile` with `tiles[]` — `{ slotIndex, tile }` entries for every slot that is currently **unlocked** at the wall clock:
+
+```
+includedTiles =
+  [ { slotIndex: k, tile: ... }
+    for k in unlockedSlotIndices(game, game.slots_per_node, now)
+    if a tile exists in placement (node, k) ]
+```
+
+- A still-locked slot (`now < started_at + slot_unlock_offsets_seconds[k] * 1000`) is omitted; the station UI must indicate the slot exists and show a countdown, not the tile.
+- `slot_map_visible` does **not** gate `atStation` — once unlocked, a station-visible tile is shown to the checked-in team even when it's never shown on the map. That's the whole point of the per-slot "always fogged on the map but visible at the station" tier.
+- For `slots_per_node = 1` the singular `tile` field is retained; the array shape only appears when the game opts into multiple slots.
+
+The `SWAP_TILE` payload (`{ handTileId, stationTileId }`) already addresses a specific tile by id, so the array shape requires no payload change — clients pick which slot's tile to swap by passing its `stationTileId`.
 
 **Why not let the client render from full data?**  
 Exposing every location’s tile in `game.state` would leak map state via devtools/network and breaks competitive play. Any “hidden” UI must be based on **missing data**, not client-side filtering.
@@ -957,6 +994,14 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
   - Engine: `SWAP_TILE` rejects with `409 slot_locked` when `now() < game.startedAt + game.slot_unlock_offsets_seconds[stationSlotIndex] * 1000`. The rule is purely wall-clock-based (independent of whether the `SLOT_UNLOCKED` job has actually fired) so scheduler latency never blocks gameplay. See §3.3 `canSwapSlot`.
   - Test fixture: `setupLightweightGame` gains `slotUnlockOffsetsSeconds` so engine tests can opt into locked slots without seeding scheduler jobs. The fixture validates `[0] === 0` and `length === slotsPerNode`.
   - Test coverage: `game-schedule-service.test.ts` covers SLOT_UNLOCKED seeding (per-slot, slot-0-skipped, 0-offset-skipped, validation of `[0]` and negative offsets). `system-handlers.test.ts` covers the SLOT_UNLOCKED handler (happy path emits event, slotIndex=0 fails, slotIndex>=slotsPerNode fails). `swap-tile.test.ts` covers the engine rejection (slot 1 locked → `slot_locked`; slot 0 still permitted).
+- [x] Per-slot rules chunk 6 of the rollout (`20260530200000-defer-slot-unique.cjs` for the bug-fix slice): projection contract + single source of truth helper.
+  - New module `server/src/services/slot-visibility.ts` exports pure helpers — `slotUnlockAtMs`, `isSlotUnlocked`, `assertSlotUnlocked`, `unlockedSlotIndices`, `isSlotMapVisible`, `mapVisibleSlotIndices`. No DB access; callers pass the snapshot arrays from `games`. Out-of-range indices throw `500 internal_error` (chunk-5 CHECK guarantees array length matches `slots_per_node`, so any out-of-range read is a bug, not user input).
+  - Engine refactor: `swap-tile.ts` now calls `assertSlotUnlocked(game, stationSlotIndex, "Slot N at CODE")` instead of inlining the `now < startedAt + offset * 1000` arithmetic. The per-slot lock rule now lives in exactly one place — every future projection / engine callsite that needs to know "is this slot usable right now?" goes through the helper.
+  - TDD §3.3 documents the per-slot map-visibility rule and the single-source-of-truth helper. §6.3 adds the multi-slot wire shape for both `mapNodes[].tiles[]` and `atStation.tiles[]`: array of `{ slotIndex, tile }` entries gated by `mapVisibleSlotIndices` (map) / `unlockedSlotIndices` (station). The singular `tile` field is retained when `slots_per_node = 1` so existing clients aren't broken.
+  - Phase E (projection layer) inherits a fully-specified contract: it must consume `slot-visibility.ts` directly rather than re-deriving the rules.
+  - **Bug-fix slice (`20260530200000-defer-slot-unique.cjs`):** running the full integration suite end-to-end revealed that the chunk-2 partial UNIQUE INDEX on `(game_node_id, slot_index)` can't be made deferrable, and the chunk-3 single-statement `swapPlacements` UPDATE trips it whenever both rows cross over `(node, slot)` (e.g. hand↔node where the new `(N, k)` matches the other row's pre-swap `(N, k)`). Postgres checks unique-index violations per-row immediately, not at statement end. Fix: replace the partial UNIQUE INDEX with a partial EXCLUDE CONSTRAINT (`EXCLUDE USING btree (game_node_id WITH =, slot_index WITH =) WHERE (game_node_id IS NOT NULL) DEFERRABLE INITIALLY DEFERRED`). Same uniqueness semantics, but the check is deferred to statement / transaction end, by which time both rows have moved. `swapPlacements` is unchanged. `node_xor_team` stays as a non-deferrable CHECK because the swap sets `game_node_id` and `slot_index` together on every row — XOR is never transiently violated.
+  - **Lobby create-time fix (no migration):** `createLobby` now algorithmically defaults the per-slot arrays (`[0,…,0]` / `[true,…,true]`) when the host overrides `slotsPerNode` past the template default's length, mirroring the auto-resize logic that already existed in `updateConfig`. Hosts no longer have to supply matched-length arrays just to start a non-default-slots lobby. Validation still rejects explicit-but-wrong-length arrays.
+  - Test coverage: `test/unit/services/slot-visibility.test.ts` — 14 unit tests covering `slotUnlockAtMs` (slot 0, non-zero, out-of-range), `isSlotUnlocked` (slot 0 always, threshold around unlock time), `assertSlotUnlocked` (no-throw / 409 with timestamp), `unlockedSlotIndices` (all / prefix / start-of-game / non-monotonic offsets), `isSlotMapVisible` (lookup + out-of-range), and `mapVisibleSlotIndices` (full / partial / all-true). The existing `tile-swap-service.test.ts` (hand↔node and node↔node-on-same-node) now passes against the deferred EXCLUDE constraint, and `swap-tile.test.ts` covers the engine refactor end-to-end.
 - [x] Per-slot rules chunk 5 of the rollout (`20260530190000-add-config-array-checks.cjs`): lobby config flow + array-length / slot-0 invariants. Wrapped in a single transaction.
   - Migration adds five CHECK constraints to each of `map_templates`, `lobbies`, `games`: `cardinality(<offsets>) = <slots_per_node>`, `<offsets>[1] = 0`, `0 <= ALL(<offsets>)`, `cardinality(<map_visible>) = <slots_per_node>`, `<map_visible>[1] = TRUE`. Postgres arrays are 1-indexed, so `[1]` is our 0-indexed slot 0. Pre-existing rows satisfy all five (slots_per_node=1, defaults `[0]`/`[true]`).
   - `lobby-service.createLobby`: `slotUnlockOffsetsSeconds` and `slotMapVisible` default to the map template's `defaultSlotUnlockOffsetsSeconds` / `defaultSlotMapVisible`; host can override either independently; explicit values must match `slotsPerNode` exactly (no silent resize on create).

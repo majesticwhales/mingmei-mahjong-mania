@@ -285,15 +285,23 @@ export async function createLobby(
     );
   }
 
-  // Per-slot rules arrays default to the template's defaults. The host can
-  // override either independently, but the resulting length must match
-  // `slotsPerNode` (we don't silently resize on create — they asked for
-  // these specific arrays).
-  const slotUnlockOffsetsSeconds =
-    options.slotUnlockOffsetsSeconds ??
-    template.defaultSlotUnlockOffsetsSeconds;
-  const slotMapVisible =
-    options.slotMapVisible ?? template.defaultSlotMapVisible;
+  // Per-slot rules arrays. Resolution order:
+  //   1. Explicit host override → use as-is (must match slotsPerNode or
+  //      validation throws).
+  //   2. Template default whose length matches `slotsPerNode` → inherit.
+  //   3. Algorithmic default — `[0,0,...,0]` for offsets, `[true,...,true]`
+  //      for map-visibility. Triggered when the host overrides
+  //      `slotsPerNode` past the template's defaults' length, so they
+  //      don't have to also re-supply matched-length arrays just to start
+  //      a lobby. Mirrors the auto-resize behavior in `updateConfig`.
+  const slotUnlockOffsetsSeconds = options.slotUnlockOffsetsSeconds
+    ?? (template.defaultSlotUnlockOffsetsSeconds.length === slotsPerNode
+      ? template.defaultSlotUnlockOffsetsSeconds
+      : (new Array<number>(slotsPerNode).fill(0)));
+  const slotMapVisible = options.slotMapVisible
+    ?? (template.defaultSlotMapVisible.length === slotsPerNode
+      ? template.defaultSlotMapVisible
+      : (new Array<boolean>(slotsPerNode).fill(true)));
   validateSlotUnlockOffsetsSeconds(slotUnlockOffsetsSeconds, slotsPerNode);
   validateSlotMapVisible(slotMapVisible, slotsPerNode);
 

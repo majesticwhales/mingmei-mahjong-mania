@@ -9,6 +9,7 @@ import { GameNode } from "../../models/game-node.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { GameTilePlacement } from "../../models/game-tile-placement.ts";
 import { swapPlacements } from "../tile-swap-service.ts";
+import { assertSlotUnlocked } from "../../services/slot-visibility.ts";
 
 interface SwapTilePayload {
   /** `game_tiles.id` of a tile currently in the issuing team's hand. */
@@ -107,14 +108,13 @@ export const swapTileHandler: CommandHandler = {
       );
     }
 
-    // Per-slot lock check (TDD §3.4 / chunk 4). The station tile occupies
-    // some `slot_index` on the node, and the game's
-    // `slot_unlock_offsets_seconds[slot_index]` says when that slot first
-    // becomes swap-eligible. Slot 0 always has offset 0 by invariant, so
-    // its swap is always permitted; non-zero slots may still be locked.
-    // The check is wall-clock-based and independent of whether the
-    // SLOT_UNLOCKED scheduled job has actually fired yet (the job exists
-    // for replay/broadcast, not for gameplay).
+    // Per-slot lock check (TDD §3.3 `canSwapSlot`, formalized in chunk 6
+    // via `services/slot-visibility.ts`). The station tile occupies some
+    // `slot_index` on the node; the helper consults
+    // `games.slot_unlock_offsets_seconds[slot_index]` against wall clock
+    // and rejects with `409 slot_locked` when still locked. Independent
+    // of whether the `SLOT_UNLOCKED` scheduled job has fired (that job
+    // exists for replay/broadcast, not gameplay).
     const stationSlotIndex = stationPlacement.slotIndex;
     if (stationSlotIndex == null) {
       // Belt-and-suspenders: chunk 3's CHECK guarantees this is unreachable
@@ -137,22 +137,11 @@ export const swapTileHandler: CommandHandler = {
         `Game ${ctx.gameId} not found mid-handler`,
       );
     }
-    const unlockOffsetSeconds = game.slotUnlockOffsetsSeconds[stationSlotIndex];
-    if (unlockOffsetSeconds == null) {
-      throw new HttpError(
-        500,
-        "internal_error",
-        `Game ${ctx.gameId} has no unlock offset for slot ${stationSlotIndex}`,
-      );
-    }
-    const unlockAtMs = game.startedAt.getTime() + unlockOffsetSeconds * 1000;
-    if (Date.now() < unlockAtMs) {
-      throw new HttpError(
-        409,
-        "slot_locked",
-        `Slot ${stationSlotIndex} at ${station.code} unlocks at ${new Date(unlockAtMs).toISOString()}`,
-      );
-    }
+    assertSlotUnlocked(
+      game,
+      stationSlotIndex,
+      `Slot ${stationSlotIndex} at ${station.code}`,
+    );
 
     await swapPlacements(
       ctx.transaction,
