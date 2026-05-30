@@ -11,7 +11,7 @@ import type {
   SchedulerJobHandlerRegistry,
 } from "../../../src/scheduler/job-handler.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
-import { setupStartedGame } from "../../setup/game.ts";
+import { setupLightweightGame } from "../../setup/game.ts";
 
 async function clearJobs(gameId: string): Promise<void> {
   await GameScheduledJob.destroy({ where: { gameId } });
@@ -69,7 +69,7 @@ describe("runSchedulerTick", () => {
   });
 
   it("returns zeros when no jobs are due", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
 
     const result = await runSchedulerTick({
@@ -80,7 +80,7 @@ describe("runSchedulerTick", () => {
   });
 
   it("runs a successful job: appends event, marks done, broadcasts after commit", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const due = await insertJob(gameId, {
       runAt: new Date(Date.now() - 1000),
@@ -127,7 +127,7 @@ describe("runSchedulerTick", () => {
   });
 
   it("invokes emitNotification for notifications returned by a handler", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     await insertJob(gameId, {
       runAt: new Date(Date.now() - 1000),
@@ -161,7 +161,7 @@ describe("runSchedulerTick", () => {
   });
 
   it("marks a job failed with the error message when its handler throws", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const due = await insertJob(gameId, {
       runAt: new Date(Date.now() - 1000),
@@ -193,7 +193,7 @@ describe("runSchedulerTick", () => {
   });
 
   it("marks a job failed when no handler is registered for its type", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const due = await insertJob(gameId, {
       runAt: new Date(Date.now() - 1000),
@@ -211,7 +211,7 @@ describe("runSchedulerTick", () => {
   });
 
   it("processes multiple due jobs in run_at order within a single tick", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const past = Date.now() - 60 * 1000;
     const a = await insertJob(gameId, {
@@ -251,7 +251,7 @@ describe("runSchedulerTick", () => {
   });
 
   it("respects maxJobsPerTick", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const past = Date.now() - 60 * 1000;
     for (let i = 0; i < 5; i += 1) {
@@ -278,7 +278,7 @@ describe("runSchedulerTick", () => {
   });
 
   it("skips jobs whose run_at is still in the future", async () => {
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     await clearJobs(gameId);
     const future = new Date(Date.now() + 60 * 1000);
     await insertJob(gameId, { runAt: future, jobType: "GAME_END" });

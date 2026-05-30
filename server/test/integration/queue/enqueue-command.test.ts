@@ -5,7 +5,7 @@ import { GameCommandQueueItem } from "../../../src/models/game-command-queue-ite
 import { enqueueCommand } from "../../../src/queue/enqueue-command.ts";
 import { registerUser } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
-import { setupStartedGame } from "../../setup/game.ts";
+import { setupLightweightGame } from "../../setup/game.ts";
 
 describe("enqueueCommand", () => {
   beforeEach(async () => {
@@ -13,7 +13,7 @@ describe("enqueueCommand", () => {
   });
 
   it("inserts a pending row and returns status='fresh'", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     const participant = fixture.participants[0]!;
     const clientCommandId = randomUUID();
 
@@ -40,7 +40,7 @@ describe("enqueueCommand", () => {
   });
 
   it("returns status='duplicate' (no new row) on retry with the same clientCommandId and payload", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     const participant = fixture.participants[0]!;
     const clientCommandId = randomUUID();
     const input = {
@@ -66,7 +66,7 @@ describe("enqueueCommand", () => {
   });
 
   it("rejects with client_command_id_conflict when the clientCommandId is reused with a different payload", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     const participant = fixture.participants[0]!;
     const clientCommandId = randomUUID();
 
@@ -108,7 +108,7 @@ describe("enqueueCommand", () => {
   });
 
   it("rejects with game_not_active when the game is no longer active", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     await Game.update(
       { status: "ended" },
       { where: { id: fixture.gameId } },
@@ -128,7 +128,7 @@ describe("enqueueCommand", () => {
   });
 
   it("rejects with forbidden when the user is not a participant of the team", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     const onTeamOne = fixture.participants[0]!;
     const otherTeam = fixture.participants.find(
       (p) => p.gameTeamId !== onTeamOne.gameTeamId,
@@ -161,7 +161,7 @@ describe("enqueueCommand", () => {
   });
 
   it("rejects with unknown_command for an unrecognized commandType", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     const participant = fixture.participants[0]!;
 
     await expect(
@@ -177,7 +177,7 @@ describe("enqueueCommand", () => {
   });
 
   it("rejects with validation_error when clientCommandId is not a UUID", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     const participant = fixture.participants[0]!;
 
     await expect(
@@ -193,7 +193,7 @@ describe("enqueueCommand", () => {
   });
 
   it("rejects with validation_error when payload is not an object", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     const participant = fixture.participants[0]!;
 
     await expect(

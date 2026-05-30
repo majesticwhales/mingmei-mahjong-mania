@@ -4,7 +4,7 @@ import { sequelize } from "../../../src/config/database.ts";
 import { GameCommandQueueItem } from "../../../src/models/game-command-queue-item.ts";
 import { claimNextQueueItem } from "../../../src/queue/claim-next-queue-item.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
-import { setupStartedGame, type ParticipantFixture } from "../../setup/game.ts";
+import { setupLightweightGame, type ParticipantFixture } from "../../setup/game.ts";
 
 async function insertItem(
   gameId: string,
@@ -32,7 +32,7 @@ describe("claimNextQueueItem", () => {
   });
 
   it("returns null when there are no pending items", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame({ participantCount: 1 });
     const claimed = await sequelize.transaction((t) =>
       claimNextQueueItem(fixture.gameId, t),
     );
@@ -40,7 +40,7 @@ describe("claimNextQueueItem", () => {
   });
 
   it("ignores non-pending items", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame({ participantCount: 1 });
     const participant = fixture.participants[0]!;
     await insertItem(fixture.gameId, participant, { status: "done" });
     await insertItem(fixture.gameId, participant, { status: "processing" });
@@ -53,8 +53,8 @@ describe("claimNextQueueItem", () => {
   });
 
   it("ignores pending items belonging to another game", async () => {
-    const a = await setupStartedGame({ defaultStartNodeCode: null });
-    const b = await setupStartedGame({ defaultStartNodeCode: null });
+    const a = await setupLightweightGame({ participantCount: 1 });
+    const b = await setupLightweightGame({ participantCount: 1 });
     await insertItem(b.gameId, b.participants[0]!);
 
     const claimed = await sequelize.transaction((t) =>
@@ -64,7 +64,7 @@ describe("claimNextQueueItem", () => {
   });
 
   it("claims the oldest pending item and flips its status to processing", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame({ participantCount: 1 });
     const participant = fixture.participants[0]!;
     const older = await insertItem(fixture.gameId, participant);
     await new Promise((r) => setTimeout(r, 10));
@@ -83,7 +83,7 @@ describe("claimNextQueueItem", () => {
   });
 
   it("two concurrent claims pick distinct items (skip locked)", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame({ participantCount: 1 });
     const participant = fixture.participants[0]!;
     await insertItem(fixture.gameId, participant);
     await insertItem(fixture.gameId, participant);

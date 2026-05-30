@@ -13,7 +13,7 @@ import { enqueueCommand } from "../../../src/queue/enqueue-command.ts";
 import { runQueueTickForGame } from "../../../src/queue/run-tick.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 import {
-  setupStartedGame,
+  setupLightweightGame,
   type ParticipantFixture,
 } from "../../setup/game.ts";
 
@@ -63,13 +63,13 @@ describe("runQueueTickForGame", () => {
   });
 
   it("returns zeros when the queue is empty", async () => {
-    const { gameId } = await setupStartedGame({ defaultStartNodeCode: null });
+    const { gameId } = await setupLightweightGame({ participantCount: 0 });
     const result = await runQueueTickForGame(gameId);
     expect(result).toEqual({ processed: 0, failed: 0 });
   });
 
   it("processes a pending CHECK_IN: appends event, terminates row, broadcasts", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame({ nodeCodes: ["bay"] });
     const participant = fixture.participants[0]!;
     const itemId = await enqueueCheckIn(fixture.gameId, participant, "bay");
 
@@ -104,7 +104,10 @@ describe("runQueueTickForGame", () => {
   });
 
   it("processes multiple pending items in FIFO order", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay", "bloor-yonge"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
     const participant = fixture.participants[0]!;
 
     await enqueueCommand({
@@ -136,7 +139,7 @@ describe("runQueueTickForGame", () => {
   });
 
   it("marks a failing command as failed with the error message, without poisoning the queue", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame({ nodeCodes: ["bay"] });
     const participant = fixture.participants[0]!;
 
     // First item: a CHECK_IN at a nodeId that does not belong to this game.
@@ -174,7 +177,7 @@ describe("runQueueTickForGame", () => {
   });
 
   it("marks queued commands failed when the game is no longer active", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame({ nodeCodes: ["bay"] });
     const participant = fixture.participants[0]!;
     const itemId = await enqueueCheckIn(fixture.gameId, participant, "bay");
     await Game.update(
@@ -191,7 +194,7 @@ describe("runQueueTickForGame", () => {
   });
 
   it("respects maxItems", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame({ nodeCodes: ["bay"] });
     const participant = fixture.participants[0]!;
     for (let i = 0; i < 3; i += 1) {
       await enqueueCheckIn(fixture.gameId, participant, "bay");
@@ -209,8 +212,8 @@ describe("runQueueTickForGame", () => {
   });
 
   it("does not pick up items from other games", async () => {
-    const a = await setupStartedGame({ defaultStartNodeCode: null });
-    const b = await setupStartedGame({ defaultStartNodeCode: null });
+    const a = await setupLightweightGame({ participantCount: 0 });
+    const b = await setupLightweightGame({ nodeCodes: ["bay"] });
     await enqueueCheckIn(b.gameId, b.participants[0]!, "bay");
 
     const result = await runQueueTickForGame(a.gameId);

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { processCommand } from "../../../../src/engine/process-command.ts";
 import { GameNode } from "../../../../src/models/game-node.ts";
 import { GameTeamPosition } from "../../../../src/models/game-team-position.ts";
-import { setupStartedGame } from "../../../setup/game.ts";
+import { setupLightweightGame } from "../../../setup/game.ts";
 import { getSequelize, truncateMutableTables } from "../../../setup/db.ts";
 
 describe("CHECK_OUT handler", () => {
@@ -11,7 +11,10 @@ describe("CHECK_OUT handler", () => {
   });
 
   it("clears the team's position and emits a CHECK_OUT event", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
     const participant = fixture.participants[0]!;
     const bayNode = await GameNode.findOne({
       where: { gameId: fixture.gameId, code: "bay" },
@@ -43,7 +46,7 @@ describe("CHECK_OUT handler", () => {
   });
 
   it("rejects with not_checked_in when the team has no current station", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     const participant = fixture.participants[0]!;
 
     await expect(

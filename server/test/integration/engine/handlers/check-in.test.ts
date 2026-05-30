@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { processCommand } from "../../../../src/engine/process-command.ts";
 import { GameNode } from "../../../../src/models/game-node.ts";
 import { GameTeamPosition } from "../../../../src/models/game-team-position.ts";
-import { setupStartedGame } from "../../../setup/game.ts";
+import { setupLightweightGame } from "../../../setup/game.ts";
 import { getSequelize, truncateMutableTables } from "../../../setup/db.ts";
 
 async function findNodeIdByCode(
@@ -23,7 +23,7 @@ describe("CHECK_IN handler", () => {
   });
 
   it("checks an unchecked team in and emits a single CHECK_IN event", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame({ nodeCodes: ["bay"] });
     const participant = fixture.participants[0]!;
     const bayId = await findNodeIdByCode(fixture.gameId, "bay");
 
@@ -50,7 +50,10 @@ describe("CHECK_IN handler", () => {
   });
 
   it("performs an implicit check-out when checking in elsewhere", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay", "bloor-yonge"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
     const participant = fixture.participants[0]!;
 
     const targetNode = await GameNode.findOne({
@@ -91,7 +94,10 @@ describe("CHECK_IN handler", () => {
   });
 
   it("rejects with already_at_node when the team is already at the target station", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: "bay" });
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
     const participant = fixture.participants[0]!;
     const bayId = await findNodeIdByCode(fixture.gameId, "bay");
 
@@ -107,7 +113,7 @@ describe("CHECK_IN handler", () => {
   });
 
   it("rejects with node_not_in_game when the nodeId does not belong to the game", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     const participant = fixture.participants[0]!;
 
     await expect(
@@ -122,7 +128,7 @@ describe("CHECK_IN handler", () => {
   });
 
   it("rejects with invalid_payload when nodeId is missing", async () => {
-    const fixture = await setupStartedGame({ defaultStartNodeCode: null });
+    const fixture = await setupLightweightGame();
     const participant = fixture.participants[0]!;
 
     await expect(
