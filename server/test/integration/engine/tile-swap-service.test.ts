@@ -20,6 +20,7 @@ describe("swapPlacements", () => {
     const handTileId = fixture.handTiles[0]!.gameTileId;
     const stationTileId = fixture.nodeTiles[0]!.gameTileId;
     const originalNodeId = fixture.nodeTiles[0]!.nodeId;
+    const originalSlotIndex = fixture.nodeTiles[0]!.slotIndex;
 
     const sequelize = await getSequelize();
     await sequelize.transaction((tx) =>
@@ -32,8 +33,56 @@ describe("swapPlacements", () => {
     ]);
     expect(refreshedHand?.gameTeamId).toBeNull();
     expect(refreshedHand?.gameNodeId).toBe(originalNodeId);
+    expect(refreshedHand?.slotIndex).toBe(originalSlotIndex);
     expect(refreshedNode?.gameTeamId).toBe(team);
     expect(refreshedNode?.gameNodeId).toBeNull();
+    expect(refreshedNode?.slotIndex).toBeNull();
+  });
+
+  it("hand→node swap places the incoming hand tile in the vacated slot_index (not slot 0)", async () => {
+    // Build a single station with two tiles (slots 0 and 1), give the team
+    // a hand tile, and take the slot-1 station tile. The hand tile must
+    // land in slot 1, not slot 0; the outgoing tile vacates slot 1
+    // entirely (becomes slot_index = NULL in the hand).
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      handTilesBySlot: { 1: 1 },
+      nodeTilesByCode: { bay: 2 },
+      slotsPerNode: 2,
+    });
+    const team = fixture.participants[0]!.gameTeamId;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const handTileId = fixture.handTiles[0]!.gameTileId;
+    const slotOneStationTile = fixture.nodeTiles.find(
+      (t) => t.nodeCode === "bay" && t.slotIndex === 1,
+    )!;
+
+    const sequelize = await getSequelize();
+    await sequelize.transaction((tx) =>
+      swapPlacements(tx, handTileId, slotOneStationTile.gameTileId),
+    );
+
+    const [refreshedHand, refreshedStation] = await Promise.all([
+      GameTilePlacement.findOne({ where: { gameTileId: handTileId } }),
+      GameTilePlacement.findOne({
+        where: { gameTileId: slotOneStationTile.gameTileId },
+      }),
+    ]);
+    expect(refreshedHand?.gameNodeId).toBe(bayId);
+    expect(refreshedHand?.slotIndex).toBe(1);
+    expect(refreshedStation?.gameTeamId).toBe(team);
+    expect(refreshedStation?.gameNodeId).toBeNull();
+    expect(refreshedStation?.slotIndex).toBeNull();
+
+    // Slot 0 at bay is undisturbed.
+    const slotZero = fixture.nodeTiles.find(
+      (t) => t.nodeCode === "bay" && t.slotIndex === 0,
+    )!;
+    const slotZeroAfter = await GameTilePlacement.findOne({
+      where: { gameTileId: slotZero.gameTileId },
+    });
+    expect(slotZeroAfter?.slotIndex).toBe(0);
+    expect(slotZeroAfter?.gameNodeId).toBe(bayId);
   });
 
   it("exchanges targets between two node placements without unique-index collision", async () => {
@@ -55,9 +104,41 @@ describe("swapPlacements", () => {
       GameTilePlacement.findOne({ where: { gameTileId: second.gameTileId } }),
     ]);
     expect(refreshedFirst?.gameNodeId).toBe(second.nodeId);
+    expect(refreshedFirst?.slotIndex).toBe(second.slotIndex);
     expect(refreshedSecond?.gameNodeId).toBe(first.nodeId);
+    expect(refreshedSecond?.slotIndex).toBe(first.slotIndex);
     expect(refreshedFirst?.gameTeamId).toBeNull();
     expect(refreshedSecond?.gameTeamId).toBeNull();
+  });
+
+  it("node↔node swap on the same node exchanges slot indices without colliding with the partial unique index", async () => {
+    // Two tiles on the same node at slots 0 and 1. After swap each should
+    // hold the other's slot_index. The partial unique `(game_node_id,
+    // slot_index)` index would reject any intermediate state where both
+    // rows transiently hold the same `slot_index` — proves the single-UPDATE
+    // implementation avoids that.
+    const fixture = await setupLightweightGame({
+      participantCount: 0,
+      nodeCodes: ["bay"],
+      nodeTilesByCode: { bay: 2 },
+      slotsPerNode: 2,
+    });
+    const a = fixture.nodeTiles.find((t) => t.slotIndex === 0)!;
+    const b = fixture.nodeTiles.find((t) => t.slotIndex === 1)!;
+
+    const sequelize = await getSequelize();
+    await sequelize.transaction((tx) =>
+      swapPlacements(tx, a.gameTileId, b.gameTileId),
+    );
+
+    const [refreshedA, refreshedB] = await Promise.all([
+      GameTilePlacement.findOne({ where: { gameTileId: a.gameTileId } }),
+      GameTilePlacement.findOne({ where: { gameTileId: b.gameTileId } }),
+    ]);
+    expect(refreshedA?.gameNodeId).toBe(a.nodeId);
+    expect(refreshedA?.slotIndex).toBe(1);
+    expect(refreshedB?.gameNodeId).toBe(b.nodeId);
+    expect(refreshedB?.slotIndex).toBe(0);
   });
 
   it("preserves placement counts (no tiles created or destroyed)", async () => {

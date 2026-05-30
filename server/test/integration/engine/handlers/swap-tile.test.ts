@@ -46,8 +46,10 @@ describe("SWAP_TILE handler", () => {
     ]);
     expect(refreshedHand?.gameTeamId).toBeNull();
     expect(refreshedHand?.gameNodeId).toBe(bayId);
+    expect(refreshedHand?.slotIndex).toBe(fixture.nodeTiles[0]!.slotIndex);
     expect(refreshedStation?.gameTeamId).toBe(participant.gameTeamId);
     expect(refreshedStation?.gameNodeId).toBeNull();
+    expect(refreshedStation?.slotIndex).toBeNull();
   });
 
   it("rejects with not_checked_in when the team has no current station", async () => {
