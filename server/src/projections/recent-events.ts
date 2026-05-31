@@ -1,11 +1,16 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.ts";
+import type { GameEvent } from "../models/game-event.ts";
 
 /**
- * Compact event shape sent to clients in `game.state.recentEvents`. We lift
- * a small whitelist of payload fields to the top level so the client can
- * render rich activity entries without parsing free-form payloads or being
- * exposed to media URLs / internal ids.
+ * Compact event shape sent to clients in `game.state.recentEvents` **and**
+ * on the live `game.event` socket channel — both use the exact same wire
+ * shape so the client can append a real-time event to its `recentEvents`
+ * list without massaging the payload.
+ *
+ * We lift a small whitelist of payload fields to the top level so the
+ * client can render rich activity entries without parsing free-form
+ * payloads or being exposed to media URLs / internal ids.
  */
 export interface RecentEventDto {
   /** Server-assigned monotonic event sequence. */
@@ -78,6 +83,36 @@ export async function selectRecentEvents(
   );
 
   return rows.map(rowToDto);
+}
+
+/**
+ * Build the same wire DTO from a single freshly-appended `GameEvent`
+ * model instance. Used by the SocketBroadcaster's `emitEvent` path so
+ * the live `game.event` channel matches `game.state.recentEvents[]`
+ * exactly. Issues a single small JOIN to resolve `team_code` when the
+ * event has an actor; scheduler-emitted events return `teamCode: null`.
+ */
+export async function serializeGameEvent(
+  event: GameEvent,
+): Promise<RecentEventDto> {
+  let teamCode: string | null = null;
+  if (event.actorGameTeamId != null) {
+    const rows = await sequelize.query<{ code: string | null }>(
+      `SELECT td.code
+       FROM game_teams gt
+       INNER JOIN team_definitions td ON td.id = gt.team_definition_id
+       WHERE gt.id = :id`,
+      { replacements: { id: event.actorGameTeamId }, type: QueryTypes.SELECT },
+    );
+    teamCode = rows[0]?.code ?? null;
+  }
+  return rowToDto({
+    sequence: String(event.sequence),
+    event_type: event.eventType,
+    payload: event.payload ?? null,
+    created_at: event.createdAt,
+    team_code: teamCode,
+  });
 }
 
 function rowToDto(row: Row): RecentEventDto {

@@ -131,3 +131,32 @@ export function emitAck<T>(
       });
   });
 }
+
+/**
+ * Resolve with the next emission of `event` matching `predicate` (or
+ * the very next emission, if no predicate). Set the listener **before**
+ * triggering the broadcast so there's no race with synchronous emits.
+ *
+ * Defaults to a 2s timeout so a missed broadcast fails the test fast
+ * rather than hanging the suite.
+ */
+export function waitForEvent<T>(
+  client: ClientSocket,
+  event: string,
+  predicate?: (data: T) => boolean,
+  timeoutMs = 2000,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      client.off(event, handler);
+      reject(new Error(`Timed out waiting for "${event}" after ${timeoutMs}ms`));
+    }, timeoutMs);
+    const handler = (data: T) => {
+      if (predicate && !predicate(data)) return;
+      clearTimeout(timer);
+      client.off(event, handler);
+      resolve(data);
+    };
+    client.on(event, handler);
+  });
+}

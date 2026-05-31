@@ -5,8 +5,9 @@ import { Game } from "../models/game.ts";
 import { GameEvent } from "../models/game-event.ts";
 import { GameParticipant } from "../models/game-participant.ts";
 import { appendEvent } from "./event-log.ts";
-import { type Broadcaster, noopBroadcaster } from "./broadcaster.ts";
+import type { Broadcaster } from "./broadcaster.ts";
 import { builtinCommandHandlers } from "./handlers/index.ts";
+import { getBroadcaster } from "../socket/broadcaster-registry.ts";
 import type { CommandType, EventType } from "./types.ts";
 
 export interface ProcessCommandInput {
@@ -73,7 +74,7 @@ export async function processCommand(
   input: ProcessCommandInput,
   options: ProcessCommandOptions = {},
 ): Promise<ProcessCommandResult> {
-  const broadcaster = options.broadcaster ?? noopBroadcaster;
+  const broadcaster = options.broadcaster ?? getBroadcaster();
   const handlers = options.handlers ?? defaultCommandHandlers;
 
   const handler = handlers.get(input.commandType);
