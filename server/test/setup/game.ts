@@ -389,6 +389,15 @@ export interface LightweightGameOptions {
    * offsets — scheduler tests that need those should use `setupStartedGame`.
    */
   slotUnlockOffsetsSeconds?: number[];
+  /**
+   * `games.slot_map_visible` snapshot. Defaults to `[true, true, …]` with
+   * `slotsPerNode` entries (every slot is map-visible), matching the
+   * column default. Entry `[0]` MUST be `true`; phase-zero slot always
+   * follows phase visibility. Set later entries to `false` to exercise
+   * the "always fogged on map, visible at station once unlocked" tier in
+   * projection tests.
+   */
+  slotMapVisible?: boolean[];
 }
 
 export interface LightweightGameFixture {
@@ -435,6 +444,8 @@ export async function setupLightweightGame(
   const visibilityPhaseCount = options.visibilityPhaseCount ?? 4;
   const slotUnlockOffsetsSeconds =
     options.slotUnlockOffsetsSeconds ?? new Array(slotsPerNode).fill(0);
+  const slotMapVisible =
+    options.slotMapVisible ?? new Array(slotsPerNode).fill(true);
 
   if (slotUnlockOffsetsSeconds.length !== slotsPerNode) {
     throw new Error(
@@ -444,6 +455,16 @@ export async function setupLightweightGame(
   if (slotUnlockOffsetsSeconds[0] !== 0) {
     throw new Error(
       `setupLightweightGame: slotUnlockOffsetsSeconds[0] must be 0; got ${slotUnlockOffsetsSeconds[0]}`,
+    );
+  }
+  if (slotMapVisible.length !== slotsPerNode) {
+    throw new Error(
+      `setupLightweightGame: slotMapVisible length (${slotMapVisible.length}) must equal slotsPerNode (${slotsPerNode})`,
+    );
+  }
+  if (slotMapVisible[0] !== true) {
+    throw new Error(
+      `setupLightweightGame: slotMapVisible[0] must be true; got ${slotMapVisible[0]}`,
     );
   }
   for (const count of Object.values(nodeTilesByCode)) {
@@ -501,7 +522,7 @@ export async function setupLightweightGame(
         visibilityPhaseCount,
         visibilityPhaseIntervalSeconds: ONE_HOUR_SECONDS,
         slotUnlockOffsetsSeconds,
-        slotMapVisible: new Array(slotsPerNode).fill(true),
+        slotMapVisible,
         configVersion: 1,
       },
       { transaction },

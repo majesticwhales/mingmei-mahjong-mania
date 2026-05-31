@@ -1,0 +1,448 @@
+import { QueryTypes } from "sequelize";
+import { sequelize } from "../config/database.ts";
+import { HttpError } from "../lib/http-error.ts";
+import { Game, type GameStatus } from "../models/game.ts";
+import { GameEdge } from "../models/game-edge.ts";
+import { GameLine } from "../models/game-line.ts";
+import { GameLocationTeamVisibility } from "../models/game-location-team-visibility.ts";
+import { GameNode } from "../models/game-node.ts";
+import { GameRuleFlag } from "../models/game-rule-flag.ts";
+import { GameScheduledJob } from "../models/game-scheduled-job.ts";
+import { GameTeam } from "../models/game-team.ts";
+import { GameTeamPosition } from "../models/game-team-position.ts";
+import {
+  mapVisibleSlotIndices,
+  unlockedSlotIndices,
+} from "../services/slot-visibility.ts";
+import {
+  RED_FIVES_RULE_KEY,
+  isRedFiveForGame,
+} from "../tiles/red-five.ts";
+import {
+  selectRecentEvents,
+  type RecentEventDto,
+} from "./recent-events.ts";
+
+/**
+ * Team-scoped `game.state` projection (TDD §6.3). Produced from a snapshot
+ * of the world for a single team; the caller is responsible for emitting
+ * one projection per team after every state change (chunk 4 wires this up
+ * via the `Broadcaster`).
+ *
+ * No mutation. No transaction. No fog re-derivation inside callers — the
+ * projection layer is the only place that applies team visibility, slot
+ * unlock, and slot map-visibility rules to user-facing tile data.
+ */
+
+export interface TileDto {
+  /** `game_tiles.id` — stable across the game's lifetime. */
+  instanceId: string;
+  suit: string;
+  rank: number;
+  copyIndex: number;
+  displayName: string;
+  isRedFive: boolean;
+}
+
+/** Multi-slot map / station entry. */
+export interface SlotTileDto {
+  slotIndex: number;
+  tile: TileDto;
+}
+
+/** Layout + visibility-gated tile data for a single map node. */
+export interface MapNodeDto {
+  id: string;
+  code: string;
+  name: string;
+  coordinateX: number;
+  coordinateY: number;
+  /** `game_lines.code` values, ordered by `game_lines.sort_order` ASC. */
+  lineIds: string[];
+  labelAnchor: string;
+  labelRotate: number | null;
+  isInterchange: boolean;
+  latitude: number;
+  longitude: number;
+  /** Present when `slots_per_node === 1` and the node is face-up for the team. */
+  tile?: TileDto;
+  /** Present when `slots_per_node > 1` and the node is face-up for the team. */
+  tiles?: SlotTileDto[];
+}
+
+export interface MapLineDto {
+  code: string;
+  name: string | null;
+  shortName: string | null;
+  color: string | null;
+  sortOrder: number;
+  renderMetadata: GameLine["renderMetadata"];
+}
+
+export interface MapEdgeDto {
+  fromNodeId: string;
+  toNodeId: string;
+}
+
+export interface AtStationDto {
+  nodeId: string;
+  code: string;
+  /** Present when `slots_per_node === 1`. */
+  tile?: TileDto;
+  /** Present when `slots_per_node > 1`. */
+  tiles?: SlotTileDto[];
+}
+
+export interface HandTileDto extends TileDto {
+  /** Server-assigned hand-sort ordinal `[0, handSize)`. */
+  slotIndex: number;
+}
+
+export interface GameStateProjection {
+  gameId: string;
+  status: GameStatus;
+  endsAt: string;
+  /**
+   * Earliest pending `VISIBILITY_PHASE_ADVANCE` job's `runAt`, or `null`
+   * when none are scheduled (e.g. game is in its terminal phase). The
+   * client uses this for the visibility-countdown banner; no global
+   * `visibilityPhase` is exposed.
+   */
+  nextVisibilityChangeAt: string | null;
+  mapNodes: MapNodeDto[];
+  mapLines: MapLineDto[];
+  mapEdges: MapEdgeDto[];
+  atStation: AtStationDto | null;
+  handTiles: HandTileDto[];
+  recentEvents: RecentEventDto[];
+}
+
+export interface BuildGameStateProjectionOptions {
+  /**
+   * Pin the wall-clock instant the projection evaluates per-slot unlock
+   * rules against. Defaults to a fresh `Date()` at call time. The
+   * broadcaster passes a single pinned `now` to keep every team's
+   * projection internally consistent at a state-change boundary
+   * (chunk 4) — handy for replay / tests too.
+   */
+  now?: Date;
+}
+
+interface PlacementRow {
+  placement_id: string;
+  game_node_id: string | null;
+  game_team_id: string | null;
+  slot_index: number | null;
+  game_tile_id: string;
+  copy_index: number;
+  suit: string;
+  rank: number;
+  suit_sort_order: number;
+  display_name: string;
+}
+
+interface NodeLineRow {
+  game_node_id: string;
+  code: string;
+}
+
+/**
+ * Build the projection for one team's view of a game. Reads only — no
+ * transaction required. Throws `404 not_found` if the game or team
+ * doesn't exist; `400 wrong_game` if the team doesn't belong to the
+ * game.
+ */
+export async function buildGameStateProjection(
+  gameId: string,
+  gameTeamId: string,
+  options: BuildGameStateProjectionOptions = {},
+): Promise<GameStateProjection> {
+  const now = options.now ?? new Date();
+  const nowMs = now.getTime();
+
+  const game = await Game.findByPk(gameId);
+  if (!game) {
+    throw new HttpError(404, "not_found", `Game not found: ${gameId}`);
+  }
+
+  const team = await GameTeam.findByPk(gameTeamId);
+  if (!team) {
+    throw new HttpError(404, "not_found", `Game team not found: ${gameTeamId}`);
+  }
+  if (team.gameId !== gameId) {
+    throw new HttpError(
+      400,
+      "wrong_game",
+      `Game team ${gameTeamId} does not belong to game ${gameId}`,
+    );
+  }
+
+  const [
+    redFivesFlag,
+    teamPosition,
+    nodes,
+    nodeLineRows,
+    lines,
+    edges,
+    visibilityRows,
+    placementRows,
+    nextVisibilityJob,
+    recentEvents,
+  ] = await Promise.all([
+    GameRuleFlag.findOne({
+      where: { gameId, ruleKey: RED_FIVES_RULE_KEY },
+    }),
+    GameTeamPosition.findOne({ where: { gameTeamId } }),
+    GameNode.findAll({ where: { gameId }, order: [["code", "ASC"]] }),
+    sequelize.query<NodeLineRow>(
+      `SELECT nl.game_node_id, gl.code
+       FROM game_node_lines nl
+       INNER JOIN game_lines gl ON gl.id = nl.game_line_id
+       WHERE gl.game_id = :gameId
+       ORDER BY gl.sort_order ASC, gl.code ASC`,
+      { replacements: { gameId }, type: QueryTypes.SELECT },
+    ),
+    GameLine.findAll({
+      where: { gameId },
+      order: [
+        ["sortOrder", "ASC"],
+        ["code", "ASC"],
+      ],
+    }),
+    GameEdge.findAll({ where: { gameId }, order: [["id", "ASC"]] }),
+    GameLocationTeamVisibility.findAll({
+      where: { gameTeamId, isFaceUp: true },
+    }),
+    sequelize.query<PlacementRow>(
+      `SELECT p.id              AS placement_id,
+              p.game_node_id    AS game_node_id,
+              p.game_team_id    AS game_team_id,
+              p.slot_index      AS slot_index,
+              t.id              AS game_tile_id,
+              t.copy_index      AS copy_index,
+              tt.suit           AS suit,
+              tt.rank           AS rank,
+              tt.suit_sort_order AS suit_sort_order,
+              tt.display_name   AS display_name
+       FROM game_tile_placements p
+       INNER JOIN game_tiles t  ON t.id = p.game_tile_id
+       INNER JOIN tile_types tt ON tt.id = t.tile_type_id
+       WHERE t.game_id = :gameId`,
+      { replacements: { gameId }, type: QueryTypes.SELECT },
+    ),
+    GameScheduledJob.findOne({
+      where: {
+        gameId,
+        jobType: "VISIBILITY_PHASE_ADVANCE",
+        status: "pending",
+      },
+      order: [["runAt", "ASC"]],
+    }),
+    selectRecentEvents(gameId),
+  ]);
+
+  const redFivesEnabled = redFivesFlag?.enabled ?? false;
+  const slotsPerNode = game.slotsPerNode;
+  const multiSlot = slotsPerNode > 1;
+
+  const lineIdsByNode = new Map<string, string[]>();
+  for (const row of nodeLineRows) {
+    const arr = lineIdsByNode.get(row.game_node_id) ?? [];
+    arr.push(row.code);
+    lineIdsByNode.set(row.game_node_id, arr);
+  }
+
+  const faceUpNodeIds = new Set<string>();
+  for (const row of visibilityRows) {
+    faceUpNodeIds.add(row.gameNodeId);
+  }
+
+  interface TileWithSort {
+    tile: TileDto;
+    suitSortOrder: number;
+    rank: number;
+    copyIndex: number;
+  }
+  const tilesByNodeSlot = new Map<string, Map<number, TileDto>>();
+  const ownHandTiles: TileWithSort[] = [];
+
+  for (const row of placementRows) {
+    const tile: TileDto = {
+      instanceId: row.game_tile_id,
+      suit: row.suit,
+      rank: row.rank,
+      copyIndex: row.copy_index,
+      displayName: row.display_name,
+      isRedFive: isRedFiveForGame(
+        { suit: row.suit, rank: row.rank, copyIndex: row.copy_index },
+        redFivesEnabled,
+      ),
+    };
+
+    if (row.game_node_id != null && row.slot_index != null) {
+      let bySlot = tilesByNodeSlot.get(row.game_node_id);
+      if (!bySlot) {
+        bySlot = new Map();
+        tilesByNodeSlot.set(row.game_node_id, bySlot);
+      }
+      bySlot.set(row.slot_index, tile);
+    } else if (row.game_team_id === gameTeamId) {
+      ownHandTiles.push({
+        tile,
+        suitSortOrder: row.suit_sort_order,
+        rank: row.rank,
+        copyIndex: row.copy_index,
+      });
+    }
+  }
+
+  const mapVisibleSlots = multiSlot
+    ? mapVisibleSlotIndices(game.slotMapVisible, slotsPerNode)
+    : [0];
+
+  const mapNodes: MapNodeDto[] = nodes.map((node) => {
+    const dto: MapNodeDto = {
+      id: node.id,
+      code: node.code,
+      name: node.name,
+      coordinateX: node.coordinateX,
+      coordinateY: node.coordinateY,
+      lineIds: lineIdsByNode.get(node.id) ?? [],
+      labelAnchor: node.labelAnchor,
+      labelRotate: node.labelRotate,
+      isInterchange: node.isInterchange,
+      latitude: node.latitude,
+      longitude: node.longitude,
+    };
+
+    if (!faceUpNodeIds.has(node.id)) {
+      return dto;
+    }
+
+    const bySlot = tilesByNodeSlot.get(node.id);
+    if (!bySlot) {
+      return dto;
+    }
+
+    if (multiSlot) {
+      const entries: SlotTileDto[] = [];
+      for (const slotIndex of mapVisibleSlots) {
+        const tile = bySlot.get(slotIndex);
+        if (tile) {
+          entries.push({ slotIndex, tile });
+        }
+      }
+      if (entries.length > 0) {
+        dto.tiles = entries;
+      }
+    } else {
+      const tile = bySlot.get(0);
+      if (tile) {
+        dto.tile = tile;
+      }
+    }
+
+    return dto;
+  });
+
+  const mapLines: MapLineDto[] = lines.map((line) => ({
+    code: line.code,
+    name: line.name,
+    shortName: line.shortName,
+    color: line.color,
+    sortOrder: line.sortOrder,
+    renderMetadata: line.renderMetadata,
+  }));
+
+  const mapEdges: MapEdgeDto[] = edges.map((edge) => ({
+    fromNodeId: edge.fromGameNodeId,
+    toNodeId: edge.toGameNodeId,
+  }));
+
+  const atStation = buildAtStation({
+    game,
+    teamPosition,
+    nodes,
+    tilesByNodeSlot,
+    multiSlot,
+    nowMs,
+  });
+
+  ownHandTiles.sort(handTileSortComparator);
+  const handTiles: HandTileDto[] = ownHandTiles.map((entry, index) => ({
+    slotIndex: index,
+    ...entry.tile,
+  }));
+
+  return {
+    gameId,
+    status: game.status,
+    endsAt: game.endsAt.toISOString(),
+    nextVisibilityChangeAt:
+      nextVisibilityJob?.runAt.toISOString() ?? null,
+    mapNodes,
+    mapLines,
+    mapEdges,
+    atStation,
+    handTiles,
+    recentEvents,
+  };
+}
+
+function buildAtStation(params: {
+  game: Game;
+  teamPosition: GameTeamPosition | null;
+  nodes: GameNode[];
+  tilesByNodeSlot: Map<string, Map<number, TileDto>>;
+  multiSlot: boolean;
+  nowMs: number;
+}): AtStationDto | null {
+  const { game, teamPosition, nodes, tilesByNodeSlot, multiSlot, nowMs } =
+    params;
+  const nodeId = teamPosition?.currentGameNodeId;
+  if (!nodeId) {
+    return null;
+  }
+  const node = nodes.find((n) => n.id === nodeId);
+  if (!node) {
+    return null;
+  }
+  const bySlot = tilesByNodeSlot.get(node.id);
+  const dto: AtStationDto = { nodeId: node.id, code: node.code };
+
+  if (multiSlot) {
+    const unlocked = unlockedSlotIndices(game, game.slotsPerNode, nowMs);
+    const entries: SlotTileDto[] = [];
+    if (bySlot) {
+      for (const slotIndex of unlocked) {
+        const tile = bySlot.get(slotIndex);
+        if (tile) {
+          entries.push({ slotIndex, tile });
+        }
+      }
+    }
+    if (entries.length > 0) {
+      dto.tiles = entries;
+    }
+  } else if (bySlot) {
+    const tile = bySlot.get(0);
+    if (tile) {
+      dto.tile = tile;
+    }
+  }
+
+  return dto;
+}
+
+function handTileSortComparator(
+  a: { suitSortOrder: number; rank: number; copyIndex: number },
+  b: { suitSortOrder: number; rank: number; copyIndex: number },
+): number {
+  if (a.suitSortOrder !== b.suitSortOrder) {
+    return a.suitSortOrder - b.suitSortOrder;
+  }
+  if (a.rank !== b.rank) {
+    return a.rank - b.rank;
+  }
+  return a.copyIndex - b.copyIndex;
+}
