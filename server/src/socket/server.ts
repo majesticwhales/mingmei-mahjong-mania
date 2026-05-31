@@ -5,6 +5,8 @@ import {
   type Socket,
 } from "socket.io";
 import { verifyAccessToken } from "../auth/jwt.ts";
+import { registerGameHandlers } from "./handlers/game.ts";
+import { registerLobbyHandlers } from "./handlers/lobby.ts";
 
 /**
  * Per-socket state attached at handshake time and extended by later
@@ -49,6 +51,10 @@ export function createSocketServer(httpServer: HttpServer): AppSocketServer {
     serveClient: false,
   });
   io.use(jwtHandshakeMiddleware);
+  io.on("connection", (socket) => {
+    registerLobbyHandlers(socket);
+    registerGameHandlers(socket);
+  });
   return io;
 }
 

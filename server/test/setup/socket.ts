@@ -104,3 +104,30 @@ export function connectAuthed(
     client.once("connect_error", onError);
   });
 }
+
+/**
+ * Emit a C→S event with an ack callback and return the typed response.
+ * Rejects with the Socket.IO timeout error if the server doesn't reply
+ * within `timeoutMs` (default 4s). The two-arg ack form
+ * `(err, response)` is the one socket.io-client uses once `.timeout()`
+ * is in play — we always wrap in a timeout so a stuck handler fails the
+ * test fast instead of hanging vitest.
+ */
+export function emitAck<T>(
+  client: ClientSocket,
+  event: string,
+  payload: unknown,
+  timeoutMs = 4000,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    client
+      .timeout(timeoutMs)
+      .emit(event, payload, (err: Error | null, response: T) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(response);
+      });
+  });
+}
