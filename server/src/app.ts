@@ -4,6 +4,7 @@ import { sequelize } from "./config/database.ts";
 import { errorHandler } from "./middleware/error-handler.ts";
 import { requireAuth } from "./middleware/require-auth.ts";
 import { authProtectedRouter, authPublicRouter } from "./routes/auth.ts";
+import { gamesRouter } from "./routes/games.ts";
 import { lobbiesRouter } from "./routes/lobbies.ts";
 import { getDefaultNetwork, mapTemplatesRouter } from "./routes/map-templates.ts";
 
@@ -34,6 +35,6 @@ app.use("/api/map-templates", mapTemplatesRouter);
 // --- Protected (Bearer JWT): path, requireAuth, router ---
 app.use("/api/auth", requireAuth, authProtectedRouter);
 app.use("/api/lobbies", requireAuth, lobbiesRouter);
-// app.use("/api/games", requireAuth, gamesRouter);
+app.use("/api/games", requireAuth, gamesRouter);
 
 app.use(errorHandler);
