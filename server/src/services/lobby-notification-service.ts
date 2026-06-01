@@ -2,6 +2,7 @@ import { HttpError } from "../lib/http-error.ts";
 import { Lobby } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
 import { LobbyNotification } from "../models/lobby-notification.ts";
+import { getBroadcaster } from "../socket/broadcaster-registry.ts";
 
 export interface LobbyNotificationDto {
   id: string;
@@ -31,6 +32,17 @@ function serialize(notification: LobbyNotification): LobbyNotificationDto {
     template: notification.template,
     data: notification.data,
   };
+}
+
+/**
+ * Public alias of the local `serialize`. Used by `lobby-service` when
+ * folding notifications into the lobby detail DTO, so the wire shape
+ * stays in lock-step with the dedicated `/notifications` endpoint.
+ */
+export function serializeLobbyNotification(
+  notification: LobbyNotification,
+): LobbyNotificationDto {
+  return serialize(notification);
 }
 
 function validateAtSeconds(value: number): void {
@@ -137,6 +149,7 @@ export async function addLobbyNotification(
     template: input.template.trim(),
     data: input.data ?? null,
   });
+  await getBroadcaster().emitLobbyConfig(lobbyId);
   return serialize(created);
 }
 
@@ -173,6 +186,7 @@ export async function updateLobbyNotification(
   }
 
   await notification.save();
+  await getBroadcaster().emitLobbyConfig(lobbyId);
   return serialize(notification);
 }
 
@@ -189,4 +203,5 @@ export async function removeLobbyNotification(
   if (deleted === 0) {
     throw new HttpError(404, "not_found", "Notification not found");
   }
+  await getBroadcaster().emitLobbyConfig(lobbyId);
 }

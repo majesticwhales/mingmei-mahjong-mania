@@ -23,6 +23,7 @@ export class RecordingBroadcaster implements Broadcaster {
   readonly events: RecordedEvent[] = [];
   readonly stateBroadcasts: string[] = [];
   readonly notifications: RecordedNotification[] = [];
+  readonly lobbyConfigBroadcasts: string[] = [];
 
   emitEvent(gameId: string, event: GameEvent): void {
     this.events.push({ gameId, event });
@@ -34,5 +35,9 @@ export class RecordingBroadcaster implements Broadcaster {
 
   emitNotification(gameId: string, notification: NotificationPayload): void {
     this.notifications.push({ gameId, notification });
+  }
+
+  emitLobbyConfig(lobbyId: string): void {
+    this.lobbyConfigBroadcasts.push(lobbyId);
   }
 }

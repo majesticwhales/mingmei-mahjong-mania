@@ -5,7 +5,8 @@ import type {
 import type { GameEvent } from "../models/game-event.ts";
 import { buildGameStateProjection } from "../projections/game-state.ts";
 import { serializeGameEvent } from "../projections/recent-events.ts";
-import { gameRoom } from "./rooms.ts";
+import { getLobbyDetail } from "../services/lobby-service.ts";
+import { gameRoom, lobbyRoom } from "./rooms.ts";
 import type { AppSocketServer } from "./server.ts";
 
 export interface SocketBroadcasterOptions {
@@ -86,5 +87,23 @@ export class SocketBroadcaster implements Broadcaster {
         member.emit("game.state", projection);
       }
     }
+  }
+
+  /**
+   * Re-broadcast the lobby detail DTO to every socket in
+   * `lobby:{lobbyId}`. Unlike `emitState`, this DTO is identical for
+   * all viewers (membership gating happens at `lobby.join` time), so
+   * we build it once and fan it out with a single room emit.
+   *
+   * Skips the DB read entirely when no one is listening — broadcast
+   * targets in this layer are pure side effects on REST mutations, so
+   * paying for a `getLobbyDetail` query when no socket is in the room
+   * is just deadweight.
+   */
+  async emitLobbyConfig(lobbyId: string): Promise<void> {
+    const sockets = await this.io.in(lobbyRoom(lobbyId)).fetchSockets();
+    if (sockets.length === 0) return;
+    const dto = await getLobbyDetail(lobbyId);
+    this.io.to(lobbyRoom(lobbyId)).emit("lobby.config", dto);
   }
 }

@@ -7,6 +7,7 @@ import {
   emptyTeamCounts,
   GAME_TEAM_SLOTS,
 } from "./even-team-assignment.ts";
+import type { LobbyNotificationDto } from "./lobby-notification-service.ts";
 
 export interface LobbyMemberDto {
   userId: string;
@@ -62,6 +63,14 @@ export interface LobbyDetailDto {
   config: LobbyConfigDto;
   members: LobbyMemberDto[];
   readiness: LobbyReadinessDto;
+  /**
+   * Scheduled notifications attached to the lobby. Ordered by
+   * `atSeconds` ascending, then insertion order. Included here so a
+   * single `lobby.config` broadcast (chunk 7) carries the entire
+   * lobby-visible state — clients don't have to chase a separate
+   * `/notifications` request to react to a CRUD push.
+   */
+  notifications: LobbyNotificationDto[];
 }
 
 function countPlayersPerTeam(
@@ -160,6 +169,7 @@ export function serializeLobbyDetail(
   members: LobbyMember[],
   teamAssignments: LobbyTeamAssignment[],
   usersById: Map<string, User>,
+  notifications: LobbyNotificationDto[],
 ): LobbyDetailDto {
   const assignmentByUser = new Map(
     teamAssignments.map((a) => [a.userId, a.teamSlot]),
@@ -198,5 +208,6 @@ export function serializeLobbyDetail(
     },
     members: memberDtos,
     readiness: computeReadiness(lobby, members, teamAssignments),
+    notifications,
   };
 }

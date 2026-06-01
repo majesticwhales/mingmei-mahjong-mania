@@ -2,6 +2,7 @@ import { sequelize } from "../config/database.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Lobby, type TeamAssignmentMode } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
+import { LobbyNotification } from "../models/lobby-notification.ts";
 import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import { MapTemplate } from "../models/map-template.ts";
 import {
@@ -15,6 +16,8 @@ import {
   type LobbyDetailDto,
   serializeLobbyDetail,
 } from "./lobby-serializer.ts";
+import { serializeLobbyNotification } from "./lobby-notification-service.ts";
+import { getBroadcaster } from "../socket/broadcaster-registry.ts";
 
 const DEFAULT_TEMPLATE_NAME = "TTC 2026";
 
@@ -84,14 +87,22 @@ async function loadLobbyBundle(lobbyId: string) {
   if (!lobby) {
     throw new HttpError(404, "not_found", "Lobby not found");
   }
-  const [members, teamAssignments] = await Promise.all([
+  const [members, teamAssignments, notificationRows] = await Promise.all([
     LobbyMember.findAll({ where: { lobbyId } }),
     LobbyTeamAssignment.findAll({ where: { lobbyId } }),
+    LobbyNotification.findAll({
+      where: { lobbyId },
+      order: [
+        ["atSeconds", "ASC"],
+        ["createdAt", "ASC"],
+      ],
+    }),
   ]);
   const userIds = [...new Set(members.map((m) => m.userId))];
   const users = await User.findAll({ where: { id: userIds } });
   const usersById = new Map(users.map((u) => [u.id, u]));
-  return { lobby, members, teamAssignments, usersById };
+  const notifications = notificationRows.map(serializeLobbyNotification);
+  return { lobby, members, teamAssignments, usersById, notifications };
 }
 
 function assertLobbyWaiting(lobby: Lobby) {
@@ -365,11 +376,16 @@ export async function createLobby(
     const host = await User.findByPk(hostUserId, { transaction });
     const usersById = new Map(host ? [[host.id, host]] : []);
 
+    // A freshly-created lobby has no notifications yet, so we can skip
+    // the extra query and pass `[]` directly. `loadLobbyBundle` is the
+    // path that's exercised after this when the host calls
+    // `addLobbyNotification` and the bundle gets re-read.
     return serializeLobbyDetail(
       lobby,
       members,
       teamAssignments,
       usersById,
+      [],
     );
   });
 }
@@ -378,22 +394,61 @@ export async function getLobbyForUser(
   lobbyId: string,
   userId: string,
 ): Promise<LobbyDetailDto> {
-  const { lobby, members, teamAssignments, usersById } =
+  const { lobby, members, teamAssignments, usersById, notifications } =
     await loadLobbyBundle(lobbyId);
   assertIsMember(members, userId);
-  return serializeLobbyDetail(lobby, members, teamAssignments, usersById);
+  return serializeLobbyDetail(
+    lobby,
+    members,
+    teamAssignments,
+    usersById,
+    notifications,
+  );
+}
+
+/**
+ * Build a lobby detail DTO without the membership check.
+ *
+ * Used by the realtime broadcaster (`emitLobbyConfig`) when fanning the
+ * latest lobby state out to everyone in `lobby:{lobbyId}`. Membership
+ * is enforced *at join time* via `lobby.join` (chunk 3), so anyone who
+ * is in the room is by definition allowed to see the DTO — re-running
+ * `assertIsMember` per recipient here would only add round-trips
+ * without strengthening the security model.
+ */
+export async function getLobbyDetail(
+  lobbyId: string,
+): Promise<LobbyDetailDto> {
+  const { lobby, members, teamAssignments, usersById, notifications } =
+    await loadLobbyBundle(lobbyId);
+  return serializeLobbyDetail(
+    lobby,
+    members,
+    teamAssignments,
+    usersById,
+    notifications,
+  );
 }
 
 export async function joinLobby(
   lobbyId: string,
   userId: string,
 ): Promise<LobbyDetailDto> {
-  const { lobby, members, teamAssignments, usersById } =
+  const { lobby, members, teamAssignments, usersById, notifications } =
     await loadLobbyBundle(lobbyId);
   assertLobbyWaiting(lobby);
 
   if (members.some((m) => m.userId === userId)) {
-    return serializeLobbyDetail(lobby, members, teamAssignments, usersById);
+    // Idempotent: a repeat join just hands the caller the current DTO
+    // without mutating anything, so we deliberately skip the broadcast
+    // — connected clients already have this state.
+    return serializeLobbyDetail(
+      lobby,
+      members,
+      teamAssignments,
+      usersById,
+      notifications,
+    );
   }
 
   const now = new Date();
@@ -409,7 +464,9 @@ export async function joinLobby(
     );
   });
 
-  return getLobbyForUser(lobbyId, userId);
+  const dto = await getLobbyForUser(lobbyId, userId);
+  await getBroadcaster().emitLobbyConfig(lobbyId);
+  return dto;
 }
 
 /** Set or change the member's team (1–4), or null for the random pool. Re-picking replaces a prior choice. */
@@ -432,7 +489,9 @@ export async function pickTeam(
   assignment.teamSlot = teamSlot;
   await assignment.save();
 
-  return getLobbyForUser(lobbyId, userId);
+  const dto = await getLobbyForUser(lobbyId, userId);
+  await getBroadcaster().emitLobbyConfig(lobbyId);
+  return dto;
 }
 
 export async function updateConfig(
@@ -550,7 +609,9 @@ export async function updateConfig(
   lobby.configUpdatedAt = new Date();
   await lobby.save();
 
-  return getLobbyForUser(lobbyId, hostUserId);
+  const dto = await getLobbyForUser(lobbyId, hostUserId);
+  await getBroadcaster().emitLobbyConfig(lobbyId);
+  return dto;
 }
 
 export async function getStartReadiness(lobbyId: string) {
