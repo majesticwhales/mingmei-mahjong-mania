@@ -4,6 +4,7 @@ import { signAccessToken } from "../../../src/auth/jwt.ts";
 import { GameCommandQueueItem } from "../../../src/models/game-command-queue-item.ts";
 import { type GameStateProjection } from "../../../src/projections/game-state.ts";
 import { type RecentEventDto } from "../../../src/projections/recent-events.ts";
+import { QueueWorker, setQueueWorker } from "../../../src/queue/worker.ts";
 import { SocketBroadcaster } from "../../../src/socket/broadcaster.ts";
 import {
   resetBroadcaster,
@@ -27,14 +28,23 @@ import {
 
 describe("socket game.command", () => {
   let harness: SocketTestHarness;
+  let queueWorker: QueueWorker;
 
   beforeEach(async () => {
     await truncateMutableTables(await getSequelize());
     harness = await startSocketTestServer();
     setBroadcaster(new SocketBroadcaster(harness.io));
+    // The socket handler triggers the queue via the process registry.
+    // Install a worker with the safety-net poll disabled so the test
+    // only exercises the explicit trigger path; tests can still call
+    // `waitForGame` to wait for the drain to complete.
+    queueWorker = new QueueWorker({ pollIntervalMs: 60_000 });
+    setQueueWorker(queueWorker);
   });
 
   afterEach(async () => {
+    await queueWorker.stop();
+    setQueueWorker(null);
     resetBroadcaster();
     await harness.close();
   });
@@ -102,6 +112,11 @@ describe("socket game.command", () => {
       // Team B isn't at the station; their atStation stays null.
       expect(projB.atStation).toBeNull();
 
+      // The state broadcast fires post-commit; the worker still has to
+      // mark the queue row `done` in a follow-up transaction. Wait for
+      // the drain to fully settle before asserting on its terminal row
+      // so the test is deterministic.
+      await queueWorker.waitForGame(fixture.gameId);
       const queueRow = await GameCommandQueueItem.findByPk(ack.queueItemId);
       expect(queueRow?.status).toBe("done");
     } finally {

@@ -5,8 +5,7 @@ import {
   type GameStateProjection,
 } from "../../projections/game-state.ts";
 import { enqueueCommand } from "../../queue/enqueue-command.ts";
-import { runQueueTickForGame } from "../../queue/run-tick.ts";
-import { getBroadcaster } from "../broadcaster-registry.ts";
+import { triggerGameQueue } from "../../queue/worker.ts";
 import { gameRoom } from "../rooms.ts";
 import type { AppSocket } from "../server.ts";
 import { type Ack, makeAck, toErrorAck } from "./shared.ts";
@@ -107,11 +106,7 @@ async function handleGameJoin(
 }
 
 /**
- * Handle a player command issued over the socket. Chunk 5 deliberately
- * keeps the worker out of scope: the queue is drained inline so the
- * round-trip is exercisable end-to-end in tests without standing up a
- * background loop. Chunk 6 replaces the inline drain with
- * `triggerGameQueue(gameId)` (per-game coalescing + safety-net poll).
+ * Handle a player command issued over the socket.
  *
  * Flow:
  *   1. Parse payload (rejects malformed ones up-front so the client
@@ -125,10 +120,13 @@ async function handleGameJoin(
  *      participant on team, command type known, UUID shape) and
  *      handles idempotent retries via the `(game_id, client_command_id)`
  *      unique index.
- *   4. On success, ack the issuer and synchronously drain the queue
- *      using the production registry's broadcaster so any post-commit
- *      `game.event` / `game.state` fan-out arrives on connected
- *      sockets immediately.
+ *   4. On success, ack the issuer immediately and signal the queue
+ *      worker via {@link triggerGameQueue}. The drain (and any post-
+ *      commit `game.event` / `game.state` fan-out) happens in the
+ *      background; clients learn about completion via the broadcast
+ *      stream rather than the ack callback. The trigger is synchronous
+ *      and coalesced per-game by the worker, so rapid-fire commands
+ *      from one game never stack into parallel drains.
  *
  * Any thrown `HttpError` becomes `game.command.rejected` on the issuing
  * socket only; the queue itself remains untouched on rejection.
@@ -168,9 +166,7 @@ async function handleGameCommand(
     };
     socket.emit("game.command.acked", ack);
 
-    await runQueueTickForGame(parsed.gameId, {
-      broadcaster: getBroadcaster(),
-    });
+    triggerGameQueue(parsed.gameId);
   } catch (err) {
     const errAck = toErrorAck(err);
     const reject: GameCommandRejected = {
