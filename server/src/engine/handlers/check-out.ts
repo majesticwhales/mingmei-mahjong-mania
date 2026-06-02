@@ -41,6 +41,13 @@ export const checkOutHandler: CommandHandler = {
 
     position.currentGameNodeId = null;
     position.checkedInAt = null;
+    // Phase F: clear the most-recent-check-in geo snapshot so SWAP_TILE
+    // (which inherits these values) can't reference stale coordinates from
+    // a station the team has already left.
+    position.lastCheckInLatitude = null;
+    position.lastCheckInLongitude = null;
+    position.geofenceValidated = null;
+    position.geolocationWarning = null;
     await position.save({ transaction: ctx.transaction });
 
     return {

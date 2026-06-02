@@ -421,6 +421,56 @@ describe("buildGameStateProjection", () => {
     expect(second.nodeCode).toBeUndefined();
   });
 
+  it("recentEvents: lifts geolocationWarning from CHECK_IN payloads (Phase F) and omits it when absent", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    const sequelize = await getSequelize();
+
+    await sequelize.transaction(async (tx) => {
+      await appendEvent(tx, {
+        gameId: fixture.gameId,
+        eventType: "CHECK_IN",
+        actorGameTeamId: participant.gameTeamId,
+        actorUserId: participant.userId,
+        payload: {
+          nodeCode: "a",
+          geolocationWarning: true,
+          geofenceValidated: false,
+          distanceMeters: 230,
+        },
+      });
+      await appendEvent(tx, {
+        gameId: fixture.gameId,
+        eventType: "CHECK_IN",
+        actorGameTeamId: participant.gameTeamId,
+        actorUserId: participant.userId,
+        // No geolocationWarning on the second event — the no-geo back-compat
+        // path. The DTO must omit the field entirely so the client doesn't
+        // see a spurious `false`.
+        payload: { nodeCode: "b" },
+      });
+    });
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+
+    const [warned, plain] = projection.recentEvents;
+    expect(warned?.geolocationWarning).toBe(true);
+    expect(plain?.geolocationWarning).toBeUndefined();
+    // distanceMeters/geofenceValidated stay in the raw payload but are
+    // intentionally NOT lifted into the DTO — the client only needs the
+    // boolean for the warning badge.
+    expect(
+      (warned as unknown as { distanceMeters?: number }).distanceMeters,
+    ).toBeUndefined();
+    expect(
+      (warned as unknown as { geofenceValidated?: boolean })
+        .geofenceValidated,
+    ).toBeUndefined();
+  });
+
   it("recentEvents: surfaces SLOT_UNLOCKED events with their slotIndex", async () => {
     const fixture = await setupLightweightGame({ participantCount: 1 });
     const participant = fixture.participants[0]!;

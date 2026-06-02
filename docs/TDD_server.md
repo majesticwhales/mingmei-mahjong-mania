@@ -86,7 +86,7 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 | Check-in photo | **Deferred (Phase G, post-MVP)** — v1 MVP CHECK_IN is photo-less. Planned post-MVP: **required**; stored in R2; **hidden during game**; **game summary** after end. Schema (`media_assets`) ready; UX + upload pipeline post-MVP. |
 | Media retention | **Deferred (Phase G, post-MVP)** — planned 365 days, then delete (lifecycle rule + sweeper). |
 | Object storage | **Deferred (Phase G, post-MVP)** — planned **Cloudflare R2** (prod), **MinIO** (dev). |
-| Geolocation | Browser API; **warn + allow**; log flags on events |
+| Geolocation | Browser API; **warn + allow** on `CHECK_IN` only (Phase F shipped). Two relative checks vs. `game_nodes.geofence_radius_meters` (default 100 m): distance via haversine, and accuracy. Either failure flips `geolocationWarning`; both passing sets `geofenceValidated`. Persisted on `game_team_positions` and lifted onto the CHECK_IN event. The handler never rejects on a warning. |
 | Notifications | Per-lobby `lobby_notifications` rows (`at_seconds`, opaque `template` key, optional `data` JSONB); copied into `game_scheduled_jobs` as `NOTIFICATION` rows at game start; broadcast over Socket |
 | Game end | Drain **in-flight** command queue, then `ended` |
 | Realtime | Commands → queue → engine → `game_events` → broadcast |
@@ -215,13 +215,18 @@ canSwapSlot(team, node, slotIndex) =
 
 | Command | Payload | Description |
 |---------|---------|-------------|
-| `CHECK_IN` | `{ nodeId }` | Photo upload **deferred (Phase G, post-MVP)**; v1 MVP accepts CHECK_IN without a `media_asset_id`. Sets `current_game_node_id` to any station; implicit check-out first if already checked in elsewhere. |
+| `CHECK_IN` | `{ nodeId, geo? }` | Photo upload **deferred (Phase G, post-MVP)**; v1 MVP accepts CHECK_IN without a `media_asset_id`. The optional `geo: { latitude, longitude, accuracy, capturedAt? }` triggers Phase F warn/allow (see "Travel" below). Sets `current_game_node_id` to any station; implicit check-out first if already checked in elsewhere. |
 | `CHECK_OUT` | `{}` | Clears `current_game_node_id`. |
 | `SWAP_TILE` | `{ handTileId, stationTileId }` | Exchanges a specific hand tile with a specific tile at the team's current station. Both tile ids are caller-chosen since a station may hold up to `games.slots_per_node` tiles. Rejects with `409 slot_locked` if the targeted tile occupies a slot whose unlock offset has not yet elapsed (see §3.3 `canSwapSlot`). |
 | `SWAP_LOCATION_TILES` | `{ tileAId, tileBId }` | Swap two tiles between map nodes (challenges). Uses shared `TileSwapService`. Implemented in Phase H. |
 | *(future)* | | Additional station actions while checked in. |
 
-**Travel:** No adjacency requirement. Geolocation optional on check-in/swap — allow always, warn if outside geofence or poor `accuracy_meters`.
+**Travel:** No adjacency requirement. Geolocation optional on `CHECK_IN` (Phase F) — `SWAP_TILE` inherits the team's most-recent check-in coordinates. The handler **always accepts** the check-in (allow); the `geofenceValidated` / `geolocationWarning` flags are advisory and persisted on `game_team_positions` + lifted onto the CHECK_IN event payload. Two independent warning triggers, both relative to the station's own `geofence_radius_meters` (default 100 m):
+
+- **Distance check** — warn when `haversineDistanceMeters > geofence_radius_meters`.
+- **Accuracy check** — warn when the browser-reported `accuracy_meters > geofence_radius_meters`. Relative threshold (one source of truth per station) rather than an absolute constant.
+
+`geofenceValidated` is true iff **both** checks pass; `geolocationWarning` is true iff **either** check fails. Clients pass the raw browser values through unchanged; coordinates are stored as-reported, not server-corrected. When the `geo` field is omitted (geolocation denied, unavailable, or timed out client-side) all four position-row columns stay `NULL` and the CHECK_IN event payload omits the geo fields entirely.
 
 **Check-in elsewhere:** Server runs check-out first, then check-in.
 
@@ -924,7 +929,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 | **C** | Extend **same** `GameStartService`: clone map (template `node_count`), create one `game_tile` per catalog entry + placements (`slots_per_node` per node + `hand_size` per team), visibility groups, scheduled jobs |
 | **D** | Engine, queue, scheduler, event tests |
 | **E** | Socket.IO, projections (sorted hands), reconnect |
-| **F** | Geolocation warn/allow |
+| **F** | **Complete** — Geolocation warn/allow. `services/geolocation.ts` (pure haversine + payload parser + evaluator) feeds the `CHECK_IN` handler; results persist to `game_team_positions.{lastCheckInLatitude,lastCheckInLongitude,geofenceValidated,geolocationWarning}` and are lifted onto the `CHECK_IN` event payload (`geolocationWarning`, `geofenceValidated`, `distanceMeters`) and the `RecentEventDto` (`geolocationWarning` only). `SWAP_TILE` inherits the most-recent-check-in coordinates from the position row. See [§3.4 Travel](#34-station-commands-and-travel). |
 | **G** | **Deferred (post-MVP)** — R2/MinIO, check-in photo, game summary URLs, retention. v1 MVP CHECK_IN is photo-less; schema is already migrated so the re-enable path is purely additive (UX + upload pipeline + presigned-URL plumbing). See [§1](#1-purpose-and-scope) "Out of scope". |
 | **H** | Challenge catalog + resolvers (when product ready) |
 | **I** | **Scoring:** `HandEvaluationService` stub → riichi implementation; summary + challenge integration |
