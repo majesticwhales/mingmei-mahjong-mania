@@ -24,6 +24,15 @@ export interface RecentEventDto {
   nodeCode?: string;
   slotIndex?: number;
   hasPhoto?: boolean;
+  /**
+   * Phase F: present on CHECK_IN events whose command payload included a
+   * `geo` field. Truthy means the check-in was outside the station's
+   * geofence and/or the reported accuracy exceeded the geofence radius.
+   * The full `distanceMeters` / `geofenceValidated` fields remain in
+   * `game_events.payload` for audit but are not lifted here — the client
+   * only needs the boolean for the warning badge.
+   */
+  geolocationWarning?: boolean;
   phase?: number;
   template?: string;
 }
@@ -134,6 +143,10 @@ function rowToDto(row: Row): RecentEventDto {
   const hasPhoto = payload.hasPhoto;
   if (typeof hasPhoto === "boolean") {
     dto.hasPhoto = hasPhoto;
+  }
+  const geolocationWarning = payload.geolocationWarning;
+  if (typeof geolocationWarning === "boolean") {
+    dto.geolocationWarning = geolocationWarning;
   }
   const phase = payload.phase;
   if (typeof phase === "number" && Number.isInteger(phase)) {

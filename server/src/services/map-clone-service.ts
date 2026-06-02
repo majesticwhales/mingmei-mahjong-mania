@@ -9,8 +9,7 @@ import { MapTemplateEdge } from "../models/map-template-edge.ts";
 import { MapTemplateLine } from "../models/map-template-line.ts";
 import { MapTemplateNode } from "../models/map-template-node.ts";
 import { MapTemplateNodeLine } from "../models/map-template-node-line.ts";
-
-const DEFAULT_GEOFENCE_RADIUS_METERS = 100;
+import { DEFAULT_GEOFENCE_RADIUS_METERS } from "./geolocation.ts";
 
 export interface ClonedGameMap {
   gameNodeIds: string[];
