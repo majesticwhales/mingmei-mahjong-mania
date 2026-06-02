@@ -25,6 +25,7 @@ type MockBroadcaster = {
   emitNotification: ReturnType<
     typeof vi.fn<(gameId: string, notification: NotificationPayload) => void>
   >;
+  emitLobbyConfig: ReturnType<typeof vi.fn<(lobbyId: string) => void>>;
 } & Broadcaster;
 
 function mockBroadcaster(): MockBroadcaster {
@@ -34,6 +35,7 @@ function mockBroadcaster(): MockBroadcaster {
     emitNotification: vi.fn<
       (gameId: string, notification: NotificationPayload) => void
     >(),
+    emitLobbyConfig: vi.fn<(lobbyId: string) => void>(),
   };
 }
 

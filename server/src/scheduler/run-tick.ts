@@ -1,6 +1,7 @@
 import { sequelize } from "../config/database.ts";
-import { type Broadcaster, noopBroadcaster } from "../engine/broadcaster.ts";
+import type { Broadcaster } from "../engine/broadcaster.ts";
 import { appendEvent } from "../engine/event-log.ts";
+import { getBroadcaster } from "../socket/broadcaster-registry.ts";
 import { Game } from "../models/game.ts";
 import { GameEvent } from "../models/game-event.ts";
 import { GameScheduledJob } from "../models/game-scheduled-job.ts";
@@ -11,7 +12,7 @@ import type { SchedulerJobHandlerRegistry } from "./job-handler.ts";
 export interface RunSchedulerTickOptions {
   /** Defaults to `new Date()` at call time. */
   now?: Date;
-  /** Defaults to the no-op broadcaster. Phase E plugs in the Socket.IO impl. */
+  /** Defaults to the process-wide broadcaster registry (Socket.IO-backed in production, no-op otherwise). */
   broadcaster?: Broadcaster;
   /** Defaults to {@link builtinSchedulerHandlers}. */
   handlers?: SchedulerJobHandlerRegistry;
@@ -55,7 +56,7 @@ export async function runSchedulerTick(
   options: RunSchedulerTickOptions = {},
 ): Promise<SchedulerTickResult> {
   const now = options.now ?? new Date();
-  const broadcaster = options.broadcaster ?? noopBroadcaster;
+  const broadcaster = options.broadcaster ?? getBroadcaster();
   const handlers = options.handlers ?? builtinSchedulerHandlers;
   const maxJobsPerTick = options.maxJobsPerTick ?? 100;
 
