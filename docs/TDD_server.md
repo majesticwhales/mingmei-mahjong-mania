@@ -48,6 +48,7 @@ Specific rules (the exact tile catalog, exact visibility schedule, exact challen
 - Specific challenge card rules until product defines decks
 - Catalog of notification templates (the lobby stores opaque template keys; the actual text lookup table is a rule-layer concern)
 - User-initiated media deletion (GDPR) — post-v1
+- **Phase G (R2/MinIO + check-in photo + media retention + game summary photo URLs)** — **deferred post-MVP** (decision: 2026-06-01). CHECK_IN in v1 is photo-less; the `media_assets` table stays migrated but is unused on the write path. Re-enabled when product is ready; see [§9](#9-implementation-phases) and [§10](#10-open-items-non-blocking).
 
 Hand **styling** is a client concern; hand **order** is always server-provided.
 
@@ -82,9 +83,9 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 | Commands | `CHECK_IN`, `CHECK_OUT`, `SWAP_TILE`, `SWAP_LOCATION_TILES` (separate) |
 | Team commands | **Any member** on that team (`game_participants`) |
 | Team positions (UI) | **Not on map**; intel via **event log** only |
-| Check-in photo | **Required**; stored in R2; **hidden during game**; **game summary** after end |
-| Media retention | **365 days**, then delete (lifecycle rule + sweeper) |
-| Object storage | **Cloudflare R2** (prod), **MinIO** (dev) |
+| Check-in photo | **Deferred (Phase G, post-MVP)** — v1 MVP CHECK_IN is photo-less. Planned post-MVP: **required**; stored in R2; **hidden during game**; **game summary** after end. Schema (`media_assets`) ready; UX + upload pipeline post-MVP. |
+| Media retention | **Deferred (Phase G, post-MVP)** — planned 365 days, then delete (lifecycle rule + sweeper). |
+| Object storage | **Deferred (Phase G, post-MVP)** — planned **Cloudflare R2** (prod), **MinIO** (dev). |
 | Geolocation | Browser API; **warn + allow**; log flags on events |
 | Notifications | Per-lobby `lobby_notifications` rows (`at_seconds`, opaque `template` key, optional `data` JSONB); copied into `game_scheduled_jobs` as `NOTIFICATION` rows at game start; broadcast over Socket |
 | Game end | Drain **in-flight** command queue, then `ended` |
@@ -214,7 +215,7 @@ canSwapSlot(team, node, slotIndex) =
 
 | Command | Payload | Description |
 |---------|---------|-------------|
-| `CHECK_IN` | `{ nodeId }` | Requires prior photo upload (`media_asset_id`) (Phase G). Sets `current_game_node_id` to any station; implicit check-out first if already checked in elsewhere. |
+| `CHECK_IN` | `{ nodeId }` | Photo upload **deferred (Phase G, post-MVP)**; v1 MVP accepts CHECK_IN without a `media_asset_id`. Sets `current_game_node_id` to any station; implicit check-out first if already checked in elsewhere. |
 | `CHECK_OUT` | `{}` | Clears `current_game_node_id`. |
 | `SWAP_TILE` | `{ handTileId, stationTileId }` | Exchanges a specific hand tile with a specific tile at the team's current station. Both tile ids are caller-chosen since a station may hold up to `games.slots_per_node` tiles. Rejects with `409 slot_locked` if the targeted tile occupies a slot whose unlock offset has not yet elapsed (see §3.3 `canSwapSlot`). |
 | `SWAP_LOCATION_TILES` | `{ tileAId, tileBId }` | Swap two tiles between map nodes (challenges). Uses shared `TileSwapService`. Implemented in Phase H. |
@@ -924,7 +925,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 | **D** | Engine, queue, scheduler, event tests |
 | **E** | Socket.IO, projections (sorted hands), reconnect |
 | **F** | Geolocation warn/allow |
-| **G** | R2/MinIO, check-in photo, game summary URLs, retention |
+| **G** | **Deferred (post-MVP)** — R2/MinIO, check-in photo, game summary URLs, retention. v1 MVP CHECK_IN is photo-less; schema is already migrated so the re-enable path is purely additive (UX + upload pipeline + presigned-URL plumbing). See [§1](#1-purpose-and-scope) "Out of scope". |
 | **H** | Challenge catalog + resolvers (when product ready) |
 | **I** | **Scoring:** `HandEvaluationService` stub → riichi implementation; summary + challenge integration |
 
@@ -945,6 +946,7 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
 | 13 vs 14 tiles for evaluation API | Rule layer — convention TBD when implementing Phase I-b |
 | Scoring affects game winner | Rule layer — summary ranking only vs mechanical win condition |
 | Per-template notification defaults | Future — `map_templates` could seed a default notification set; not in v1 |
+| Phase G timing | Deferred to post-MVP (decision 2026-06-01); re-prioritize after MVP launches. Schema is already in place, so the un-defer is purely UX + upload pipeline + storage credentials. |
 
 ---
 
