@@ -95,6 +95,8 @@ export async function startFromLobby(
   const endsAt = new Date(
     startedAt.getTime() + lobby.gameDurationSeconds * 1000,
   );
+  // Random round wind for the game's scoring context (1=E, 2=S, 3=W, 4=N).
+  const roundWind = 1 + Math.floor(Math.random() * 4);
 
   const gameId = await sequelize.transaction(async (transaction) => {
     lobby.status = "starting";
@@ -128,6 +130,7 @@ export async function startFromLobby(
         visibilityPhaseIntervalSeconds: lobby.visibilityPhaseIntervalSeconds,
         slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
         slotMapVisible: lobby.slotMapVisible,
+        roundWind,
         configVersion: 1,
       },
       { transaction },

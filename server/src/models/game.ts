@@ -108,6 +108,16 @@ export class Game extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })
   declare configVersion: number;
 
+  /**
+   * Randomized round wind for the game (`1..4` matching the scoring module's
+   * `WindRank` codes: 1 East / 2 South / 3 West / 4 North). Set by
+   * `GameStartService` at game creation; never mutated afterwards. Consumed
+   * by the `analyzeHand` projection wiring (§3.9) for yakuhai detection on
+   * the round wind.
+   */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })
+  declare roundWind: number;
+
   @HasMany(() => GameTeam)
   declare teams?: GameTeam[];
 

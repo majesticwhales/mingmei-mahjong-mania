@@ -495,4 +495,135 @@ describe("buildGameStateProjection", () => {
     expect(event.slotIndex).toBe(1);
     expect(event.teamCode).toBeNull();
   });
+
+  // ------------------------------------------------------------------
+  // Phase I — scoring projection wiring
+  // ------------------------------------------------------------------
+
+  /** Place `tiles` (described as `[suit, rank, copyIndex]` triples) into the
+   *  given team's hand by minting fresh `game_tile` + `game_tile_placement`
+   *  rows pointing at the matching `tile_types` row. */
+  async function placeHandTiles(
+    gameId: string,
+    gameTeamId: string,
+    tiles: ReadonlyArray<readonly [string, number, number]>,
+  ): Promise<void> {
+    const tileTypes = await Promise.all(
+      tiles.map(([suit, rank, copyIndex]) =>
+        TileType.findOne({ where: { suit, rank, copyIndex } }),
+      ),
+    );
+    for (let i = 0; i < tileTypes.length; i += 1) {
+      if (!tileTypes[i]) {
+        throw new Error(
+          `tile_types row missing for (${tiles[i]!.join(", ")}); did the seed run?`,
+        );
+      }
+    }
+    const gameTiles = await GameTile.bulkCreate(
+      tileTypes.map((tt, i) => ({
+        gameId,
+        tileTypeId: tt!.id,
+        copyIndex: tiles[i]![2],
+      })),
+      { returning: true },
+    );
+    await GameTilePlacement.bulkCreate(
+      gameTiles.map((gt) => ({
+        gameTileId: gt.id,
+        gameNodeId: null,
+        gameTeamId,
+        slotIndex: null,
+      })),
+    );
+  }
+
+  it("handAnalysis: omitted when the hand isn't 13 or 14 tiles", async () => {
+    const fixture = await setupLightweightGame({
+      handTilesBySlot: { 1: 8 }, // 8 tiles — outside the scoring window
+    });
+    const participant = fixture.participants[0]!;
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.handTiles).toHaveLength(8);
+    expect(projection.handAnalysis).toBeUndefined();
+  });
+
+  it("handAnalysis: tenpai shanpon hand returns shanten 0 + scored waits", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    // 234m 234p 234s 55p 88p (13 tiles) — shanpon tenpai on 5p / 8p.
+    // 4-han + sanshoku-doujun + iipeikou-free shape; tanyao fires.
+    await placeHandTiles(fixture.gameId, participant.gameTeamId, [
+      ["man", 2, 0], ["man", 3, 0], ["man", 4, 0],
+      ["pin", 2, 0], ["pin", 3, 0], ["pin", 4, 0],
+      ["sou", 2, 0], ["sou", 3, 0], ["sou", 4, 0],
+      ["pin", 5, 1], ["pin", 5, 2], // skip copyIndex 0 (red five)
+      ["pin", 8, 0], ["pin", 8, 1],
+    ]);
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.handTiles).toHaveLength(13);
+    expect(projection.handAnalysis).toBeDefined();
+    expect(projection.handAnalysis!.shanten).toBe(0);
+    expect(projection.handAnalysis!.waits).toBeDefined();
+    expect(projection.handAnalysis!.waits!).toHaveLength(2);
+    for (const w of projection.handAnalysis!.waits!) {
+      expect(w.han).toBeGreaterThanOrEqual(3);
+      expect(w.points).toBeGreaterThan(0);
+      expect(w.isYakuman).toBe(false);
+      const names = w.yaku.map((y) => y.name);
+      expect(names).toContain("All Simples");
+      expect(names).toContain("Three Colour Straight");
+    }
+    const waitRanks = projection.handAnalysis!.waits!
+      .map((w) => w.tile.rank)
+      .sort();
+    expect(waitRanks).toEqual([5, 8]);
+  });
+
+  it("handAnalysis: iishanten hand reports shanten 1 with no waits", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    // 234m 234p 234s 55p 1p 9p — 3 sets + 1 pair + 2 isolated floaters.
+    // Neither 1p nor 9p is adjacent to another live tile so they don't form
+    // a partial; the hand needs one more useful tile to reach tenpai
+    // (e.g. drawing a 1p or 9p to make a second pair → shanpon tenpai).
+    await placeHandTiles(fixture.gameId, participant.gameTeamId, [
+      ["man", 2, 0], ["man", 3, 0], ["man", 4, 0],
+      ["pin", 2, 0], ["pin", 3, 0], ["pin", 4, 0],
+      ["sou", 2, 0], ["sou", 3, 0], ["sou", 4, 0],
+      ["pin", 5, 1], ["pin", 5, 2],
+      ["wind", 4, 0], ["dragon", 1, 0],
+    ]);
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.handTiles).toHaveLength(13);
+    expect(projection.handAnalysis).toBeDefined();
+    expect(projection.handAnalysis!.shanten).toBeGreaterThanOrEqual(1);
+    expect(projection.handAnalysis!.waits).toBeUndefined();
+  });
+
+  it("handAnalysis: exposes roundWind and seatWind", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    // Lightweight fixture omits `roundWind`; the column default is 1 (East).
+    expect(projection.roundWind).toBe(1);
+    // First participant is on team slot 1 — east.
+    expect(projection.seatWind).toBe(1);
+  });
 });
