@@ -12,38 +12,22 @@ import {
   type TileCounts,
   TILE_COUNTS_LENGTH,
   indexToSuitRank,
-  tileIndex,
   totalCount,
 } from "../tile-counts.ts";
-
-/** The thirteen terminal-or-honour tile indices, canonical order. */
-const KOKUSHI_INDICES: readonly number[] = Object.freeze([
-  tileIndex("man", 1),
-  tileIndex("man", 9),
-  tileIndex("pin", 1),
-  tileIndex("pin", 9),
-  tileIndex("sou", 1),
-  tileIndex("sou", 9),
-  tileIndex("wind", 1),
-  tileIndex("wind", 2),
-  tileIndex("wind", 3),
-  tileIndex("wind", 4),
-  tileIndex("dragon", 1),
-  tileIndex("dragon", 2),
-  tileIndex("dragon", 3),
-]);
-
-const KOKUSHI_INDEX_SET: ReadonlySet<number> = new Set(KOKUSHI_INDICES);
+import {
+  ORPHAN_TILE_INDEX_SET,
+  ORPHAN_TILE_INDICES,
+} from "../tile-sets.ts";
 
 export function decomposeKokushi(counts: TileCounts): KokushiDecomposition[] {
   if (totalCount(counts) !== 14) return [];
 
   for (let i = 0; i < TILE_COUNTS_LENGTH; i++) {
-    if (!KOKUSHI_INDEX_SET.has(i) && counts[i] !== 0) return [];
+    if (!ORPHAN_TILE_INDEX_SET.has(i) && counts[i] !== 0) return [];
   }
 
   let pairIdx: number | null = null;
-  for (const idx of KOKUSHI_INDICES) {
+  for (const idx of ORPHAN_TILE_INDICES) {
     const n = counts[idx];
     if (n === 0) return [];
     if (n === 1) continue;
