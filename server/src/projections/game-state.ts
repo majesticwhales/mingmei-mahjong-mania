@@ -10,6 +10,12 @@ import { GameRuleFlag } from "../models/game-rule-flag.ts";
 import { GameScheduledJob } from "../models/game-scheduled-job.ts";
 import { GameTeam } from "../models/game-team.ts";
 import { GameTeamPosition } from "../models/game-team-position.ts";
+import { TeamDefinition } from "../models/team-definition.ts";
+import {
+  type AnalyzeHandResult,
+  analyzeHand,
+  type WindRank,
+} from "../scoring/index.ts";
 import {
   mapVisibleSlotIndices,
   unlockedSlotIndices,
@@ -115,6 +121,20 @@ export interface GameStateProjection {
   atStation: AtStationDto | null;
   handTiles: HandTileDto[];
   recentEvents: RecentEventDto[];
+  /**
+   * Wind ranks (1=East, 2=South, 3=West, 4=North) feeding the scoring
+   * module's yakuhai detection. `roundWind` is randomized per game;
+   * `seatWind` is derived from the team's `team_definition.code`.
+   */
+  roundWind: WindRank;
+  seatWind: WindRank;
+  /**
+   * Riichi shanten / tenpai analysis for the team's hand. Present when the
+   * hand has 13 or 14 tiles (the only sizes the scoring module supports);
+   * `undefined` otherwise (e.g. mid-swap transients or non-standard
+   * `games.hand_size`). See §3.9 for the shape.
+   */
+  handAnalysis?: AnalyzeHandResult;
 }
 
 export interface BuildGameStateProjectionOptions {
@@ -165,7 +185,9 @@ export async function buildGameStateProjection(
     throw new HttpError(404, "not_found", `Game not found: ${gameId}`);
   }
 
-  const team = await GameTeam.findByPk(gameTeamId);
+  const team = await GameTeam.findByPk(gameTeamId, {
+    include: [TeamDefinition],
+  });
   if (!team) {
     throw new HttpError(404, "not_found", `Game team not found: ${gameTeamId}`);
   }
@@ -176,6 +198,16 @@ export async function buildGameStateProjection(
       `Game team ${gameTeamId} does not belong to game ${gameId}`,
     );
   }
+
+  const seatWind = teamCodeToWindRank(team.teamDefinition?.code);
+  if (seatWind === null) {
+    throw new HttpError(
+      500,
+      "internal_error",
+      `Cannot derive seat wind for team ${gameTeamId} (code: ${team.teamDefinition?.code ?? "<missing>"})`,
+    );
+  }
+  const roundWind = game.roundWind as WindRank;
 
   const [
     redFivesFlag,
@@ -374,6 +406,23 @@ export async function buildGameStateProjection(
     ...entry.tile,
   }));
 
+  // Scoring analysis is only meaningful at the canonical 13 / 14-tile shape.
+  // Other sizes (configurable `games.hand_size`, mid-swap transients) skip
+  // the call rather than throw.
+  let handAnalysis: AnalyzeHandResult | undefined;
+  if (handTiles.length === 13 || handTiles.length === 14) {
+    handAnalysis = analyzeHand({
+      tiles: handTiles.map((t) => ({
+        suit: t.suit,
+        rank: t.rank,
+        copyIndex: t.copyIndex,
+      })),
+      seatWind,
+      roundWind,
+      redFivesEnabled,
+    });
+  }
+
   return {
     gameId,
     status: game.status,
@@ -386,7 +435,29 @@ export async function buildGameStateProjection(
     atStation,
     handTiles,
     recentEvents,
+    roundWind,
+    seatWind,
+    handAnalysis,
   };
+}
+
+/** Map a `team_definitions.code` to the scoring module's wind rank. The
+ *  canonical seed uses `east / south / west / north`; anything else returns
+ *  `null` so callers can surface a clear error rather than silently
+ *  computing wrong scores. */
+function teamCodeToWindRank(code: string | undefined): WindRank | null {
+  switch (code) {
+    case "east":
+      return 1;
+    case "south":
+      return 2;
+    case "west":
+      return 3;
+    case "north":
+      return 4;
+    default:
+      return null;
+  }
 }
 
 function buildAtStation(params: {
