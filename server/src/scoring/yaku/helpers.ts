@@ -14,7 +14,12 @@ import type {
   Triplet,
 } from "../types.ts";
 import { ORPHAN_TILE_INDICES } from "../tile-sets.ts";
-import { indexToSuitRank, tileIndex } from "../tile-counts.ts";
+import {
+  type TileCounts,
+  TILE_COUNTS_LENGTH,
+  indexToSuitRank,
+  tileIndex,
+} from "../tile-counts.ts";
 
 /** A bare tile-type with no copyIndex. */
 export interface TileType {
@@ -137,4 +142,15 @@ export function meldsOnly(
   decomp: StandardDecomposition,
 ): ReadonlyArray<Run | Triplet> {
   return decomp.melds;
+}
+
+/** Reconstruct the 34-slot tile counts implied by a decomposition. Used by
+ *  yaku that need to reason directly on tile distributions (Nine Gates,
+ *  All Green) rather than the decomposition's structure. */
+export function decompositionCounts(decomp: HandDecomposition): TileCounts {
+  const counts = new Uint8Array(TILE_COUNTS_LENGTH);
+  for (const t of decompositionTiles(decomp)) {
+    counts[tileIndex(t.suit, t.rank)] += 1;
+  }
+  return counts;
 }
