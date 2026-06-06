@@ -12,6 +12,9 @@ const TERMINAL_CODES = new Set([
   "slot_locked",
   "client_command_id_conflict",
   "unauthenticated",
+  "not_checked_in",
+  "already_at_node",
+  "node_not_in_game",
 ]);
 
 function isRetriable(error: HttpError) {

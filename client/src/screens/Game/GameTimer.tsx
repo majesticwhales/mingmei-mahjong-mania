@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 interface Props {
   endsAt: string;
+  ended?: boolean;
 }
 
 function formatRemaining(ms: number) {
@@ -12,15 +13,20 @@ function formatRemaining(ms: number) {
   return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function GameTimer({ endsAt }: Props) {
+export function GameTimer({ endsAt, ended = false }: Props) {
   const [remaining, setRemaining] = useState(() => new Date(endsAt).getTime() - Date.now());
 
   useEffect(() => {
+    if (ended) return;
     const timer = setInterval(() => {
       setRemaining(new Date(endsAt).getTime() - Date.now());
     }, 1000);
     return () => clearInterval(timer);
-  }, [endsAt]);
+  }, [endsAt, ended]);
+
+  if (ended) {
+    return <span className="game-timer game-timer--ended">Game over</span>;
+  }
 
   return <span className="game-timer">Timer {formatRemaining(remaining)}</span>;
 }

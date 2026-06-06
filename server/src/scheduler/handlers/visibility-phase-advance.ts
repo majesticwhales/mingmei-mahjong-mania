@@ -1,3 +1,4 @@
+import { revealPhaseVisibilityGroup } from "../../services/game-visibility-reveal.ts";
 import type {
   SchedulerJobHandler,
   SchedulerJobHandlerContext,
@@ -46,6 +47,14 @@ export const visibilityPhaseAdvanceHandler: SchedulerJobHandler = {
     const previousPhase = game.visibilityPhase;
     game.visibilityPhase = targetPhase;
     await game.save({ transaction });
+
+    await revealPhaseVisibilityGroup(
+      game.id,
+      targetPhase,
+      game.visibilityPhaseCount,
+      ctx.now,
+      transaction,
+    );
 
     return {
       events: [
