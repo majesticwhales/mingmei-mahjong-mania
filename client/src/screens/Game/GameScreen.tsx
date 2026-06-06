@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { Legend } from "../../components/Legend";
@@ -17,7 +17,7 @@ import { VisibilityCountdown } from "./VisibilityCountdown";
 export function GameScreen() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { state, joinGame, submitCommand, leaveGame } = useGame();
+  const { state, joinGame, resyncGame, submitCommand, leaveGame } = useGame();
   const projection = useGameProjection();
   const atStation = useAtStation();
   const eventLog = useEventLog();
@@ -33,11 +33,13 @@ export function GameScreen() {
     }
   }, [id, joinGame, state.status, state]);
 
-  useEffect(() => {
-    if (projection?.status === "ended" && id) {
-      navigate(`/games/${id}/summary`, { replace: true });
+  const gameEnded = projection?.status === "ended";
+
+  const handleVisibilityPhaseElapsed = useCallback(() => {
+    if (!gameEnded) {
+      void resyncGame();
     }
-  }, [projection?.status, id, navigate]);
+  }, [gameEnded, resyncGame]);
 
   const network = useMemo(() => {
     if (!projection) return null;
@@ -143,13 +145,23 @@ export function GameScreen() {
             navigate("/lobbies");
           }}
         >
-          End game
+          {gameEnded ? "Back to lobbies" : "End game"}
         </button>
         <h1 className="app__title">Mingmei&apos;s Mahjong Mania</h1>
         <Legend lines={network.lines} />
         <div className="game-screen__header-end">
-          <GameTimer endsAt={projection.endsAt} />
-          <VisibilityCountdown nextVisibilityChangeAt={projection.nextVisibilityChangeAt} />
+          <GameTimer endsAt={projection.endsAt} ended={gameEnded} />
+          {!gameEnded && (
+            <VisibilityCountdown
+              nextVisibilityChangeAt={projection.nextVisibilityChangeAt}
+              onElapsed={handleVisibilityPhaseElapsed}
+            />
+          )}
+          {gameEnded && id && (
+            <Link to={`/games/${id}/summary`} className="btn btn--secondary">
+              Summary
+            </Link>
+          )}
           <button type="button" className="btn btn--secondary" onClick={() => setEventLogOpen(true)}>
             Event log
           </button>
@@ -158,7 +170,9 @@ export function GameScreen() {
       </header>
       <main className="app__map">
         <p className="app__keyboard-hint">
-          Tap a station to check in. Use the sidebar for swaps and your hand.
+          {gameEnded
+            ? "Game over — browse the map or open the summary."
+            : "Tap a station to check in. Use the sidebar for swaps and your hand."}
         </p>
         <MapShell
           network={network}
@@ -174,6 +188,7 @@ export function GameScreen() {
         stationLines={stationLines}
         handTiles={projection.handTiles}
         commandsPending={commandsPending}
+        commandsDisabled={gameEnded}
         onClose={() => setSelectedNodeId(null)}
         onCheckIn={handleCheckIn}
         onCheckOut={handleCheckOut}

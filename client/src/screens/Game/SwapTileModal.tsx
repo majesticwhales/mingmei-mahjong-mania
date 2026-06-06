@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { tileImagePath } from "../../lib/tileImages";
 import type { HandTileDto, SlotTileDto, TileDto } from "../../wire/projection";
 
@@ -10,6 +10,15 @@ interface Props {
   onClose: () => void;
 }
 
+function resolveStationSlots(
+  stationTiles: SlotTileDto[] | undefined,
+  stationTile: TileDto | undefined,
+): SlotTileDto[] {
+  if (stationTiles?.length) return stationTiles;
+  if (stationTile) return [{ slotIndex: 0, tile: stationTile }];
+  return [];
+}
+
 export function SwapTileModal({
   handTiles,
   stationTiles,
@@ -17,13 +26,21 @@ export function SwapTileModal({
   onConfirm,
   onClose,
 }: Props) {
-  const [handTileId, setHandTileId] = useState<string | null>(null);
-  const [stationTileId, setStationTileId] = useState<string | null>(null);
-  const [slotIndex, setSlotIndex] = useState<number | null>(null);
+  const slots = useMemo(
+    () => resolveStationSlots(stationTiles, stationTile),
+    [stationTiles, stationTile],
+  );
+  const defaultStation = slots.length === 1 ? slots[0]! : null;
 
-  const slots =
-    stationTiles ??
-    (stationTile ? [{ slotIndex: 0, tile: stationTile }] : []);
+  const [handTileId, setHandTileId] = useState<string | null>(null);
+  const [stationTileId, setStationTileId] = useState<string | null>(
+    () => defaultStation?.tile.instanceId ?? null,
+  );
+  const [slotIndex, setSlotIndex] = useState<number | null>(
+    () => defaultStation?.slotIndex ?? null,
+  );
+
+  const canConfirm = Boolean(handTileId && stationTileId);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
@@ -34,6 +51,10 @@ export function SwapTileModal({
             ×
           </button>
         </header>
+        <p className="modal__hint">
+          Pick one tile from your hand
+          {slots.length === 1 ? " — the station tile is already selected." : " and one from the station."}
+        </p>
         <section>
           <h3>Your hand</h3>
           <ul className="station-panel__tile-grid">
@@ -52,6 +73,9 @@ export function SwapTileModal({
         </section>
         <section>
           <h3>Station tile</h3>
+          {slots.length === 0 && (
+            <p className="station-panel__empty">No tiles at this station to swap.</p>
+          )}
           <ul className="station-panel__tile-grid">
             {slots.map((slot) => (
               <li key={slot.slotIndex}>
@@ -80,7 +104,7 @@ export function SwapTileModal({
           <button
             type="button"
             className="btn btn--primary"
-            disabled={!handTileId || !stationTileId}
+            disabled={!canConfirm}
             onClick={() => onConfirm(handTileId!, stationTileId!, slotIndex ?? undefined)}
           >
             Confirm swap

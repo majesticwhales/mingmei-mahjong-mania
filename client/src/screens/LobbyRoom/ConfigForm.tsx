@@ -1,16 +1,35 @@
-import { FormEvent, useEffect, useState } from "react";
+import {
+  FormEvent,
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useState,
+} from "react";
+import {
+  lobbyConfigHasPendingChanges,
+  lobbyConfigPatchFromDto,
+} from "../../lib/lobbyConfig";
 import { restClient } from "../../transport/restClient";
-import type { LobbyConfigDto, MapTemplateSummary } from "../../wire/lobby";
+import type { LobbyConfigDto, LobbyConfigPatch, MapTemplateSummary } from "../../wire/lobby";
+
+export interface ConfigFormHandle {
+  savePendingChanges: () => Promise<void>;
+  hasPendingChanges: () => boolean;
+}
 
 interface Props {
   config: LobbyConfigDto;
-  onSave: (patch: Partial<LobbyConfigDto>) => Promise<void>;
+  onSave: (patch: LobbyConfigPatch) => Promise<void>;
 }
 
-export function ConfigForm({ config, onSave }: Props) {
+export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigForm(
+  { config, onSave },
+  ref,
+) {
   const [templates, setTemplates] = useState<MapTemplateSummary[]>([]);
   const [draft, setDraft] = useState(config);
   const [saving, setSaving] = useState(false);
+  const hasPendingChanges = lobbyConfigHasPendingChanges(draft, config);
 
   useEffect(() => {
     restClient.listMapTemplates().then(({ templates: list }) => setTemplates(list));
@@ -20,19 +39,35 @@ export function ConfigForm({ config, onSave }: Props) {
     setDraft(config);
   }, [config]);
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
+  async function saveDraft() {
+    if (!lobbyConfigHasPendingChanges(draft, config)) return;
     setSaving(true);
     try {
-      await onSave(draft);
+      await onSave(lobbyConfigPatchFromDto(draft));
     } finally {
       setSaving(false);
     }
   }
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      savePendingChanges: saveDraft,
+      hasPendingChanges: () => lobbyConfigHasPendingChanges(draft, config),
+    }),
+    [draft, config, onSave],
+  );
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    await saveDraft();
+  }
+
   return (
     <form className="form" onSubmit={handleSubmit}>
-      <h2 className="form__section-title">Config</h2>
+      <h2 className="form__section-title">
+        Config {hasPendingChanges ? "(unsaved changes)" : ""}
+      </h2>
       <label className="form__field">
         <span>Map</span>
         <select
@@ -72,7 +107,7 @@ export function ConfigForm({ config, onSave }: Props) {
         <span>Phase interval (sec)</span>
         <input
           type="number"
-          min={60}
+          min={1}
           value={draft.visibilityPhaseIntervalSeconds}
           onChange={(e) =>
             setDraft({
@@ -113,4 +148,4 @@ export function ConfigForm({ config, onSave }: Props) {
       </button>
     </form>
   );
-}
+});

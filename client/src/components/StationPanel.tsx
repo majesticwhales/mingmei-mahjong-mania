@@ -9,6 +9,7 @@ interface Props {
   stationLines?: SubwayLine[];
   handTiles: HandTileDto[];
   commandsPending?: boolean;
+  commandsDisabled?: boolean;
   onClose: () => void;
   onCheckIn: (nodeId: string) => void;
   onCheckOut: () => void;
@@ -63,6 +64,7 @@ export function StationPanel({
   stationLines = [],
   handTiles,
   commandsPending = false,
+  commandsDisabled = false,
   onClose,
   onCheckIn,
   onCheckOut,
@@ -77,6 +79,7 @@ export function StationPanel({
     viewingId != null && checkedInId != null && viewingId !== checkedInId;
   const showCheckIn = viewingId != null && !isViewingCheckedInStation;
   const stationTiles = stationTilesForView(viewingNode, atStation, isViewingCheckedInStation);
+  const actionsDisabled = commandsPending || commandsDisabled;
 
   return (
     <aside
@@ -133,7 +136,7 @@ export function StationPanel({
           <button
             type="button"
             className="btn btn--primary btn--block"
-            disabled={commandsPending}
+            disabled={actionsDisabled}
             onClick={() => onCheckIn(viewingId!)}
           >
             {isBrowsingElsewhere ? "Move here" : "Check in here"}
@@ -144,7 +147,7 @@ export function StationPanel({
             <button
               type="button"
               className="btn btn--secondary"
-              disabled={commandsPending}
+              disabled={actionsDisabled}
               onClick={onSwapTile}
             >
               Swap tile
@@ -152,7 +155,7 @@ export function StationPanel({
             <button
               type="button"
               className="btn btn--danger"
-              disabled={commandsPending}
+              disabled={actionsDisabled}
               onClick={onCheckOut}
             >
               Check out
@@ -163,7 +166,7 @@ export function StationPanel({
           <button
             type="button"
             className="btn btn--ghost btn--block"
-            disabled={commandsPending}
+            disabled={actionsDisabled}
             onClick={onCheckOut}
           >
             Check out from {checkedInNodeName ?? atStation!.code}

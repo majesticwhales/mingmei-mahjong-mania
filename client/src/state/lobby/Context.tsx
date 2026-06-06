@@ -128,7 +128,8 @@ export function LobbyProvider({ children }: { children: ReactNode }) {
   const updateConfig = useCallback(
     async (patch: LobbyConfigPatch) => {
       if (state.status !== "ready") return;
-      await restClient.updateLobbyConfig(state.id, patch);
+      const { lobby } = await restClient.updateLobbyConfig(state.id, patch);
+      dispatch({ type: "lobby/updated", lobby });
     },
     [state],
   );

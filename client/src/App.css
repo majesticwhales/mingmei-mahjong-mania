@@ -271,6 +271,13 @@ body {
   font-weight: 600;
 }
 
+.game-timer--ended {
+  color: var(--panel-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+}
+
 .game-visibility {
   margin: 0;
   color: var(--panel-muted);
@@ -346,6 +353,13 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.modal__hint {
+  margin: 0;
+  color: var(--panel-muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 
 .tile-pick {
