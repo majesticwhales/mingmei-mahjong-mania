@@ -10,7 +10,9 @@
     "db:down": "docker compose down",
     "db:migrate": "npm run db:migrate --prefix server",
     "db:migrate:undo": "npm run db:migrate:undo --prefix server",
-    "db:seed": "npm run db:seed --prefix server"
+    "db:seed": "npm run db:seed --prefix server",
+    "teams:generate": "npm exec --prefix server tsx scripts/generate-teams.ts",
+    "teams:generate:dry-run": "npm exec --prefix server tsx scripts/generate-teams.ts -- --dry-run"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
