@@ -8,6 +8,7 @@
  * tsumo), so there is no `isDealer` field.
  */
 
+import type { DoraIndicator } from "./dora.ts";
 import { tileIndex } from "./tile-counts.ts";
 import type { WaitTile } from "./waits.ts";
 import { WIND_EAST, WIND_NORTH, WIND_SOUTH, WIND_WEST, type WindRank } from "./types.ts";
@@ -22,6 +23,16 @@ export interface ScoringContext {
   redFivesEnabled: boolean;
   /** The 14th tile (the tile that completed the hand). All wins are tsumo. */
   winningTile: WaitTile;
+  /**
+   * Dora indicators revealed from the dead wall. Each one points at a
+   * single dora tile type (`indicatorToDoraTileType`); every matching
+   * tile in the winning hand contributes `+1 han per matching indicator`.
+   * Dora is not itself a yaku — the orchestrator only applies the bonus
+   * once the hand has at least one real yaku (mirrors red fives).
+   * Defaults to an empty list when omitted; v1 always passes a single
+   * indicator from the dealer-parked dead wall.
+   */
+  doraIndicators?: ReadonlyArray<DoraIndicator>;
 }
 
 /** Canonical wind tile-counts indices, keyed by `WindRank`. */

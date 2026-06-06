@@ -18,6 +18,7 @@
  */
 
 import type { ScoringContext } from "./context.ts";
+import type { DoraIndicator } from "./dora.ts";
 import { type AnalyzedWait, scoreCompleteHand } from "./orchestrator.ts";
 import { computeShanten } from "./shanten.ts";
 import { tilesToCounts } from "./tile-counts.ts";
@@ -27,6 +28,8 @@ import { enumerateTenpaiWaits, type WaitTile } from "./waits.ts";
 export type { AnalyzedWait } from "./orchestrator.ts";
 export type { WaitTile } from "./waits.ts";
 export type { ScoringContext } from "./context.ts";
+export type { DoraIndicator } from "./dora.ts";
+export { countDora, indicatorToDoraTileType } from "./dora.ts";
 export type {
   Tile,
   Suit,
@@ -47,6 +50,16 @@ export interface AnalyzeHandInput {
   roundWind: WindRank;
   /** Whether red-five scoring applies (defaults to `false`). */
   redFivesEnabled?: boolean;
+  /**
+   * Revealed dora indicators. Each indicator points at one dora tile type
+   * via `indicatorToDoraTileType`; every matching tile in the winning hand
+   * contributes `+1 han per matching indicator`. Dora is not itself a
+   * yaku — it only stacks on top of an existing yaku (mirrors red fives).
+   * Defaults to an empty list. v1 always passes a single indicator from
+   * the dealer-parked dead wall (chunk 3 wires this from
+   * `buildGameStateProjection`).
+   */
+  doraIndicators?: ReadonlyArray<DoraIndicator>;
 }
 
 export interface AnalyzeHandResult {
@@ -59,6 +72,7 @@ export interface AnalyzeHandResult {
 export function analyzeHand(input: AnalyzeHandInput): AnalyzeHandResult {
   const { tiles, seatWind, roundWind } = input;
   const redFivesEnabled = input.redFivesEnabled ?? false;
+  const doraIndicators = input.doraIndicators ?? [];
 
   const counts = tilesToCounts(tiles);
   const shanten = computeShanten(counts);
@@ -68,7 +82,14 @@ export function analyzeHand(input: AnalyzeHandInput): AnalyzeHandResult {
   if (shanten === 0) {
     const waitTiles = enumerateTenpaiWaits(counts);
     const waits = waitTiles.map((waitTile) =>
-      scoreWait(tiles, waitTile, seatWind, roundWind, redFivesEnabled),
+      scoreWait(
+        tiles,
+        waitTile,
+        seatWind,
+        roundWind,
+        redFivesEnabled,
+        doraIndicators,
+      ),
     );
     waits.sort(compareWaitsByPoints);
     return { shanten: 0, waits };
@@ -83,6 +104,7 @@ export function analyzeHand(input: AnalyzeHandInput): AnalyzeHandResult {
     roundWind,
     redFivesEnabled,
     winningTile: tileToWait(lastTile),
+    doraIndicators,
   };
   const scored = scoreCompleteHand(tiles, lastTile, ctx);
   return { shanten: -1, waits: [scored] };
@@ -94,6 +116,7 @@ function scoreWait(
   seatWind: WindRank,
   roundWind: WindRank,
   redFivesEnabled: boolean,
+  doraIndicators: ReadonlyArray<DoraIndicator>,
 ): AnalyzedWait {
   const winningTile = constructWinningTile(
     waitTile,
@@ -106,6 +129,7 @@ function scoreWait(
     roundWind,
     redFivesEnabled,
     winningTile: waitTile,
+    doraIndicators,
   };
   return scoreCompleteHand(completeHand, winningTile, ctx);
 }

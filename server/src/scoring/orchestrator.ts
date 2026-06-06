@@ -14,6 +14,7 @@ import type { ScoringContext } from "./context.ts";
 import { decomposeChiitoitsu } from "./decomposers/chiitoitsu.ts";
 import { decomposeKokushi } from "./decomposers/kokushi.ts";
 import { decomposeStandardHand } from "./decomposers/standard.ts";
+import { countDora } from "./dora.ts";
 import { computeFu } from "./fu.ts";
 import { computePoints } from "./score.ts";
 import { type TileCounts, tilesToCounts } from "./tile-counts.ts";
@@ -29,8 +30,9 @@ export interface AnalyzedWait {
   /** The completing tile, with a concrete `copyIndex` (the orchestrator
    *  prefers the red-five copy when one is available and the rule is on). */
   tile: Tile;
-  /** Total han, including the red-five contribution. For yakuman, this is
-   *  `13 × yakumanCount` for display purposes. */
+  /** Total han, including the red-five and dora contributions. For
+   *  yakuman, this is `13 × yakumanCount` for display purposes (yakuman
+   *  ignores both red fives and dora). */
   han: number;
   /** Fu (already rounded). `0` for yakuman hands. */
   fu: number;
@@ -38,13 +40,17 @@ export interface AnalyzedWait {
   points: number;
   /** The yaku that fired, in catalog order. For yakuman wins, only the
    *  yakuman entries are included; for normal wins, includes a "Red Five"
-   *  entry whose `han` value is the red-five count when ≥ 1. */
+   *  entry whose `han` value is the red-five count when ≥ 1, and a "Dora"
+   *  entry whose `han` value is the dora count when ≥ 1. Neither qualifies
+   *  the hand for a win on its own — they only add to an existing yaku. */
   yaku: Yaku[];
   isYakuman: boolean;
 }
 
 /** Display name for the red-five han bonus. */
 const RED_FIVE_NAME = "Red Five";
+/** Display name for the dora-indicator han bonus. */
+const DORA_NAME = "Dora";
 
 /** Catalog of every detector, ordered to match the surface presentation. */
 const ALL_DETECTORS: ReadonlyArray<YakuDetector> = Object.freeze([
@@ -78,6 +84,7 @@ export function scoreCompleteHand(
   ];
 
   const redFiveBonus = context.redFivesEnabled ? countRedFives(tiles) : 0;
+  const doraBonus = countDora(tiles, context.doraIndicators ?? []);
 
   let best: AnalyzedWait | null = null;
 
@@ -87,6 +94,7 @@ export function scoreCompleteHand(
       winningTile,
       context,
       redFiveBonus,
+      doraBonus,
     );
     if (candidate === null) continue;
     if (isBetter(candidate, best)) best = candidate;
@@ -110,6 +118,7 @@ function scoreDecomposition(
   winningTile: Tile,
   context: ScoringContext,
   redFiveBonus: number,
+  doraBonus: number,
 ): AnalyzedWait | null {
   const yakuList: Yaku[] = [];
   for (const detector of ALL_DETECTORS) {
@@ -119,7 +128,7 @@ function scoreDecomposition(
 
   const survivingYaku = applyPrecedence(yakuList);
 
-  // Yakuman path
+  // Yakuman path: red fives and dora don't stack on top of a yakuman.
   const yakumanYaku = survivingYaku.filter((y) => y.han === YAKUMAN_HAN);
   if (yakumanYaku.length >= 1) {
     const yakumanCount = yakumanYaku.length;
@@ -135,25 +144,30 @@ function scoreDecomposition(
     };
   }
 
-  // Normal path — require at least one non-red-five yaku.
+  // Normal path — require at least one real yaku before either red fives
+  // or dora can contribute. Without that gate, a hand with a single dora
+  // tile but no yaku would falsely score.
   const baseHan = survivingYaku.reduce((sum, y) => sum + y.han, 0);
   if (baseHan === 0) return null;
 
-  const totalHan = baseHan + redFiveBonus;
+  const totalHan = baseHan + redFiveBonus + doraBonus;
   const fu = computeFu(decomp, context, survivingYaku);
   const points = computePoints({ han: totalHan, fu, yakumanCount: 0 });
 
-  const yakuWithRedFive: Yaku[] =
-    redFiveBonus > 0
-      ? [...survivingYaku, { name: RED_FIVE_NAME, han: redFiveBonus }]
-      : survivingYaku;
+  const yakuWithBonuses: Yaku[] = [...survivingYaku];
+  if (redFiveBonus > 0) {
+    yakuWithBonuses.push({ name: RED_FIVE_NAME, han: redFiveBonus });
+  }
+  if (doraBonus > 0) {
+    yakuWithBonuses.push({ name: DORA_NAME, han: doraBonus });
+  }
 
   return {
     tile: winningTile,
     han: totalHan,
     fu,
     points,
-    yaku: yakuWithRedFive,
+    yaku: yakuWithBonuses,
     isYakuman: false,
   };
 }

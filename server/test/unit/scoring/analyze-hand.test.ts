@@ -401,6 +401,155 @@ describe("analyzeHand — red-five bonus", () => {
 });
 
 // ------------------------------------------------------------------
+// Dora bonus
+// ------------------------------------------------------------------
+
+describe("analyzeHand — dora bonus", () => {
+  it("adds +1 han per dora tile when at least one yaku is present", () => {
+    // Tenpai hand 234m 234p 234s 55p 88p — tanyao + sanshoku doujun
+    // (3 han, 30 fu) on shanpon 5p/8p. Dora indicator 1p → dora = 2p.
+    // Each meld 234 contains one "2", so the hand has one 2p → +1 dora.
+    const tiles = buildTiles([
+      ...m(2, 3, 4),
+      ...p(2, 3, 4),
+      ...s(2, 3, 4),
+      ...p(5, 5),
+      ...p(8, 8),
+    ]);
+    const result = analyzeHand(
+      input(tiles, { doraIndicators: [{ suit: "pin", rank: 1 }] }),
+    );
+    expect(result.shanten).toBe(0);
+    for (const w of result.waits!) {
+      // Base 3 han (tanyao + sanshoku) + 1 dora = 4 han.
+      expect(w.han).toBe(4);
+      const doraEntry = w.yaku.find((y) => y.name === "Dora");
+      expect(doraEntry).toBeDefined();
+      expect(doraEntry!.han).toBe(1);
+    }
+  });
+
+  it("stacks dora additively across multiple indicators", () => {
+    // Same shape as above. Two indicators both → 2p means each matching
+    // tile contributes once per indicator.
+    const tiles = buildTiles([
+      ...m(2, 3, 4),
+      ...p(2, 3, 4),
+      ...s(2, 3, 4),
+      ...p(5, 5),
+      ...p(8, 8),
+    ]);
+    const result = analyzeHand(
+      input(tiles, {
+        doraIndicators: [
+          { suit: "pin", rank: 1 }, // → 2p
+          { suit: "pin", rank: 1 }, // → 2p (duplicated indicator: still stacks)
+        ],
+      }),
+    );
+    expect(result.shanten).toBe(0);
+    for (const w of result.waits!) {
+      expect(w.han).toBe(5); // 3 base + 2 dora
+      const doraEntry = w.yaku.find((y) => y.name === "Dora");
+      expect(doraEntry!.han).toBe(2);
+    }
+  });
+
+  it("ignores dora when no yaku is present (dora is not itself a yaku)", () => {
+    // Same yakuless hand from the tenpai block. Dora pointing at the 2s
+    // (indicator 1s) would add +1 if dora alone scored — but it must not.
+    const tiles = buildTiles([
+      ...m(3, 3, 3),
+      ...m(6, 7, 8),
+      ...p(5, 5, 5),
+      ...s(2, 3, 4),
+      ...s(1),
+    ]);
+    const result = analyzeHand(
+      input(tiles, { doraIndicators: [{ suit: "sou", rank: 1 }] }),
+    );
+    expect(result.shanten).toBe(0);
+    const wait = result.waits!.find(
+      (w) => w.tile.suit === "sou" && w.tile.rank === 1,
+    );
+    expect(wait!.han).toBe(0);
+    expect(wait!.points).toBe(0);
+    expect(wait!.yaku).toEqual([]);
+  });
+
+  it("does not add dora on top of a yakuman", () => {
+    // Big Three Dragons hand with an indicator pointing at green dragons
+    // (indicator white → green). Dora must not bump the 32000 yakuman.
+    const tiles = buildTiles([
+      ...dragon(DRAGON_RED, DRAGON_RED, DRAGON_RED),
+      ...dragon(DRAGON_WHITE, DRAGON_WHITE, DRAGON_WHITE),
+      ...dragon(DRAGON_GREEN, DRAGON_GREEN, DRAGON_GREEN),
+      ...m(2, 3, 4),
+      ...p(8, 8),
+    ]);
+    const winningTile = tiles[tiles.length - 1];
+    const result = scoreCompleteHand(
+      tiles,
+      winningTile,
+      ctx({
+        winningTile: { suit: "pin", rank: 8 },
+        doraIndicators: [{ suit: "dragon", rank: DRAGON_WHITE }], // → Green
+      }),
+    );
+    expect(result.isYakuman).toBe(true);
+    expect(result.han).toBe(13);
+    expect(result.points).toBe(32000);
+    expect(result.yaku.map((y) => y.name)).not.toContain("Dora");
+  });
+
+  it("treats undefined / empty doraIndicators as no dora", () => {
+    const tiles = buildTiles([
+      ...m(2, 3, 4),
+      ...p(2, 3, 4),
+      ...s(2, 3, 4),
+      ...p(5, 5),
+      ...p(8, 8),
+    ]);
+    const noField = analyzeHand(input(tiles));
+    const emptyField = analyzeHand(input(tiles, { doraIndicators: [] }));
+    for (const w of noField.waits!) {
+      expect(w.yaku.map((y) => y.name)).not.toContain("Dora");
+    }
+    for (const w of emptyField.waits!) {
+      expect(w.yaku.map((y) => y.name)).not.toContain("Dora");
+    }
+    expect(noField.waits![0].han).toBe(emptyField.waits![0].han);
+  });
+
+  it("stacks dora with red-five bonus when both fire", () => {
+    // Hand 234m 234p 234s 55p 88p with red-fives enabled: the first 5p is
+    // the red copy → +1 red five. Indicator 7p → dora 8p → two 8p tiles →
+    // +2 dora. Base 3 han + 1 red + 2 dora = 6 han 30 fu → mangan 8000.
+    const tiles = buildTiles([
+      ...m(2, 3, 4),
+      ...p(2, 3, 4),
+      ...s(2, 3, 4),
+      ...p(5, 5),
+      ...p(8, 8),
+    ]);
+    const result = analyzeHand(
+      input(tiles, {
+        redFivesEnabled: true,
+        doraIndicators: [{ suit: "pin", rank: 7 }], // → 8p
+      }),
+    );
+    const wait8 = result.waits!.find((w) => w.tile.rank === 8)!;
+    // After drawing 8p: hand has three 8p → +3 dora. Plus +1 red five.
+    expect(wait8.han).toBe(3 + 1 + 3);
+    const names = wait8.yaku.map((y) => y.name);
+    expect(names).toContain("Red Five");
+    expect(names).toContain("Dora");
+    const doraEntry = wait8.yaku.find((y) => y.name === "Dora")!;
+    expect(doraEntry.han).toBe(3);
+  });
+});
+
+// ------------------------------------------------------------------
 // 14-tile completed-hand routing
 // ------------------------------------------------------------------
 
