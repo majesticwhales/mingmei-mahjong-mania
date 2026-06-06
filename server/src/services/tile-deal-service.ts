@@ -10,19 +10,35 @@ import {
   type GameTeamSlot,
 } from "./even-team-assignment.ts";
 
+export interface DealTilesOptions {
+  /**
+   * Number of tiles to park in the per-game dead wall after node + hand
+   * placements are filled. Defaults to `0` (no dead wall). The first
+   * dead-wall tile (`dead_wall_index = 0`) becomes the dora indicator
+   * consumed by the scoring module — see TDD §3.9. Dead-wall tiles never
+   * move; no engine command re-targets them.
+   */
+  deadWallSize?: number;
+}
+
 /**
  * Deal tiles for a freshly cloned game map. The dealer:
  *
  * 1. Validates the closed-set invariant:
- *    `slotsPerNode × nodeCount + handSize × teamCount === catalogSize`
+ *    `slotsPerNode × nodeCount + handSize × teamCount + deadWallSize
+ *    === catalogSize`
  *    where `catalogSize = COUNT(*) FROM tile_types`. Both ends of the
- *    deal must consume the full shuffled catalog.
+ *    deal must consume the full shuffled catalog; any leftover tiles
+ *    would silently never appear in the game, and any shortfall would
+ *    leave a slot unfilled.
  * 2. Creates one `game_tiles` row per `tile_types` row.
  * 3. Fisher–Yates shuffles the tile ids.
  * 4. Places `slotsPerNode` tiles at each `game_node` (in `code` order for
  *    determinism on rerun).
  * 5. Deals `handSize` tiles into each team's hand, in `GAME_TEAM_SLOTS`
  *    order. The team count is `gameTeamIdBySlot.size`.
+ * 6. Parks the remaining `deadWallSize` tiles as `dead_wall_index = 0..n-1`
+ *    placements (no node, no team). Index 0 is the dora indicator.
  */
 export async function dealTilesForGame(
   gameId: string,
@@ -30,7 +46,9 @@ export async function dealTilesForGame(
   slotsPerNode: number,
   handSize: number,
   transaction: Transaction,
+  options: DealTilesOptions = {},
 ): Promise<void> {
+  const deadWallSize = options.deadWallSize ?? 0;
   if (!Number.isInteger(slotsPerNode) || slotsPerNode < 1) {
     throw new HttpError(
       500,
@@ -43,6 +61,13 @@ export async function dealTilesForGame(
       500,
       "internal_error",
       `handSize must be a positive integer, got ${handSize}`,
+    );
+  }
+  if (!Number.isInteger(deadWallSize) || deadWallSize < 0) {
+    throw new HttpError(
+      500,
+      "internal_error",
+      `deadWallSize must be a non-negative integer, got ${deadWallSize}`,
     );
   }
 
@@ -58,14 +83,15 @@ export async function dealTilesForGame(
 
   const catalogSize = tileTypes.length;
   const teamCount = gameTeamIdBySlot.size;
-  const required = slotsPerNode * nodes.length + handSize * teamCount;
+  const required =
+    slotsPerNode * nodes.length + handSize * teamCount + deadWallSize;
 
   if (required !== catalogSize) {
     throw new HttpError(
       500,
       "internal_error",
       `Tile catalog mismatch: slotsPerNode (${slotsPerNode}) × nodes (${nodes.length}) ` +
-      `+ handSize (${handSize}) × teams (${teamCount}) = ${required}, ` +
+      `+ handSize (${handSize}) × teams (${teamCount}) + deadWallSize (${deadWallSize}) = ${required}, ` +
       `but tile catalog has ${catalogSize} entries`,
     );
   }
@@ -87,6 +113,7 @@ export async function dealTilesForGame(
     gameNodeId: string | null;
     gameTeamId: string | null;
     slotIndex: number | null;
+    deadWallIndex: number | null;
   }> = [];
 
   let offset = 0;
@@ -97,6 +124,7 @@ export async function dealTilesForGame(
         gameNodeId: node.id,
         gameTeamId: null,
         slotIndex: s,
+        deadWallIndex: null,
       });
       offset += 1;
     }
@@ -115,9 +143,22 @@ export async function dealTilesForGame(
         gameNodeId: null,
         gameTeamId,
         slotIndex: null,
+        deadWallIndex: null,
       });
       offset += 1;
     }
+  }
+
+  // Park remaining tiles as the dead wall. Index 0 is the dora indicator.
+  for (let d = 0; d < deadWallSize; d += 1) {
+    placements.push({
+      gameTileId: shuffledTileIds[offset]!,
+      gameNodeId: null,
+      gameTeamId: null,
+      slotIndex: null,
+      deadWallIndex: d,
+    });
+    offset += 1;
   }
 
   if (offset !== shuffledTileIds.length) {

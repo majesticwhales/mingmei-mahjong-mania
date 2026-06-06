@@ -49,6 +49,13 @@ export interface LobbyConfigDto {
    * on the map regardless of phase. Snapshotted to `games.slot_map_visible`.
    */
   slotMapVisible: boolean[];
+  /**
+   * Size of the per-game dead wall (number of tiles parked outside nodes
+   * and team hands). Snapshotted to `games.dead_wall_size` at start. The
+   * first dead-wall tile is the dora indicator consumed by the scoring
+   * module. See TDD §3.9.
+   */
+  deadWallSize: number;
   teamAssignmentMode: TeamAssignmentMode;
   minPlayersToStart: number;
   /** Station code where all teams spawn at game start (null = no default). */
@@ -201,6 +208,7 @@ export function serializeLobbyDetail(
       slotsPerNode: lobby.slotsPerNode,
       slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
       slotMapVisible: lobby.slotMapVisible,
+      deadWallSize: lobby.deadWallSize,
       teamAssignmentMode: lobby.teamAssignmentMode,
       minPlayersToStart: lobby.minPlayersToStart,
       defaultStartNodeCode: lobby.defaultStartNodeCode,

@@ -131,6 +131,7 @@ export async function startFromLobby(
         slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
         slotMapVisible: lobby.slotMapVisible,
         roundWind,
+        deadWallSize: lobby.deadWallSize,
         configVersion: 1,
       },
       { transaction },
@@ -185,6 +186,7 @@ export async function startFromLobby(
       game.slotsPerNode,
       game.handSize,
       transaction,
+      { deadWallSize: game.deadWallSize },
     );
 
     await bootstrapGameVisibility(

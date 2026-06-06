@@ -85,6 +85,19 @@ export class Lobby extends BaseModel {
   })
   declare slotMapVisible: boolean[];
 
+  /**
+   * Size of the per-game dead wall snapshotted to `games.dead_wall_size`
+   * at start. Sourced from `mapTemplate.defaultDeadWallSize` on lobby
+   * creation, editable by the host. The dealer mints this many extra
+   * tiles from the catalog as dead-wall placements; the first becomes
+   * the dora indicator. Must satisfy the closed-set invariant
+   *   slotsPerNode * nodeCount + handSize * teamCount + deadWallSize
+   *   === catalogSize
+   * (enforced by the dealer at game start).
+   */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  declare deadWallSize: number;
+
   @Column({
     type: DataType.STRING(16),
     allowNull: false,
