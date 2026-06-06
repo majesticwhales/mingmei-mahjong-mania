@@ -12,6 +12,7 @@ import {
 import { runSchedulerTick } from "../../../src/scheduler/run-tick.ts";
 import { builtinSchedulerHandlers } from "../../../src/scheduler/handlers/index.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
+import { GameLocationTeamVisibility } from "../../../src/models/game-location-team-visibility.ts";
 import { setupLightweightGame, setupStartedGame } from "../../setup/game.ts";
 
 type MockBroadcaster = {
@@ -120,6 +121,32 @@ describe("VISIBILITY_PHASE_ADVANCE handler", () => {
       { previousPhase: 1, phase: 2 },
       { previousPhase: 2, phase: 3 },
     ]);
+  });
+
+  it("upserts face-up visibility rows for the newly unlocked group", async () => {
+    const { gameId, participants } = await setupStartedGame();
+    const gameTeamId = participants[0]!.gameTeamId;
+    await clearJobs(gameId);
+
+    const countFaceUp = () =>
+      GameLocationTeamVisibility.count({
+        where: { gameTeamId, isFaceUp: true },
+      });
+
+    const phase0Count = await countFaceUp();
+    expect(phase0Count).toBe(21);
+
+    await insertJob(gameId, "VISIBILITY_PHASE_ADVANCE", { targetPhase: 1 });
+    await runSchedulerTick({});
+    expect(await countFaceUp()).toBe(42);
+
+    await insertJob(gameId, "VISIBILITY_PHASE_ADVANCE", { targetPhase: 2 });
+    await runSchedulerTick({});
+    expect(await countFaceUp()).toBe(63);
+
+    await insertJob(gameId, "VISIBILITY_PHASE_ADVANCE", { targetPhase: 3 });
+    await runSchedulerTick({});
+    expect(await countFaceUp()).toBe(84);
   });
 
   it("fails out-of-order advances loudly", async () => {

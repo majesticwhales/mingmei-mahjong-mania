@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { HttpError } from "../../transport/httpError";
 import { useAuth } from "../../state/auth/hooks";
 import { useIsHost, useLobby, useLobbyMembers, useLobbyNotifications } from "../../state/lobby/hooks";
-import { ConfigForm } from "./ConfigForm";
+import { ConfigForm, type ConfigFormHandle } from "./ConfigForm";
 import { MemberList } from "./MemberList";
 import { NotificationsEditor } from "./NotificationsEditor";
 import { TeamPicker } from "./TeamPicker";
@@ -30,6 +30,7 @@ export function LobbyRoomScreen() {
   const notifications = useLobbyNotifications();
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const configFormRef = useRef<ConfigFormHandle>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -82,6 +83,7 @@ export function LobbyRoomScreen() {
     setError(null);
     setStarting(true);
     try {
+      await configFormRef.current?.savePendingChanges();
       const gameId = await startLobby();
       navigate(`/games/${gameId}`);
     } catch (err) {
@@ -113,7 +115,7 @@ export function LobbyRoomScreen() {
       />
       {isHost ? (
         <>
-          <ConfigForm config={lobby.config} onSave={updateConfig} />
+          <ConfigForm ref={configFormRef} config={lobby.config} onSave={updateConfig} />
           <NotificationsEditor
             notifications={notifications}
             onAdd={addNotification}
@@ -134,6 +136,9 @@ export function LobbyRoomScreen() {
       )}
       {!lobby.readiness.ready && (
         <p className="form__error">{lobby.readiness.reasons.join(" · ")}</p>
+      )}
+      {import.meta.env.DEV && lobby.readiness.ready && lobby.readiness.memberCount < 4 && (
+        <p className="screen__subtitle">Dev mode: solo start enabled (server DEV_RELAX_LOBBY_START).</p>
       )}
       {error && <p className="form__error">{error}</p>}
     </main>

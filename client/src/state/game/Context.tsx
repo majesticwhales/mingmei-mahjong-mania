@@ -18,6 +18,7 @@ import type { GameState } from "./types";
 interface GameContextValue {
   state: GameState;
   joinGame: (id: string) => Promise<void>;
+  resyncGame: () => Promise<void>;
   submitCommand: (
     commandType: CommandType | string,
     payload?: Record<string, unknown>,
@@ -56,7 +57,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const joinGame = useCallback(async (id: string) => {
-    dispatch({ type: "game/load", id });
+    const alreadyActive = state.status === "active" && state.id === id;
+    if (!alreadyActive) {
+      dispatch({ type: "game/load", id });
+    }
     try {
       const result = await emitGameJoin(id);
       dispatch({
@@ -66,16 +70,18 @@ export function GameProvider({ children }: { children: ReactNode }) {
         projection: result.state,
       });
     } catch (error) {
-      dispatch({
-        type: "game/load/failed",
-        id,
-        error:
-          error instanceof HttpError
-            ? error
-            : new HttpError("unknown_error", "Failed to join game", 0),
-      });
+      if (!alreadyActive) {
+        dispatch({
+          type: "game/load/failed",
+          id,
+          error:
+            error instanceof HttpError
+              ? error
+              : new HttpError("unknown_error", "Failed to join game", 0),
+        });
+      }
     }
-  }, []);
+  }, [state]);
 
   const prevConnStatus = useRef(connState.status);
   useEffect(() => {
@@ -115,15 +121,21 @@ export function GameProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "game/leave" });
   }, []);
 
+  const resyncGame = useCallback(async () => {
+    if (state.status !== "active") return;
+    await joinGame(state.id);
+  }, [joinGame, state]);
+
   const value = useMemo(
     () => ({
       state,
       joinGame,
+      resyncGame,
       submitCommand,
       dismissNotification,
       leaveGame,
     }),
-    [state, joinGame, submitCommand, dismissNotification, leaveGame],
+    [state, joinGame, resyncGame, submitCommand, dismissNotification, leaveGame],
   );
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

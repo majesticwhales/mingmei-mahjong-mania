@@ -21,6 +21,7 @@ import type { OutboxState } from "./types";
 interface OutboxContextValue {
   state: OutboxState;
   enqueue: (input: Omit<OutboxRow, "enqueuedAt" | "status" | "attempts">) => Promise<string>;
+  pushToast: (message: string) => void;
   dismissBanner: () => void;
   dismissToast: (id: string) => void;
 }
@@ -150,6 +151,10 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const pushToast = useCallback((message: string) => {
+    dispatch({ type: "outbox/toast", message });
+  }, []);
+
   const dismissBanner = useCallback(() => {
     dispatch({ type: "outbox/banner/dismissed" });
   }, []);
@@ -159,8 +164,8 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ state, enqueue, dismissBanner, dismissToast }),
-    [state, enqueue, dismissBanner, dismissToast],
+    () => ({ state, enqueue, pushToast, dismissBanner, dismissToast }),
+    [state, enqueue, pushToast, dismissBanner, dismissToast],
   );
 
   return <OutboxContext.Provider value={value}>{children}</OutboxContext.Provider>;

@@ -23,7 +23,11 @@ export type SocketEventMap = {
 
 export type SocketStatusListener = (event: string, ...args: unknown[]) => void;
 
+type SocketEventHandler = (...args: unknown[]) => void;
+
 let socket: Socket | null = null;
+const eventHandlers = new Map<string, Set<SocketEventHandler>>();
+const lifecycleListeners = new Set<SocketStatusListener>();
 const pendingCommands = new Map<
   string,
   {
@@ -41,6 +45,51 @@ function unwrapAck<T>(ack: SocketAck<T>): T {
   throw new HttpError(ack.code, ack.message, 400);
 }
 
+function bindRegisteredEventHandlers(sock: Socket) {
+  for (const [event, handlers] of eventHandlers) {
+    for (const handler of handlers) {
+      sock.on(event, handler);
+    }
+  }
+}
+
+function bindLifecycleListeners(sock: Socket) {
+  const events = [
+    "connect",
+    "disconnect",
+    "connect_error",
+    "reconnect_attempt",
+    "reconnect_failed",
+  ] as const;
+  for (const event of events) {
+    sock.on(event, (...args: unknown[]) => {
+      for (const listener of lifecycleListeners) {
+        listener(event, ...args);
+      }
+    });
+  }
+}
+
+function attachCommandAckHandlers(sock: Socket) {
+  sock.on("game.command.acked", (payload: GameCommandAcked) => {
+    const pending = pendingCommands.get(payload.clientCommandId);
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    pendingCommands.delete(payload.clientCommandId);
+    pending.resolve(payload);
+  });
+
+  sock.on("game.command.rejected", (payload: GameCommandRejected) => {
+    const id = payload.clientCommandId;
+    if (!id) return;
+    const pending = pendingCommands.get(id);
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    pendingCommands.delete(id);
+    pending.reject(new HttpError(payload.code, payload.message, 400));
+  });
+}
+
 export function createSocket(token: string) {
   destroySocket();
   socket = io(window.location.origin, {
@@ -54,23 +103,9 @@ export function createSocket(token: string) {
     timeout: 10_000,
   });
 
-  socket.on("game.command.acked", (payload: GameCommandAcked) => {
-    const pending = pendingCommands.get(payload.clientCommandId);
-    if (!pending) return;
-    clearTimeout(pending.timeout);
-    pendingCommands.delete(payload.clientCommandId);
-    pending.resolve(payload);
-  });
-
-  socket.on("game.command.rejected", (payload: GameCommandRejected) => {
-    const id = payload.clientCommandId;
-    if (!id) return;
-    const pending = pendingCommands.get(id);
-    if (!pending) return;
-    clearTimeout(pending.timeout);
-    pendingCommands.delete(id);
-    pending.reject(new HttpError(payload.code, payload.message, 400));
-  });
+  attachCommandAckHandlers(socket);
+  bindRegisteredEventHandlers(socket);
+  bindLifecycleListeners(socket);
 
   return socket;
 }
@@ -96,28 +131,25 @@ export function onSocketEvent<K extends keyof SocketEventMap>(
   event: K,
   handler: (payload: SocketEventMap[K]) => void,
 ) {
-  if (!socket) return () => {};
-  const wrapped = (...args: unknown[]) => handler(args[0] as SocketEventMap[K]);
-  socket.on(event as string, wrapped);
-  return () => socket?.off(event as string, wrapped);
+  const wrapped: SocketEventHandler = (...args: unknown[]) =>
+    handler(args[0] as SocketEventMap[K]);
+  let handlers = eventHandlers.get(event as string);
+  if (!handlers) {
+    handlers = new Set();
+    eventHandlers.set(event as string, handlers);
+  }
+  handlers.add(wrapped);
+  socket?.on(event as string, wrapped);
+  return () => {
+    handlers?.delete(wrapped);
+    socket?.off(event as string, wrapped);
+  };
 }
 
 export function onSocketLifecycle(listener: SocketStatusListener) {
-  if (!socket) return () => {};
-  const events = [
-    "connect",
-    "disconnect",
-    "connect_error",
-    "reconnect_attempt",
-    "reconnect_failed",
-  ] as const;
-  for (const event of events) {
-    socket.on(event, (...args: unknown[]) => listener(event, ...args));
-  }
+  lifecycleListeners.add(listener);
   return () => {
-    for (const event of events) {
-      socket?.off(event);
-    }
+    lifecycleListeners.delete(listener);
   };
 }
 
