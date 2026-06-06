@@ -14,7 +14,10 @@ export interface GameJoinPayload {
   gameId: string;
 }
 
-export type GameJoinResponse = { state: GameStateProjection };
+export type GameJoinResponse = {
+  state: GameStateProjection;
+  gameTeamId: string;
+};
 export type GameJoinAck = Ack<GameJoinResponse>;
 
 /**
@@ -102,7 +105,7 @@ async function handleGameJoin(
   await socket.join(gameRoom(gameId));
 
   const state = await buildGameStateProjection(gameId, participant.gameTeamId);
-  return { ok: true, state };
+  return { ok: true, state, gameTeamId: participant.gameTeamId };
 }
 
 /**

@@ -1,10 +1,11 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
-import { TILE_BACK_IMAGE_PATH, type RiichiTileCopy } from "../data/riichiTiles";
+import { TILE_BACK_IMAGE_PATH } from "../data/riichiTiles";
 import type { LabelAnchor, Station } from "../data/types";
 
 interface Props {
   station: Station;
-  tile: RiichiTileCopy | null;
+  tileImagePath?: string;
+  tileLabel?: string;
   isTileVisible: boolean;
   isSelected: boolean;
   onSelect: (id: string) => void;
@@ -33,11 +34,6 @@ function defaultAnchor(station: Station): LabelAnchor {
   return "n";
 }
 
-/**
- * Stations that sit on a single line along the dense east-west run of Line 2
- * or Line 5 default to a `-30deg` rotated label, matching the diagonal-text
- * style of the printed TTC map. Explicit `labelRotate: 0` opts back out.
- */
 function defaultRotate(station: Station, anchor: LabelAnchor): number {
   if (anchor !== "n" && anchor !== "s") return 0;
   if (station.isInterchange) return 0;
@@ -52,31 +48,23 @@ const TILE_HEIGHT = 22;
 
 export function StationMarker({
   station,
-  tile,
+  tileImagePath,
+  tileLabel,
   isTileVisible,
   isSelected,
   onSelect,
 }: Props) {
   const markerRef = useRef<SVGGElement>(null);
   const isInterchange = station.isInterchange;
-  const tileImagePath = isTileVisible ? tile?.imagePath : TILE_BACK_IMAGE_PATH;
+  const imagePath = isTileVisible ? tileImagePath ?? TILE_BACK_IMAGE_PATH : TILE_BACK_IMAGE_PATH;
   const anchor = station.labelAnchor ?? defaultAnchor(station);
   const placement = LABEL_OFFSETS[anchor];
   let labelX = station.x + placement.dx;
   let labelY = station.y + placement.dy;
   let textAnchor = placement.textAnchor;
   let labelTransform: string | undefined;
-
-  // Diagonal-rotated labels for dense horizontal runs. The label anchor is
-  // offset PERPENDICULAR to the line first, then the rotation pivots in
-  // place. The perpendicular offsets are asymmetric: south-side labels need
-  // a larger gap because the rotation tilts the text's ascent UP-toward the
-  // line (regardless of rotation direction), eating most of the gap, while
-  // north-side labels rotate ascent FURTHER from the line. The diagonal
-  // anchors (ne/nw/se/sw) shift the label an extra ~8 units along the line
-  // before rotating, useful for nudging interchange labels clear of their
-  // own ring.
   const rotation = station.labelRotate ?? defaultRotate(station, anchor);
+
   if (
     rotation !== 0 &&
     (anchor === "n" ||
@@ -135,19 +123,15 @@ export function StationMarker({
       }`}
       role="button"
       tabIndex={0}
-      aria-label={`${station.name}${isInterchange ? " (interchange)" : ""}`}
+      aria-label={`${station.name}${tileLabel ? `, ${tileLabel}` : ""}${isInterchange ? " (interchange)" : ""}`}
       aria-pressed={isSelected}
       onClick={() => onSelect(station.id)}
       onKeyDown={handleKey}
     >
-      {/* invisible larger hit area for fat-finger tapping */}
       <circle cx={station.x} cy={station.y} r={14} fill="transparent" />
-
       <g
         className="station-marker__tile-node"
-        transform={`translate(${station.x - TILE_WIDTH / 2} ${
-          station.y - TILE_HEIGHT / 2
-        })`}
+        transform={`translate(${station.x - TILE_WIDTH / 2} ${station.y - TILE_HEIGHT / 2})`}
       >
         <rect
           className="station-marker__tile-shadow"
@@ -165,19 +149,16 @@ export function StationMarker({
           rx={2.6}
           aria-hidden="true"
         />
-        {tileImagePath && (
-          <image
-            href={tileImagePath}
-            x={2}
-            y={2.25}
-            width={TILE_WIDTH - 4}
-            height={TILE_HEIGHT - 4.5}
-            preserveAspectRatio="xMidYMid meet"
-            aria-hidden="true"
-          />
-        )}
+        <image
+          href={imagePath}
+          x={2}
+          y={2.25}
+          width={TILE_WIDTH - 4}
+          height={TILE_HEIGHT - 4.5}
+          preserveAspectRatio="xMidYMid meet"
+          aria-hidden="true"
+        />
       </g>
-
       {isSelected && (
         <rect
           x={station.x - TILE_WIDTH / 2 - 3}
@@ -191,7 +172,6 @@ export function StationMarker({
           className="station-marker__halo"
         />
       )}
-
       <text
         x={labelX}
         y={labelY}
