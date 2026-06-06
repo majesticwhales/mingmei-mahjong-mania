@@ -6,31 +6,48 @@ function toLabelAnchor(value: string): LabelAnchor {
   return anchors.includes(value as LabelAnchor) ? (value as LabelAnchor) : "n";
 }
 
+function remapBendsByNodeId(
+  bends: SubwayLine["bends"] | undefined,
+  nodeIdByCode: Map<string, string>,
+): SubwayLine["bends"] | undefined {
+  if (!bends) return undefined;
+  const remapped: NonNullable<SubwayLine["bends"]> = {};
+  for (const [code, points] of Object.entries(bends)) {
+    const nodeId = nodeIdByCode.get(code);
+    if (nodeId) remapped[nodeId] = points;
+  }
+  return Object.keys(remapped).length > 0 ? remapped : undefined;
+}
+
 export function projectionToNetwork(
   mapNodes: MapNodeDto[],
   mapLines: MapLineDto[],
-  mapEdges: MapEdgeDto[],
+  _mapEdges: MapEdgeDto[],
 ): Network {
   const lineOrder = [...mapLines].sort((a, b) => a.sortOrder - b.sortOrder);
-  const edgesByFrom = new Map<string, string[]>();
-  for (const edge of mapEdges) {
-    const list = edgesByFrom.get(edge.fromNodeId) ?? [];
-    list.push(edge.toNodeId);
-    edgesByFrom.set(edge.fromNodeId, list);
-  }
+  const nodeIdByCode = new Map(mapNodes.map((node) => [node.code, node.id]));
 
   const lines: SubwayLine[] = lineOrder.map((line) => {
-    const stationIds = mapNodes
-      .filter((node) => node.lineIds.includes(line.code))
-      .map((node) => node.id);
-    const renderMetadata = line.renderMetadata as { bends?: SubwayLine["bends"] } | null;
+    const renderMetadata = line.renderMetadata as {
+      stationIds?: string[];
+      bends?: SubwayLine["bends"];
+    } | null;
+    const templateStationIds = renderMetadata?.stationIds ?? [];
+    const stationIds =
+      templateStationIds.length > 0
+        ? templateStationIds
+            .map((code) => nodeIdByCode.get(code))
+            .filter((id): id is string => id != null)
+        : mapNodes
+            .filter((node) => node.lineIds.includes(line.code))
+            .map((node) => node.id);
     return {
       id: line.code as SubwayLine["id"],
       name: line.name ?? line.code,
       shortName: line.shortName ?? line.code,
       color: line.color ?? "#888",
       stationIds,
-      bends: renderMetadata?.bends,
+      bends: remapBendsByNodeId(renderMetadata?.bends, nodeIdByCode),
     };
   });
 

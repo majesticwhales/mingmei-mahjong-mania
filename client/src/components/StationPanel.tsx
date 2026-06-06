@@ -1,3 +1,4 @@
+import type { SubwayLine } from "../data/types";
 import { tileImagePath } from "../lib/tileImages";
 import type { AtStationDto } from "../wire/projection";
 import type { HandTileDto, SlotTileDto, TileDto } from "../wire/projection";
@@ -6,6 +7,7 @@ interface Props {
   atStation: AtStationDto | null;
   selectedNodeId: string | null;
   selectedNodeName: string | null;
+  stationLines?: SubwayLine[];
   handTiles: HandTileDto[];
   onClose: () => void;
   onCheckIn: (nodeId: string) => void;
@@ -46,6 +48,7 @@ export function StationPanel({
   atStation,
   selectedNodeId,
   selectedNodeName,
+  stationLines = [],
   handTiles,
   onClose,
   onCheckIn,
@@ -78,6 +81,24 @@ export function StationPanel({
         )}
       </header>
       <div className="station-panel__body">
+        {!atStation && !selectedNodeId && (
+          <p className="station-panel__empty">
+            Tap any station on the map to check in or inspect tiles along your route.
+          </p>
+        )}
+        {stationLines.length > 0 && (
+          <section>
+            <h3 className="station-panel__section-title">Lines</h3>
+            <ul className="station-panel__lines">
+              {stationLines.map((line) => (
+                <li key={line.id} className="station-panel__line">
+                  <span className="station-panel__swatch" style={{ background: line.color }} aria-hidden="true" />
+                  <span>{line.name}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {showCheckIn && (
           <button type="button" className="btn btn--primary btn--block" onClick={() => onCheckIn(selectedNodeId!)}>
             Check in here
