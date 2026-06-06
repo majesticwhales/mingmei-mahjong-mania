@@ -6,6 +6,7 @@ import {
 import { cloneMapTemplateToGame } from "./map-clone-service.ts";
 import { computeReadiness } from "./lobby-serializer.ts";
 import { bootstrapGameVisibility } from "./game-visibility-bootstrap.ts";
+import { bootstrapGameChallenges } from "./game-challenge-bootstrap.ts";
 import { scheduleGameJobs } from "./game-schedule-service.ts";
 import { dealTilesForGame } from "./tile-deal-service.ts";
 import { HttpError } from "../lib/http-error.ts";
@@ -137,9 +138,19 @@ export async function startFromLobby(
       { transaction },
     );
 
-    await cloneMapTemplateToGame(
+    const clonedMap = await cloneMapTemplateToGame(
       game.id,
       lobby.mapTemplateId,
+      transaction,
+    );
+
+    // Per-node challenge queue: snapshot from the template. Honors a
+    // node's ordered list; a node with zero challenges leaves
+    // `game_node_challenges` empty and bypasses the swap-credit gate
+    // in `swap-tile.ts`.
+    await bootstrapGameChallenges(
+      [...clonedMap.gameNodeIdByTemplateNodeId.keys()],
+      clonedMap.gameNodeIdByTemplateNodeId,
       transaction,
     );
 
