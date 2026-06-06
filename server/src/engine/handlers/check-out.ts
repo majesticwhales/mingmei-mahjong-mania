@@ -6,6 +6,7 @@ import type {
 import { HttpError } from "../../lib/http-error.ts";
 import { GameNode } from "../../models/game-node.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
+import { autoForfeitActiveChallenge } from "../challenge-lifecycle.ts";
 
 /**
  * Check the issuing team out of its current station. Requires the team to be
@@ -39,6 +40,20 @@ export const checkOutHandler: CommandHandler = {
       transaction: ctx.transaction,
     });
 
+    // Phase H: explicit check-out auto-forfeits any in-progress
+    // challenge — same rule as the implicit check-out path in
+    // `check-in.ts`. Event ordering matches that handler: forfeit
+    // first, then CHECK_OUT, so the log reads in causal order.
+    const events: CommandResult["events"] = [];
+    const forfeit = await autoForfeitActiveChallenge({
+      transaction: ctx.transaction,
+      gameId: ctx.gameId,
+      gameTeamId: ctx.gameTeamId,
+    });
+    if (forfeit) {
+      events.push(forfeit);
+    }
+
     position.currentGameNodeId = null;
     position.checkedInAt = null;
     // Phase F: clear the most-recent-check-in geo snapshot so SWAP_TILE
@@ -48,19 +63,22 @@ export const checkOutHandler: CommandHandler = {
     position.lastCheckInLongitude = null;
     position.geofenceValidated = null;
     position.geolocationWarning = null;
+    // Phase H: end-of-session credit reset. Mirrors the unconditional
+    // reset in `check-in.ts` so both paths produce identical "session
+    // boundary" state.
+    position.pendingSwapCredit = false;
+    position.creditEarnedInSession = false;
     await position.save({ transaction: ctx.transaction });
 
-    return {
-      events: [
-        {
-          eventType: "CHECK_OUT",
-          payload: {
-            nodeId: previousNodeId,
-            nodeCode: previousNode?.code ?? null,
-            implicit: false,
-          },
-        },
-      ],
-    };
+    events.push({
+      eventType: "CHECK_OUT",
+      payload: {
+        nodeId: previousNodeId,
+        nodeCode: previousNode?.code ?? null,
+        implicit: false,
+      },
+    });
+
+    return { events };
   },
 };

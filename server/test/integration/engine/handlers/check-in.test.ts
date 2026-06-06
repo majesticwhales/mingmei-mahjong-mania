@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { processCommand } from "../../../../src/engine/process-command.ts";
+import { GameChallengeInstance } from "../../../../src/models/game-challenge-instance.ts";
 import { GameNode } from "../../../../src/models/game-node.ts";
 import { GameTeamPosition } from "../../../../src/models/game-team-position.ts";
+import {
+  attachChallengeToGameNode,
+  clearTestChallenges,
+} from "../../../setup/challenges.ts";
 import { setupLightweightGame } from "../../../setup/game.ts";
 import { getSequelize, truncateMutableTables } from "../../../setup/db.ts";
 
@@ -20,6 +25,11 @@ async function findNodeIdByCode(
 describe("CHECK_IN handler", () => {
   beforeEach(async () => {
     await truncateMutableTables(await getSequelize());
+    await clearTestChallenges();
+  });
+  afterEach(async () => {
+    await truncateMutableTables(await getSequelize());
+    await clearTestChallenges();
   });
 
   it("checks an unchecked team in and emits a single CHECK_IN event", async () => {
@@ -339,5 +349,82 @@ describe("CHECK_IN handler", () => {
     expect(position?.lastCheckInLongitude).toBeNull();
     expect(position?.geofenceValidated).toBeNull();
     expect(position?.geolocationWarning).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase H: challenge auto-forfeit + per-session credit reset on
+  // implicit check-out via check-in elsewhere.
+  // -------------------------------------------------------------------------
+
+  it("auto-forfeits an in-progress challenge when checking in at another station", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay", "bloor-yonge"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const bloorId = fixture.nodeIdByCode.get("bloor-yonge")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    const instance = await GameChallengeInstance.create({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+      status: "in_progress",
+      assignedAt: new Date(),
+    });
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CHECK_IN",
+      payload: { nodeId: bloorId },
+    });
+
+    expect(result.events.map((e) => e.eventType)).toEqual([
+      "CHALLENGE_FORFEITED",
+      "CHECK_OUT",
+      "CHECK_IN",
+    ]);
+    const forfeit = result.events[0]!;
+    expect(forfeit.payload).toMatchObject({
+      nodeId: bayId,
+      nodeCode: "bay",
+      challengeId: seed.challengeId,
+      instanceId: instance.id,
+      reason: "checkout",
+    });
+
+    const refreshed = await GameChallengeInstance.findByPk(instance.id);
+    expect(refreshed?.status).toBe("failed");
+  });
+
+  it("resets pending_swap_credit + credit_earned_in_session on every CHECK_IN", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay", "bloor-yonge"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bloorId = fixture.nodeIdByCode.get("bloor-yonge")!;
+    await GameTeamPosition.update(
+      { pendingSwapCredit: true, creditEarnedInSession: true },
+      { where: { gameTeamId: participant.gameTeamId } },
+    );
+
+    await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CHECK_IN",
+      payload: { nodeId: bloorId },
+    });
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.currentGameNodeId).toBe(bloorId);
+    expect(position?.pendingSwapCredit).toBe(false);
+    expect(position?.creditEarnedInSession).toBe(false);
   });
 });

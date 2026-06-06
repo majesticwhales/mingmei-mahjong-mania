@@ -6,6 +6,7 @@ import type {
 import { HttpError } from "../../lib/http-error.ts";
 import { GameNode } from "../../models/game-node.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
+import { autoForfeitActiveChallenge } from "../challenge-lifecycle.ts";
 import {
   evaluateGeolocation,
   parseGeoPayload,
@@ -87,7 +88,21 @@ export const checkInHandler: CommandHandler = {
 
     const events: CommandResult["events"] = [];
 
+    // Phase H: stepping off the current station (implicit or explicit
+    // check-out) auto-forfeits any in-progress challenge. We emit the
+    // forfeit event before the CHECK_OUT/CHECK_IN events so the event log
+    // reads "challenge failed because team moved" in causal order. The
+    // helper is a no-op when nothing is in progress.
     if (position.currentGameNodeId != null) {
+      const forfeit = await autoForfeitActiveChallenge({
+        transaction: ctx.transaction,
+        gameId: ctx.gameId,
+        gameTeamId: ctx.gameTeamId,
+      });
+      if (forfeit) {
+        events.push(forfeit);
+      }
+
       const previousNode = await GameNode.findOne({
         where: { id: position.currentGameNodeId, gameId: ctx.gameId },
         transaction: ctx.transaction,
@@ -108,6 +123,12 @@ export const checkInHandler: CommandHandler = {
     position.lastCheckInLongitude = geo?.longitude ?? null;
     position.geofenceValidated = evaluation?.validated ?? null;
     position.geolocationWarning = evaluation?.warning ?? null;
+    // Phase H: every CHECK_IN starts a fresh session. The swap-credit
+    // flags reset unconditionally — even if the team hadn't earned a
+    // credit, this normalizes the state and keeps the per-session
+    // invariant single-source-of-truth in this handler.
+    position.pendingSwapCredit = false;
+    position.creditEarnedInSession = false;
     await position.save({ transaction: ctx.transaction });
 
     const checkInPayload: Record<string, unknown> = {

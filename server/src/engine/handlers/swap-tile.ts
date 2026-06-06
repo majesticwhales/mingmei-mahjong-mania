@@ -6,6 +6,7 @@ import type {
 import { HttpError } from "../../lib/http-error.ts";
 import { Game } from "../../models/game.ts";
 import { GameNode } from "../../models/game-node.ts";
+import { GameNodeChallenge } from "../../models/game-node-challenge.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { GameTilePlacement } from "../../models/game-tile-placement.ts";
 import { swapPlacements } from "../tile-swap-service.ts";
@@ -143,11 +144,37 @@ export const swapTileHandler: CommandHandler = {
       `Slot ${stationSlotIndex} at ${station.code}`,
     );
 
+    // Phase H: challenge gate. If the station carries any challenges in
+    // `game_node_challenges`, the team must have earned a swap credit
+    // (CHALLENGE_COMPLETED in the current check-in session) before
+    // claiming a tile. Stations with zero configured challenges remain
+    // free-swap for backward compatibility with templates that predate
+    // the challenge wiring.
+    const challengeCount = await GameNodeChallenge.count({
+      where: { gameNodeId: station.id },
+      transaction: ctx.transaction,
+    });
+    if (challengeCount > 0 && !position.pendingSwapCredit) {
+      throw new HttpError(
+        409,
+        "swap_credit_required",
+        `Team must complete a challenge at ${station.code} before swapping`,
+      );
+    }
+
     await swapPlacements(
       ctx.transaction,
       handPlacement.gameTileId,
       stationPlacement.gameTileId,
     );
+
+    // Consume the credit. `credit_earned_in_session` stays true so the
+    // team can't earn a second credit within the same check-in (TDD §3.8
+    // "one swap per session"). Both flags clear on CHECK_OUT / CHECK_IN.
+    if (challengeCount > 0) {
+      position.pendingSwapCredit = false;
+      await position.save({ transaction: ctx.transaction });
+    }
 
     return {
       events: [
