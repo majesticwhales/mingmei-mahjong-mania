@@ -13,6 +13,15 @@ export interface PlacementSnapshot {
    * occupied before the swap (e.g. for replay logs / projections).
    */
   slotIndex: number | null;
+  /**
+   * Position in the per-game dead wall (0-based). Non-null iff this
+   * placement is in the dead wall (neither `gameNodeId` nor `gameTeamId`
+   * set). Dead-wall tiles never move under normal game flow — no engine
+   * command targets them — but the column is carried through the swap
+   * so the row stays consistent with the tri-state CHECK constraint
+   * (`game_tile_placements_target_exactly_one`).
+   */
+  deadWallIndex: number | null;
 }
 
 export interface SwapPlacementsResult {
@@ -21,9 +30,10 @@ export interface SwapPlacementsResult {
 }
 
 /**
- * Mechanically exchange the `game_node_id` / `game_team_id` / `slot_index`
- * targets of the two `game_tile_placements` rows identified by the supplied
- * game-tile ids.
+ * Mechanically exchange the placement-target columns
+ * (`game_node_id` / `game_team_id` / `slot_index` / `dead_wall_index`) of
+ * the two `game_tile_placements` rows identified by the supplied game-tile
+ * ids.
  *
  * Shared low-level primitive for:
  *   - `SWAP_TILE` (hand <-> node at current station)
@@ -32,21 +42,25 @@ export interface SwapPlacementsResult {
  * Per the per-slot rules rollout (TDD §4.4): slot identity belongs to the
  * node, not the tile, so an incoming hand tile takes the exact slot the
  * outgoing station tile vacated, and a node-to-node swap exchanges slots
- * along with nodes. All three columns (`game_node_id`, `game_team_id`,
- * `slot_index`) move together, which simultaneously keeps the XOR
- * invariant (one of node/team set) and the `slot_index NOT NULL iff
- * game_node_id NOT NULL` invariant satisfied.
+ * along with nodes. All four placement-target columns (`game_node_id`,
+ * `game_team_id`, `slot_index`, `dead_wall_index`) move together, which
+ * keeps both the tri-state CHECK (exactly one of node / team / dead-wall
+ * is set) and the `slot_index NOT NULL iff game_node_id NOT NULL`
+ * invariant satisfied across the swap. Dead-wall tiles never move under
+ * normal game flow — no engine command targets them — but the column is
+ * still carried through so callers that bypass the engine (e.g. tests)
+ * can't accidentally land in a half-updated state.
  *
  * Implemented as a single UPDATE so both rows mutate atomically with respect
  * to any concurrent readers and to satisfy the partial unique index on
  * `(game_node_id, slot_index)` without an intermediate-state collision.
  *
  * No semantic validation: the caller is responsible for ensuring the
- * resulting placements still satisfy the XOR invariant (one of node/team set
- * on each), e.g. by passing a hand placement + a node placement (SWAP_TILE)
- * or two node placements (SWAP_LOCATION_TILES). Mixing two hand placements
- * would still produce a valid XOR state, but would not represent a real
- * game move.
+ * resulting placements still satisfy the tri-state invariant (exactly one
+ * of node / team / dead-wall set on each), e.g. by passing a hand
+ * placement + a node placement (SWAP_TILE) or two node placements
+ * (SWAP_LOCATION_TILES). Mixing two hand placements would still produce
+ * a valid tri-state, but would not represent a real game move.
  */
 export async function swapPlacements(
   transaction: Transaction,
@@ -82,26 +96,47 @@ export async function swapPlacements(
       gameNodeId: a.gameNodeId,
       gameTeamId: a.gameTeamId,
       slotIndex: a.slotIndex,
+      deadWallIndex: a.deadWallIndex,
     },
     b: {
       gameTileId: b.gameTileId,
       gameNodeId: b.gameNodeId,
       gameTeamId: b.gameTeamId,
       slotIndex: b.slotIndex,
+      deadWallIndex: b.deadWallIndex,
     },
   };
 
   await sequelize.query(
     `UPDATE game_tile_placements AS p
      SET
-       game_node_id = src.new_node_id,
-       game_team_id = src.new_team_id,
-       slot_index   = src.new_slot_index,
-       updated_at   = NOW()
+       game_node_id    = src.new_node_id,
+       game_team_id    = src.new_team_id,
+       slot_index      = src.new_slot_index,
+       dead_wall_index = src.new_dead_wall_index,
+       updated_at      = NOW()
      FROM (VALUES
-       (CAST(:tileA AS uuid), CAST(:aNewNode AS uuid), CAST(:aNewTeam AS uuid), CAST(:aNewSlot AS integer)),
-       (CAST(:tileB AS uuid), CAST(:bNewNode AS uuid), CAST(:bNewTeam AS uuid), CAST(:bNewSlot AS integer))
-     ) AS src(game_tile_id, new_node_id, new_team_id, new_slot_index)
+       (
+         CAST(:tileA AS uuid),
+         CAST(:aNewNode AS uuid),
+         CAST(:aNewTeam AS uuid),
+         CAST(:aNewSlot AS integer),
+         CAST(:aNewDeadWall AS integer)
+       ),
+       (
+         CAST(:tileB AS uuid),
+         CAST(:bNewNode AS uuid),
+         CAST(:bNewTeam AS uuid),
+         CAST(:bNewSlot AS integer),
+         CAST(:bNewDeadWall AS integer)
+       )
+     ) AS src(
+       game_tile_id,
+       new_node_id,
+       new_team_id,
+       new_slot_index,
+       new_dead_wall_index
+     )
      WHERE p.game_tile_id = src.game_tile_id`,
     {
       replacements: {
@@ -110,9 +145,11 @@ export async function swapPlacements(
         aNewNode: b.gameNodeId,
         aNewTeam: b.gameTeamId,
         aNewSlot: b.slotIndex,
+        aNewDeadWall: b.deadWallIndex,
         bNewNode: a.gameNodeId,
         bNewTeam: a.gameTeamId,
         bNewSlot: a.slotIndex,
+        bNewDeadWall: a.deadWallIndex,
       },
       transaction,
     },

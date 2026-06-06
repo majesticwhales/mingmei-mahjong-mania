@@ -193,4 +193,36 @@ describe("swapPlacements", () => {
       sequelize.transaction((tx) => swapPlacements(tx, id, id)),
     ).rejects.toMatchObject({ status: 400, code: "invalid_swap" });
   });
+
+  describe("dead wall (chunk 1)", () => {
+    it("hand↔node swap preserves NULL dead_wall_index on both sides and surfaces it in the before snapshot", async () => {
+      // Regression guard for the chunk-1 swap rewrite: the UPDATE now
+      // includes `dead_wall_index = src.new_dead_wall_index`. Both sides
+      // are non-dead-wall placements (NULL deadWallIndex), so this asserts
+      // the swap doesn't accidentally promote either row into the dead
+      // wall and that the snapshot exposes the column.
+      const fixture = await setupLightweightGame({
+        nodeCodes: ["bay"],
+        handTilesBySlot: { 1: 1 },
+        nodeTilesByCode: { bay: 1 },
+      });
+      const handTileId = fixture.handTiles[0]!.gameTileId;
+      const stationTileId = fixture.nodeTiles[0]!.gameTileId;
+
+      const sequelize = await getSequelize();
+      const { before } = await sequelize.transaction((tx) =>
+        swapPlacements(tx, handTileId, stationTileId),
+      );
+
+      expect(before.a.deadWallIndex).toBeNull();
+      expect(before.b.deadWallIndex).toBeNull();
+
+      const [refreshedHand, refreshedNode] = await Promise.all([
+        GameTilePlacement.findOne({ where: { gameTileId: handTileId } }),
+        GameTilePlacement.findOne({ where: { gameTileId: stationTileId } }),
+      ]);
+      expect(refreshedHand?.deadWallIndex).toBeNull();
+      expect(refreshedNode?.deadWallIndex).toBeNull();
+    });
+  });
 });

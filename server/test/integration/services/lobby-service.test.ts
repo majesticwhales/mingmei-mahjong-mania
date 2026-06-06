@@ -291,4 +291,56 @@ describe("lobby-service", () => {
       ).rejects.toMatchObject({ status: 400, code: "validation_error" });
     });
   });
+
+  describe("dead wall (chunk 1)", () => {
+    it("defaults deadWallSize from the template (0)", async () => {
+      const host = await registerUser();
+      const lobby = await lobbyService.createLobby(host.user.id);
+      expect(lobby.config.deadWallSize).toBe(0);
+    });
+
+    it("accepts a host override on create", async () => {
+      const host = await registerUser();
+      const lobby = await lobbyService.createLobby(host.user.id, {
+        deadWallSize: 14,
+      });
+      expect(lobby.config.deadWallSize).toBe(14);
+    });
+
+    it("rejects a negative deadWallSize on create", async () => {
+      const host = await registerUser();
+      await expect(
+        lobbyService.createLobby(host.user.id, { deadWallSize: -1 }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+
+    it("rejects a non-integer deadWallSize on create", async () => {
+      const host = await registerUser();
+      await expect(
+        lobbyService.createLobby(host.user.id, { deadWallSize: 1.5 }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+
+    it("host can update deadWallSize via updateConfig", async () => {
+      const host = await registerUser();
+      const created = await lobbyService.createLobby(host.user.id);
+
+      const updated = await lobbyService.updateConfig(
+        created.id,
+        host.user.id,
+        { deadWallSize: 7 },
+      );
+      expect(updated.config.deadWallSize).toBe(7);
+    });
+
+    it("rejects a negative deadWallSize via updateConfig", async () => {
+      const host = await registerUser();
+      const created = await lobbyService.createLobby(host.user.id);
+      await expect(
+        lobbyService.updateConfig(created.id, host.user.id, {
+          deadWallSize: -3,
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+  });
 });

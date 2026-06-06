@@ -161,6 +161,10 @@ lobbiesRouter.post(
         body.slotsPerNode,
         "slotsPerNode",
       ),
+      deadWallSize: parseOptionalNonNegativeInt(
+        body.deadWallSize,
+        "deadWallSize",
+      ),
       teamAssignmentMode: parseTeamAssignmentMode(body.teamAssignmentMode),
       minPlayersToStart: parseOptionalPositiveInt(
         body.minPlayersToStart,
@@ -206,6 +210,10 @@ lobbiesRouter.patch(
         slotsPerNode: parseOptionalPositiveInt(
           body.slotsPerNode,
           "slotsPerNode",
+        ),
+        deadWallSize: parseOptionalNonNegativeInt(
+          body.deadWallSize,
+          "deadWallSize",
         ),
         teamAssignmentMode: parseTeamAssignmentMode(body.teamAssignmentMode),
         minPlayersToStart: parseOptionalPositiveInt(

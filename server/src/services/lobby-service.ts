@@ -41,6 +41,16 @@ export interface CreateLobbyOptions {
    * phase. Defaults to the template's `defaultSlotMapVisible`.
    */
   slotMapVisible?: boolean[];
+  /**
+   * Size of the per-game dead wall, snapshotted to `games.dead_wall_size`
+   * at start. Non-negative integer; defaults to the template's
+   * `defaultDeadWallSize`. The dealer's closed-set invariant
+   * (`slotsPerNode × nodeCount + handSize × teamCount + deadWallSize ===
+   * catalogSize`) is checked at game start, not on lobby create, so a
+   * bad value here surfaces as a 500 from `startFromLobby` rather than
+   * a 400 here. See TDD §3.9.
+   */
+  deadWallSize?: number;
   teamAssignmentMode?: TeamAssignmentMode;
   minPlayersToStart?: number;
   defaultStartNodeCode?: string | null;
@@ -56,6 +66,8 @@ export interface UpdateLobbyConfigPatch {
   slotUnlockOffsetsSeconds?: number[];
   /** See `CreateLobbyOptions.slotMapVisible`. */
   slotMapVisible?: boolean[];
+  /** See `CreateLobbyOptions.deadWallSize`. */
+  deadWallSize?: number;
   teamAssignmentMode?: TeamAssignmentMode;
   minPlayersToStart?: number;
   defaultStartNodeCode?: string | null;
@@ -157,6 +169,16 @@ function validatePositiveInt(value: number, fieldName: string): void {
       400,
       "validation_error",
       `${fieldName} must be a positive integer`,
+    );
+  }
+}
+
+function validateNonNegativeInt(value: number, fieldName: string): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      `${fieldName} must be a non-negative integer`,
     );
   }
 }
@@ -268,6 +290,7 @@ export async function createLobby(
     options.visibilityPhaseIntervalSeconds ??
     Math.floor(gameDurationSeconds / Math.max(visibilityPhaseCount, 1));
   const slotsPerNode = options.slotsPerNode ?? template.defaultSlotsPerNode;
+  const deadWallSize = options.deadWallSize ?? template.defaultDeadWallSize;
   const teamAssignmentMode = options.teamAssignmentMode ?? "pick";
   const minPlayersToStart = options.minPlayersToStart ?? 4;
 
@@ -288,6 +311,7 @@ export async function createLobby(
   }
   validatePositiveInt(visibilityPhaseCount, "visibilityPhaseCount");
   validatePositiveInt(slotsPerNode, "slotsPerNode");
+  validateNonNegativeInt(deadWallSize, "deadWallSize");
   if (minPlayersToStart < 4) {
     throw new HttpError(
       400,
@@ -339,6 +363,7 @@ export async function createLobby(
         slotsPerNode,
         slotUnlockOffsetsSeconds,
         slotMapVisible,
+        deadWallSize,
         teamAssignmentMode,
         minPlayersToStart,
         defaultStartNodeCode,
@@ -524,6 +549,9 @@ export async function updateConfig(
     if (patch.slotMapVisible == null) {
       lobby.slotMapVisible = template.defaultSlotMapVisible;
     }
+    if (patch.deadWallSize == null) {
+      lobby.deadWallSize = template.defaultDeadWallSize;
+    }
   }
   if (patch.gameDurationSeconds != null) {
     if (patch.gameDurationSeconds < 60) {
@@ -582,6 +610,10 @@ export async function updateConfig(
     lobby.slotsPerNode,
   );
   validateSlotMapVisible(lobby.slotMapVisible, lobby.slotsPerNode);
+  if (patch.deadWallSize != null) {
+    validateNonNegativeInt(patch.deadWallSize, "deadWallSize");
+    lobby.deadWallSize = patch.deadWallSize;
+  }
   if (patch.teamAssignmentMode != null) {
     validateTeamAssignmentMode(patch.teamAssignmentMode);
     lobby.teamAssignmentMode = patch.teamAssignmentMode;

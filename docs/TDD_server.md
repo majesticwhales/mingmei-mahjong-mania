@@ -73,7 +73,8 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 | Map size | **Configurable per template** (`map_templates.node_count`); standard TTC 2026 = 84 |
 | Slots per node | **Configurable per lobby** (`slots_per_node`, default 1); snapshotted onto `games.slots_per_node` at start. Capacity, not realized count — actual tiles per node may diverge from this value as commands move tiles around. |
 | Hand size | **Configurable per lobby** (`hand_size`, default 13); snapshotted onto `games.hand_size` at start |
-| Deal-time invariant | `slots_per_node × node_count + hand_size × team_count` must equal the game's tile catalog size (Fisher–Yates draws the entire deck and fills every slot + hand at start) |
+| Dead wall | **Configurable per lobby** (`dead_wall_size`, default 0); snapshotted onto `games.dead_wall_size` at start. Tiles parked off-map / off-hand as `dead_wall_index = 0..n-1` placements. Index 0 is the dora indicator (see §3.9); higher indices are reserved for future kan / replacement use. |
+| Deal-time invariant | `slots_per_node × node_count + hand_size × team_count + dead_wall_size` must equal the game's tile catalog size (Fisher–Yates draws the entire deck and fills every slot + hand + dead-wall position at start) |
 | Deal | **Fisher–Yates** shuffle; random always |
 | Hand order | **Server-sorted** (`suit_sort_order` → `rank`); client renders as given |
 | Visibility phases | **Configurable count** `visibility_phase_count` (default 4); N phases ⇒ N visibility groups; phase 0 reveals home group, phase N-1 reveals all. Ephemeral view while checked in remains independent. |
@@ -91,7 +92,7 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 | Game end | Drain **in-flight** command queue, then `ended` |
 | Realtime | Commands → queue → engine → `game_events` → broadcast |
 | State storage | Relational tables; JSONB only on events/commands/challenge params/notification data |
-| Hand scoring | **Riichi** ruleset; pure `analyzeHand` module in `server/src/scoring/`. **Shipped (Phase I)**: module + `game.state` projection wiring (`handAnalysis`, `roundWind`, `seatWind`). Game summary integration still post-MVP. Tile model treats every hand as fully concealed (no calls / kans). Wins are non-dealer tsumo. Round wind randomized per game (persisted on `games.round_wind`); seat wind per team. Red-fives add `+1 han` per copy in the winning hand. 28 yaku detectors (1–6 han) + 8 yakuman with **additive stacking** for co-firing yakuman. See §3.9. |
+| Hand scoring | **Riichi** ruleset; pure `analyzeHand` module in `server/src/scoring/`. **Shipped (Phase I)**: module + `game.state` projection wiring (`handAnalysis`, `roundWind`, `seatWind`, `doraIndicator`). Game summary integration still post-MVP. Tile model treats every hand as fully concealed (no calls / kans). Wins are non-dealer tsumo. Round wind randomized per game (persisted on `games.round_wind`); seat wind per team. Red-fives add `+1 han` per copy in the winning hand. Dora indicator from the dead wall (`game_tile_placements.dead_wall_index = 0`) adds `+1 han per matching tile`; like red fives, dora is not itself a yaku. 28 yaku detectors (1–6 han) + 8 yakuman with **additive stacking** for co-firing yakuman. See §3.9. |
 
 ---
 
@@ -136,9 +137,9 @@ flowchart TB
 
 ### 3.1 Core invariants
 
-- **Closed tile set:** the game's tile catalog (number of `tile_types` rows, e.g. 136 for the riichi seed) is partitioned across `game_tile_placements` at deal time. No mid-game create/destroy. The deal-time invariant is `slots_per_node × node_count + hand_size × team_count = catalog_size`.
+- **Closed tile set:** the game's tile catalog (number of `tile_types` rows, e.g. 136 for the riichi seed) is partitioned across `game_tile_placements` at deal time. No mid-game create/destroy. The deal-time invariant is `slots_per_node × node_count + hand_size × team_count + dead_wall_size = catalog_size`.
 - **`slots_per_node` capacity per map node:** Capacity is set by `games.slots_per_node` (default 1; configurable per lobby). The dealer fills exactly `slots_per_node` `game_tile_placements` rows per `game_node` at deal time. Runtime tile counts at a node may differ as the engine moves tiles, but never exceed the slot capacity (handlers enforce this).
-- **One placement per tile:** Each `game_tile` has exactly one `game_tile_placements` row — either on a node or in a team hand (XOR via DB check).
+- **One placement per tile, tri-state target:** Each `game_tile` has exactly one `game_tile_placements` row. The `game_tile_placements_target_exactly_one` CHECK requires exactly one of `game_node_id`, `game_team_id`, `dead_wall_index` to be non-null — node placement, team-hand placement, or dead-wall placement respectively. Dead-wall placements never move under normal game flow (no engine command targets them); chunk 1 of the dead-wall rollout added the `dead_wall_index` column and replaced the legacy `node_xor_team` CHECK with the tri-state CHECK.
 - **Configurable hand size:** Each team hand has exactly `games.hand_size` tiles (default 13).
 - **Checked-in gate:** Station actions require `current_game_node_id` set.
 - **Swap at station:** `SWAP_TILE` only at `current_game_node_id`; exchanges a specific hand tile ↔ a specific station tile (caller chooses both); counts unchanged.
@@ -289,7 +290,7 @@ Photo challenges reuse media pipeline (`purpose = challenge_submission`). Implem
 
 ### 3.9 Mahjong hand evaluation (Riichi)
 
-A self-contained **scoring module** at `server/src/scoring/` evaluates a mahjong hand and returns structured scoring metadata. The client **never** computes score — only displays server results. The module is **shipped as of Phase I** and is wired into the `game.state` projection (§6.3: `handAnalysis`, `roundWind`, `seatWind`). Integration with `GET /api/games/:id/summary` is a post-MVP follow-up.
+A self-contained **scoring module** at `server/src/scoring/` evaluates a mahjong hand and returns structured scoring metadata. The client **never** computes score — only displays server results. The module is **shipped as of Phase I** and is wired into the `game.state` projection (§6.3: `handAnalysis`, `roundWind`, `seatWind`, `doraIndicator`). Integration with `GET /api/games/:id/summary` is a post-MVP follow-up.
 
 **Ruleset:** [Riichi / modern Japanese](https://riichi.wiki/), adapted to this game's constraints:
 
@@ -297,6 +298,7 @@ A self-contained **scoring module** at `server/src/scoring/` evaluates a mahjong
 - **Always non-dealer tsumo.** All wins are self-draws on the 14th tile. No dealer-tsumo or ron variants.
 - **Round wind randomized per game** (`east/south/west/north` chosen at game start); **seat wind per team** (the team's `game_team` slot). Yakuhai for the team's seat wind, the round wind, and any dragon triplet all apply independently; a single triplet that satisfies both round and seat wind counts twice (double yakuhai).
 - **Red fives** (catalog `copyIndex === 0` of suited 5s) contribute **`+1 han` per copy in the winning hand** when the `red_fives_enabled` rule flag is on. They are not a yaku on their own and never satisfy the "needs a yaku" requirement.
+- **Dora indicator** lives on the dead wall (`game_tile_placements.dead_wall_index = 0`); the projection layer surfaces it as `game.state.doraIndicator` and threads its suit + rank into `analyzeHand.doraIndicators`. The dora tile type is the **next** tile after the indicator: suited `1→…→9→1`, winds `E→S→W→N→E`, dragons `Red→White→Green→Red` (matches `Haku→Hatsu→Chun`). Every matching tile in the winning hand contributes `+1 han per matching indicator`. Like red fives, dora is **not itself a yaku** and never satisfies the "needs a yaku" gate. Yakuman ignores both red-five and dora bonuses.
 - **Yakuman stack additively.** Co-firing yakuman (e.g. Big Three Dragons + All Honours) multiply the base 8000: 2× yakuman → 16000 base → 64000 total (non-dealer tsumo). Counted yakuman (a normal hand reaching `≥ 13 han`) caps at a single 32000 yakuman.
 
 The module never reads or writes game state directly; it is a pure function.
@@ -306,6 +308,8 @@ The module never reads or writes game state directly; it is a pure function.
 ```ts
 // server/src/scoring/index.ts
 
+interface DoraIndicator { suit: Suit; rank: number; }
+
 interface AnalyzeHandInput {
   tiles: ReadonlyArray<Tile>;          // 13 tiles (tenpai / iishanten analysis)
                                        //   or 14 tiles (already-winning hand;
@@ -313,16 +317,24 @@ interface AnalyzeHandInput {
   seatWind: WindRank;                  // 1=East, 2=South, 3=West, 4=North
   roundWind: WindRank;
   redFivesEnabled?: boolean;           // default false
+  doraIndicators?: ReadonlyArray<DoraIndicator>;
+                                       // default []; one per revealed
+                                       //   indicator (v1 always 0 or 1)
 }
 
 interface AnalyzedWait {
   tile: Tile;                          // completing tile (red-five copy
                                        //   preferred when available)
-  han: number;                         // total han incl. red-five bonus;
-                                       //   for yakuman = 13 × yakumanCount
+  han: number;                         // total han incl. red-five + dora
+                                       //   bonuses; for yakuman = 13 ×
+                                       //   yakumanCount (yakuman ignores
+                                       //   both bonuses)
   fu: number;                          // already rounded; 0 for yakuman
   points: number;                      // non-dealer tsumo total
   yaku: Array<{ name: string; han: number }>;
+                                       // normal path may append `Red Five`
+                                       //   and / or `Dora` entries whose
+                                       //   `han` is the matching count
   isYakuman: boolean;
 }
 
@@ -346,7 +358,9 @@ server/src/scoring/
   index.ts                 analyzeHand entry point + public types
   orchestrator.ts          scoreCompleteHand: walk decompositions × yaku
                            catalog, apply precedence, pick best decomp
-  context.ts               ScoringContext (winds, red-fives, winning tile)
+  context.ts               ScoringContext (winds, red-fives, winning
+                           tile, doraIndicators)
+  dora.ts                  indicatorToDoraTileType + countDora helpers
   shanten.ts               computeShanten (standard / chiitoitsu / kokushi)
   waits.ts                 enumerateTenpaiWaits
   fu.ts, score.ts          fu + han→points
@@ -387,7 +401,7 @@ Each yaku detector is a pure structural check `(decomposition, context) → han 
 
 #### Out of scope (deferred)
 
-- **Dora / uradora indicators.** Not in v1.
+- **Uradora and kan-dora indicators.** v1 ships a single dora indicator (dead-wall index 0). Multiple indicators are already supported in the API (`doraIndicators: ReadonlyArray<DoraIndicator>`) so kan-dora can layer on without a signature break, but no engine code reveals them today.
 - **Riichi / ippatsu / haitei / houtei** and other special-state yaku that require turn-context the engine doesn't surface to scoring.
 - **Open hands / called melds** — structurally impossible in this game.
 - **Kan / rinshan / chankan** — structurally impossible.
@@ -775,6 +789,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 | `handTiles[]` | Own team, pre-sorted |
 | `recentEvents[]` | Shared metadata (no photo URLs) |
 | `roundWind`, `seatWind` | Wind ranks `1..4` (East/South/West/North) — round wind is the game-wide randomized value, seat wind is derived from the team's `team_definition.code` |
+| `doraIndicator` | The dead-wall tile at `dead_wall_index = 0`, or `null` when the game has no dead wall. Public — same value across every team's projection. Threaded into `analyzeHand.doraIndicators` so the per-wait `han` already includes the dora bonus. |
 | `handAnalysis?` | Riichi shanten / tenpai analysis from the scoring module (§3.9). Present when `handTiles.length === 13` or `14`; omitted otherwise. |
 | Other teams’ hands / map positions | Omitted |
 
@@ -899,6 +914,8 @@ Exposing every location’s tile in `game.state` would leak map state via devtoo
 
 **Post-game:** `GET /api/games/:id/summary` may include richer history; live `game.state` stays redacted as above.
 
+**Dora indicator** — every projection includes `doraIndicator`: the dead-wall placement at `dead_wall_index = 0`, serialized as the standard `TileDto` (`instanceId`, `suit`, `rank`, `copyIndex`, `displayName`, `isRedFive`). `null` when the game has no dead wall (`games.dead_wall_size = 0`) or — defensively — when the dealer didn't park a tile at index 0. The dora indicator is **public** information in standard riichi, so the field is identical across every team's projection. The projection layer also threads the indicator's suit + rank into `analyzeHand.doraIndicators`, so the per-wait `han` already incorporates the dora bonus (`+1 han per matching tile in the winning hand`); clients don't need to recompute it.
+
 **Wind + hand analysis** — every projection includes `roundWind` (the game's randomized round wind, `games.round_wind`) and `seatWind` (derived from the team's `team_definition.code`: `east → 1`, `south → 2`, `west → 3`, `north → 4`). When the team's hand is 13 or 14 tiles, the projection also includes `handAnalysis` with the scoring module's full evaluation:
 
 ```json
@@ -923,6 +940,7 @@ Exposing every location’s tile in `game.state` would leak map state via devtoo
 - `shanten`: `-1` (winning), `0` (tenpai), `1+` (away from tenpai).
 - `waits`: present when `shanten <= 0`; sorted by points descending. A 0-point wait means the hand structurally completes but has no yaku (the riichi "needs a yaku" rule).
 - The completing tile's `copyIndex` is set to `0` (the red copy) when the rule is on and the team doesn't already hold the red five of that rank.
+- `han` already includes the dora bonus (per `doraIndicator` above); a `{ name: "Dora", han: n }` entry appears in `yaku[]` whenever `n >= 1` so clients can render the breakdown. Yakuman wins drop the entry — dora doesn't stack on a yakuman.
 
 The wiring is enabled for every team's projection — no opt-in flag. Clients ignore the field if they don't render scoring hints.
 
@@ -989,7 +1007,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 | **F** | **Complete** — Geolocation warn/allow. `services/geolocation.ts` (pure haversine + payload parser + evaluator) feeds the `CHECK_IN` handler; results persist to `game_team_positions.{lastCheckInLatitude,lastCheckInLongitude,geofenceValidated,geolocationWarning}` and are lifted onto the `CHECK_IN` event payload (`geolocationWarning`, `geofenceValidated`, `distanceMeters`) and the `RecentEventDto` (`geolocationWarning` only). `SWAP_TILE` inherits the most-recent-check-in coordinates from the position row. See [§3.4 Travel](#34-station-commands-and-travel). |
 | **G** | **Deferred (post-MVP)** — R2/MinIO, check-in photo, game summary URLs, retention. v1 MVP CHECK_IN is photo-less; schema is already migrated so the re-enable path is purely additive (UX + upload pipeline + presigned-URL plumbing). See [§1](#1-purpose-and-scope) "Out of scope". |
 | **H** | Challenge catalog + resolvers (when product ready) |
-| **I** | **Scoring — Shipped.** Pure `analyzeHand` module under `server/src/scoring/`: shanten (standard / chiitoitsu / kokushi), wait enumeration, 28-detector yaku catalog (1–6 han + 8 yakuman with additive stacking), fu + non-dealer tsumo points, red-five bonus. `games.round_wind` migration + randomization in `GameStartService`. `buildGameStateProjection` wires `analyzeHand` into every team's `game.state` (new fields: `roundWind`, `seatWind`, `handAnalysis?`). **Follow-ups (post-MVP):** wire `analyzeHand` into `GET /api/games/:id/summary` for per-team end-of-game scores. Challenge resolvers (Phase H) reuse the same module when a card requires proving a scoring hand. |
+| **I** | **Scoring — Shipped.** Pure `analyzeHand` module under `server/src/scoring/`: shanten (standard / chiitoitsu / kokushi), wait enumeration, 28-detector yaku catalog (1–6 han + 8 yakuman with additive stacking), fu + non-dealer tsumo points, red-five bonus, **dora indicator** bonus (`scoring/dora.ts`, `+1 han per matching tile`, gated by the same "needs a yaku" rule as red fives, ignored by yakuman). `games.round_wind` + `games.dead_wall_size` migrations; `GameStartService` randomizes the round wind and snapshots `dead_wall_size`; the dealer parks the trailing tiles in the dead wall as `dead_wall_index = 0..n-1` placements (index 0 = dora indicator). `buildGameStateProjection` wires `analyzeHand` into every team's `game.state` (new fields: `roundWind`, `seatWind`, `doraIndicator`, `handAnalysis?`). **Follow-ups (post-MVP):** wire `analyzeHand` into `GET /api/games/:id/summary` for per-team end-of-game scores. Uradora + kan-dora (the multi-indicator path is already in the API) when kan / riichi land. Challenge resolvers (Phase H) reuse the same module when a card requires proving a scoring hand. |
 
 ---
 
@@ -1004,7 +1022,7 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
 | Challenge definitions | Waiting on product (rule layer) |
 | GDPR media delete | Deferred |
 | Challenge photo visibility during game | Likely same as check-in; confirm with product (rule layer) |
-| Riichi: dora / red dora / full yaku list | Resolved — red-fives ship as `+1 han` per copy; dora / uradora are deferred (see §3.9 "Out of scope"). v1 yaku catalog is the 28 detectors in §3.9. |
+| Riichi: dora / red dora / full yaku list | Resolved — red-fives ship as `+1 han` per copy; **dora indicator** ships as `+1 han per matching tile` (single indicator parked at `dead_wall_index = 0`); uradora and kan-dora are deferred (the multi-indicator path already exists in the API, see §3.9 "Out of scope"). v1 yaku catalog is the 28 detectors in §3.9. |
 | 13 vs 14 tiles for evaluation API | Resolved — `analyzeHand` accepts both: 13 tiles ⇒ shanten + waits; 14 tiles ⇒ scored directly (last tile = winning tile). |
 | Scoring affects game winner | Rule layer — summary ranking only vs mechanical win condition; decided post-MVP once scoring is wired into the summary. |
 | Per-template notification defaults | Future — `map_templates` could seed a default notification set; not in v1 |
@@ -1067,6 +1085,12 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
   - **Lobby create-time fix (no migration):** `createLobby` now algorithmically defaults the per-slot arrays (`[0,…,0]` / `[true,…,true]`) when the host overrides `slotsPerNode` past the template default's length, mirroring the auto-resize logic that already existed in `updateConfig`. Hosts no longer have to supply matched-length arrays just to start a non-default-slots lobby. Validation still rejects explicit-but-wrong-length arrays.
   - Test coverage: `test/unit/services/slot-visibility.test.ts` — 14 unit tests covering `slotUnlockAtMs` (slot 0, non-zero, out-of-range), `isSlotUnlocked` (slot 0 always, threshold around unlock time), `assertSlotUnlocked` (no-throw / 409 with timestamp), `unlockedSlotIndices` (all / prefix / start-of-game / non-monotonic offsets), `isSlotMapVisible` (lookup + out-of-range), and `mapVisibleSlotIndices` (full / partial / all-true). The existing `tile-swap-service.test.ts` (hand↔node and node↔node-on-same-node) now passes against the deferred EXCLUDE constraint, and `swap-tile.test.ts` covers the engine refactor end-to-end.
 - [x] Phase I scoring projection wiring (`20260602225000-add-round-wind.cjs`): adds `games.round_wind INTEGER NOT NULL DEFAULT 1` (1 = East) with CHECK `1..4`. Snapshotted from a uniform random pick in `GameStartService` at game creation. Consumed by the `analyzeHand` projection wiring (§3.9). Existing rows backfill to East via the default.
+- [x] Dead wall + dora indicator chunk 1 (`20260605120000-add-dead-wall.cjs`): adds the storage needed for a per-game "dead wall". Wrapped in a single transaction.
+  - Adds `game_tile_placements.dead_wall_index INTEGER NULL`.
+  - Drops the legacy `game_tile_placements_node_xor_team` CHECK and replaces it with a tri-state `game_tile_placements_target_exactly_one` CHECK: exactly one of `game_node_id`, `game_team_id`, `dead_wall_index` is non-null. `dead_wall_index >= 0` is folded into the same CHECK.
+  - Adds `map_templates.default_dead_wall_size`, `lobbies.dead_wall_size`, `games.dead_wall_size` (all `INTEGER NOT NULL DEFAULT 0`) with a `>= 0` CHECK per table. The upper bound (the closed-set tile-deal invariant `slotsPerNode * nodeCount + handSize * teamCount + deadWallSize === catalogSize`) is intentionally not in the DB — it's enforced by `dealTilesForGame`.
+  - Pre-existing rows backfill safely: every existing placement gets `dead_wall_index = NULL` (tri-state CHECK reduces to the old XOR), every existing map template / lobby / game gets `dead_wall_size = 0` (no dead-wall placements expected for already-dealt games).
+  - Producer updates landed alongside the migration: `dealTilesForGame` accepts `{ deadWallSize }`, parks the remaining tiles after node + hand placements with sequential `dead_wall_index = 0..n-1`, and folds `deadWallSize` into the catalog-mismatch error message; `GameStartService` snapshots `lobby.deadWallSize` into `games.deadWallSize` and threads it into the dealer; `lobby-service` defaults `deadWallSize` from the template (or 0), validates as a non-negative integer on create + update, and the lobby config DTO exposes the field; `lobbies` POST / PATCH `:id/config` accept `deadWallSize`; `swapPlacements` extends the row mutation to the quadruple (`game_node_id`, `game_team_id`, `slot_index`, `dead_wall_index`) so dead-wall tiles can never end up half-migrated by a stray swap. Tests: dealer non-zero / negative / catalog-mismatch coverage, lobby create + update accept / reject / default coverage, swap regression that `dead_wall_index` round-trips as `NULL` on a hand↔node swap.
 - [x] Per-slot rules chunk 5 of the rollout (`20260530190000-add-config-array-checks.cjs`): lobby config flow + array-length / slot-0 invariants. Wrapped in a single transaction.
   - Migration adds five CHECK constraints to each of `map_templates`, `lobbies`, `games`: `cardinality(<offsets>) = <slots_per_node>`, `<offsets>[1] = 0`, `0 <= ALL(<offsets>)`, `cardinality(<map_visible>) = <slots_per_node>`, `<map_visible>[1] = TRUE`. Postgres arrays are 1-indexed, so `[1]` is our 0-indexed slot 0. Pre-existing rows satisfy all five (slots_per_node=1, defaults `[0]`/`[true]`).
   - `lobby-service.createLobby`: `slotUnlockOffsetsSeconds` and `slotMapVisible` default to the map template's `defaultSlotUnlockOffsetsSeconds` / `defaultSlotMapVisible`; host can override either independently; explicit values must match `slotsPerNode` exactly (no silent resize on create).

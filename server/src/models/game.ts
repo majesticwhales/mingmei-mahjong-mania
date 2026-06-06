@@ -118,6 +118,18 @@ export class Game extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })
   declare roundWind: number;
 
+  /**
+   * Snapshot of `lobby.dead_wall_size` taken at game start. Controls how
+   * many tiles the dealer parks in the dead wall (`dead_wall_index`
+   * placements). The first dead-wall tile is the dora indicator consumed
+   * by `analyzeHand`. The dealer enforces the closed-set invariant
+   *   slotsPerNode * nodeCount + handSize * teamCount + deadWallSize
+   *   === catalogSize
+   * at game start; the DB constraints only enforce `>= 0`.
+   */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  declare deadWallSize: number;
+
   @HasMany(() => GameTeam)
   declare teams?: GameTeam[];
 

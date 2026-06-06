@@ -14,6 +14,7 @@ import { TeamDefinition } from "../models/team-definition.ts";
 import {
   type AnalyzeHandResult,
   analyzeHand,
+  type DoraIndicator,
   type WindRank,
 } from "../scoring/index.ts";
 import {
@@ -129,6 +130,16 @@ export interface GameStateProjection {
   roundWind: WindRank;
   seatWind: WindRank;
   /**
+   * Revealed dora indicator (the dead-wall tile at `dead_wall_index = 0`),
+   * or `null` when the game has no dead wall (`games.dead_wall_size = 0`)
+   * or the dealer didn't park an indicator at index 0. Visible to every
+   * team (the dora indicator is public information in standard riichi).
+   * The scoring module's `analyzeHand` consumes the indicator via
+   * `doraIndicators` to add `+1 han per matching tile` in the winning
+   * hand; see §3.9.
+   */
+  doraIndicator: TileDto | null;
+  /**
    * Riichi shanten / tenpai analysis for the team's hand. Present when the
    * hand has 13 or 14 tiles (the only sizes the scoring module supports);
    * `undefined` otherwise (e.g. mid-swap transients or non-standard
@@ -153,6 +164,7 @@ interface PlacementRow {
   game_node_id: string | null;
   game_team_id: string | null;
   slot_index: number | null;
+  dead_wall_index: number | null;
   game_tile_id: string;
   copy_index: number;
   suit: string;
@@ -250,6 +262,7 @@ export async function buildGameStateProjection(
               p.game_node_id    AS game_node_id,
               p.game_team_id    AS game_team_id,
               p.slot_index      AS slot_index,
+              p.dead_wall_index AS dead_wall_index,
               t.id              AS game_tile_id,
               t.copy_index      AS copy_index,
               tt.suit           AS suit,
@@ -297,6 +310,10 @@ export async function buildGameStateProjection(
   }
   const tilesByNodeSlot = new Map<string, Map<number, TileDto>>();
   const ownHandTiles: TileWithSort[] = [];
+  // The dora indicator is the dead-wall tile at index 0. It's public —
+  // identical for every team's projection — so we capture it during the
+  // single placement scan rather than reissuing the query per team.
+  let doraIndicator: TileDto | null = null;
 
   for (const row of placementRows) {
     const tile: TileDto = {
@@ -325,6 +342,8 @@ export async function buildGameStateProjection(
         rank: row.rank,
         copyIndex: row.copy_index,
       });
+    } else if (row.dead_wall_index === 0) {
+      doraIndicator = tile;
     }
   }
 
@@ -408,7 +427,10 @@ export async function buildGameStateProjection(
 
   // Scoring analysis is only meaningful at the canonical 13 / 14-tile shape.
   // Other sizes (configurable `games.hand_size`, mid-swap transients) skip
-  // the call rather than throw.
+  // the call rather than throw. We pass the dora indicator (as a
+  // suit+rank pair — the scoring module ignores `copyIndex`) whenever
+  // one is exposed, so `analyzeHand` can add the dora bonus on top of
+  // any winning waits.
   let handAnalysis: AnalyzeHandResult | undefined;
   if (handTiles.length === 13 || handTiles.length === 14) {
     handAnalysis = analyzeHand({
@@ -420,6 +442,7 @@ export async function buildGameStateProjection(
       seatWind,
       roundWind,
       redFivesEnabled,
+      doraIndicators: indicatorToScoringInput(doraIndicator),
     });
   }
 
@@ -437,8 +460,28 @@ export async function buildGameStateProjection(
     recentEvents,
     roundWind,
     seatWind,
+    doraIndicator,
     handAnalysis,
   };
+}
+
+/**
+ * Reduce a dora-indicator `TileDto` to the scoring module's
+ * `DoraIndicator` shape (suit + rank only; `copyIndex` is irrelevant
+ * for dora). Returns an empty array when no indicator is exposed so
+ * `analyzeHand` can treat the projection as no-dora without extra
+ * branching at the call site. The `suit` cast is unchecked here; the
+ * downstream `indicatorToDoraTileType` throws on unrecognised suits,
+ * so a malformed `tile_types` row would surface as a clear error
+ * rather than silently producing wrong scores.
+ */
+function indicatorToScoringInput(
+  indicator: TileDto | null,
+): DoraIndicator[] {
+  if (indicator === null) return [];
+  return [
+    { suit: indicator.suit as DoraIndicator["suit"], rank: indicator.rank },
+  ];
 }
 
 /** Map a `team_definitions.code` to the scoring module's wind rank. The

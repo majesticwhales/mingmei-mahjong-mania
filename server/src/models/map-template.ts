@@ -69,6 +69,19 @@ export class MapTemplate extends BaseModel {
   @Column({ type: DataType.STRING(64), allowNull: true })
   declare defaultStartNodeCode: string | null;
 
+  /**
+   * Default size of the per-game dead wall for this template. Lobbies
+   * inherit this as `dead_wall_size`. The dealer mints `default_dead_wall_size`
+   * extra tiles from the catalog at game start and parks them as
+   * `dead_wall_index` placements (the first entry is the dora indicator,
+   * see TDD §3.9). The closed-set invariant
+   *   defaultSlotsPerNode * nodeCount + defaultHandSize * teamCount
+   *   + defaultDeadWallSize === catalogSize
+   * is enforced by the dealer, not the DB.
+   */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  declare defaultDeadWallSize: number;
+
   @HasMany(() => MapTemplateNode)
   declare nodes?: MapTemplateNode[];
 

@@ -626,4 +626,150 @@ describe("buildGameStateProjection", () => {
     // First participant is on team slot 1 — east.
     expect(projection.seatWind).toBe(1);
   });
+
+  // ------------------------------------------------------------------
+  // Dead wall + dora indicator (chunk 3)
+  // ------------------------------------------------------------------
+
+  /** Mint a `game_tile` + dead-wall `game_tile_placement` at the supplied
+   *  `dead_wall_index`. Mirrors `placeHandTiles` but targets the dead-wall
+   *  branch of the tri-state placement CHECK. */
+  async function placeDeadWallTile(
+    gameId: string,
+    deadWallIndex: number,
+    tile: readonly [string, number, number],
+  ): Promise<string> {
+    const [suit, rank, copyIndex] = tile;
+    const tileType = await TileType.findOne({
+      where: { suit, rank, copyIndex },
+    });
+    if (!tileType) {
+      throw new Error(
+        `tile_types row missing for (${suit}, ${rank}, ${copyIndex}); did the seed run?`,
+      );
+    }
+    const gameTile = await GameTile.create({
+      gameId,
+      tileTypeId: tileType.id,
+      copyIndex,
+    });
+    await GameTilePlacement.create({
+      gameTileId: gameTile.id,
+      gameNodeId: null,
+      gameTeamId: null,
+      slotIndex: null,
+      deadWallIndex,
+    });
+    return gameTile.id;
+  }
+
+  it("doraIndicator: null when no dead-wall placement exists", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.doraIndicator).toBeNull();
+  });
+
+  it("doraIndicator: exposes the dead-wall tile at index 0 as a TileDto", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    const indicatorTileId = await placeDeadWallTile(fixture.gameId, 0, [
+      "pin", 1, 0,
+    ]);
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.doraIndicator).not.toBeNull();
+    expect(projection.doraIndicator!.instanceId).toBe(indicatorTileId);
+    expect(projection.doraIndicator!.suit).toBe("pin");
+    expect(projection.doraIndicator!.rank).toBe(1);
+  });
+
+  it("doraIndicator: ignores dead-wall tiles parked at non-zero indices", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    // Park a tile at dead_wall_index = 1 only (no index 0). The projection
+    // exposes only the index-0 slot — extra dead-wall tiles are part of
+    // the (kan / replacement) tail and aren't surfaced as dora.
+    await placeDeadWallTile(fixture.gameId, 1, ["man", 5, 1]);
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.doraIndicator).toBeNull();
+  });
+
+  it("handAnalysis: dora indicator threads through to scoring (+1 han per matching tile)", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    // Same shanpon tenpai as the no-dora test: 234m 234p 234s 55p 88p.
+    // Indicator 1p → dora 2p; the hand has exactly one 2p (from 234p),
+    // so each wait gains +1 han.
+    await placeHandTiles(fixture.gameId, participant.gameTeamId, [
+      ["man", 2, 0], ["man", 3, 0], ["man", 4, 0],
+      ["pin", 2, 0], ["pin", 3, 0], ["pin", 4, 0],
+      ["sou", 2, 0], ["sou", 3, 0], ["sou", 4, 0],
+      ["pin", 5, 1], ["pin", 5, 2],
+      ["pin", 8, 0], ["pin", 8, 1],
+    ]);
+    await placeDeadWallTile(fixture.gameId, 0, ["pin", 1, 0]);
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.doraIndicator?.suit).toBe("pin");
+    expect(projection.doraIndicator?.rank).toBe(1);
+    expect(projection.handAnalysis).toBeDefined();
+    expect(projection.handAnalysis!.shanten).toBe(0);
+    for (const w of projection.handAnalysis!.waits!) {
+      // Base 3 han (tanyao + sanshoku) + 1 dora = 4 han.
+      expect(w.han).toBe(4);
+      const doraEntry = w.yaku.find((y) => y.name === "Dora");
+      expect(doraEntry).toBeDefined();
+      expect(doraEntry!.han).toBe(1);
+    }
+  });
+
+  it("handAnalysis: dora cycle wraps for honour indicators (Green dragon → Red dragon)", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    // Big Three Dragons-adjacent shape but with one missing dragon meld so
+    // we hit the normal scoring path rather than the yakuman (which would
+    // skip dora). 111d (red) 234m 234p 234s 88p — wait on 8p tanki.
+    // Indicator Green dragon (rank 3) → Red dragon (rank 1). The hand has
+    // three red-dragon tiles, so each wait gains +3 dora.
+    await placeHandTiles(fixture.gameId, participant.gameTeamId, [
+      ["dragon", 1, 0], ["dragon", 1, 1], ["dragon", 1, 2],
+      ["man", 2, 0], ["man", 3, 0], ["man", 4, 0],
+      ["pin", 2, 0], ["pin", 3, 0], ["pin", 4, 0],
+      ["sou", 2, 0], ["sou", 3, 0], ["sou", 4, 0],
+      ["pin", 8, 0],
+    ]);
+    await placeDeadWallTile(fixture.gameId, 0, ["dragon", 3, 0]);
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.doraIndicator?.suit).toBe("dragon");
+    expect(projection.doraIndicator?.rank).toBe(3);
+    expect(projection.handAnalysis).toBeDefined();
+    expect(projection.handAnalysis!.shanten).toBe(0);
+    const wait = projection.handAnalysis!.waits!.find(
+      (w) => w.tile.suit === "pin" && w.tile.rank === 8,
+    );
+    expect(wait).toBeDefined();
+    expect(wait!.isYakuman).toBe(false);
+    const doraEntry = wait!.yaku.find((y) => y.name === "Dora");
+    expect(doraEntry).toBeDefined();
+    expect(doraEntry!.han).toBe(3);
+  });
 });

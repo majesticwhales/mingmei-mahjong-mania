@@ -183,4 +183,120 @@ describe("dealTilesForGame", () => {
       ).rejects.toThrow(/handSize/);
     });
   });
+
+  describe("dead wall (chunk 1)", () => {
+    it("parks deadWallSize tiles outside nodes and hands with sequential indices", async () => {
+      // 80 × 1 + 13 × 4 + 4 = 80 + 52 + 4 = 136 (matches the seeded catalog).
+      const { lobbyId } = await createLobbyWithFourPlayers({ assignTeams: false });
+      const sequelize = await getSequelize();
+
+      await sequelize.transaction(async (transaction) => {
+        const shell = await createGameShell(lobbyId, transaction);
+
+        const templateNodes = await MapTemplateNode.findAll({
+          where: { mapTemplateId: shell.mapTemplateId },
+          order: [["code", "ASC"]],
+          limit: 80,
+          transaction,
+        });
+        expect(templateNodes).toHaveLength(80);
+
+        const gameNodes = await GameNode.bulkCreate(
+          templateNodes.map((tn, i) => ({
+            gameId: shell.gameId,
+            templateNodeId: tn.id,
+            code: `dw-${i}`,
+            name: tn.name,
+            latitude: tn.latitude,
+            longitude: tn.longitude,
+            geofenceRadiusMeters: 100,
+            coordinateX: tn.coordinateX,
+            coordinateY: tn.coordinateY,
+            labelAnchor: tn.labelAnchor,
+            labelRotate: tn.labelRotate,
+            isInterchange: tn.isInterchange,
+          })),
+          { transaction, returning: true },
+        );
+        const gameNodeIds = gameNodes.map((n) => n.id);
+
+        await dealTilesForGame(
+          shell.gameId,
+          shell.gameTeamIdBySlot,
+          1,
+          13,
+          transaction,
+          { deadWallSize: 4 },
+        );
+
+        const deadWallRows = await GameTilePlacement.findAll({
+          where: { gameNodeId: null, gameTeamId: null },
+          order: [["deadWallIndex", "ASC"]],
+          transaction,
+        });
+        expect(deadWallRows).toHaveLength(4);
+        expect(deadWallRows.map((r) => r.deadWallIndex)).toEqual([0, 1, 2, 3]);
+
+        // Node and hand placements left untouched: no dead_wall_index on
+        // either side.
+        const [nodeCount, handCount, taggedNodeOrHand] = await Promise.all([
+          GameTilePlacement.count({
+            where: { gameNodeId: gameNodeIds },
+            transaction,
+          }),
+          GameTilePlacement.count({
+            where: { gameTeamId: [...shell.gameTeamIdBySlot.values()] },
+            transaction,
+          }),
+          GameTilePlacement.count({
+            where: { deadWallIndex: [0, 1, 2, 3] },
+            transaction,
+          }),
+        ]);
+        expect(nodeCount).toBe(80);
+        expect(handCount).toBe(52);
+        expect(taggedNodeOrHand).toBe(4);
+      });
+    });
+
+    it("rejects when the closed-set invariant doesn't include deadWallSize", async () => {
+      // 84 × 1 + 13 × 4 + 4 = 140 ≠ 136 — dead wall pushes us over the
+      // catalog size; the dealer must reject.
+      const { lobbyId } = await createLobbyWithFourPlayers({ assignTeams: false });
+      const sequelize = await getSequelize();
+
+      await sequelize.transaction(async (transaction) => {
+        const shell = await createGameShellWithMap(lobbyId, transaction);
+        await expect(
+          dealTilesForGame(
+            shell.gameId,
+            shell.gameTeamIdBySlot,
+            1,
+            13,
+            transaction,
+            { deadWallSize: 4 },
+          ),
+        ).rejects.toThrow(/catalog mismatch/i);
+      });
+    });
+
+    it("rejects negative deadWallSize", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({ assignTeams: false });
+      const sequelize = await getSequelize();
+
+      await sequelize.transaction(async (transaction) => {
+        const shell = await createGameShellWithMap(lobbyId, transaction);
+        await expect(
+          dealTilesForGame(
+            shell.gameId,
+            shell.gameTeamIdBySlot,
+            1,
+            13,
+            transaction,
+            { deadWallSize: -1 },
+          ),
+        ).rejects.toThrow(/deadWallSize/);
+      });
+    });
+  });
 });
