@@ -7,6 +7,7 @@ import type { Sequelize } from "sequelize";
 const MUTABLE_TABLES = [
   "game_challenge_submissions",
   "game_challenge_instances",
+  "game_node_challenges",
   "game_scheduled_jobs",
   "game_events",
   "game_command_queue",

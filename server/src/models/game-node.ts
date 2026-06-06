@@ -12,6 +12,7 @@ import { BaseModel } from "./base.ts";
 import { Game } from "./game.ts";
 import { GameLine } from "./game-line.ts";
 import { GameLocationTeamVisibility } from "./game-location-team-visibility.ts";
+import { GameNodeChallenge } from "./game-node-challenge.ts";
 import { GameNodeLine } from "./game-node-line.ts";
 import { GameNodeVisibilityGroup } from "./game-node-visibility-group.ts";
 import { GameTilePlacement } from "./game-tile-placement.ts";
@@ -81,4 +82,7 @@ export class GameNode extends BaseModel {
 
   @HasMany(() => GameLocationTeamVisibility)
   declare teamVisibility?: GameLocationTeamVisibility[];
+
+  @HasMany(() => GameNodeChallenge)
+  declare challenges?: GameNodeChallenge[];
 }

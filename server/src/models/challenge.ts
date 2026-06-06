@@ -36,6 +36,9 @@ export class Challenge extends BaseModel {
   @Column({ type: DataType.TEXT, allowNull: true })
   declare description: string | null;
 
+  @Column({ type: DataType.TEXT, allowNull: true })
+  declare flavorText: string | null;
+
   @Column({ type: DataType.JSONB, allowNull: false, defaultValue: {} })
   declare parameters: Record<string, unknown>;
 

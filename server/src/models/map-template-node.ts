@@ -10,6 +10,7 @@ import {
 import { BaseModel } from "./base.ts";
 import { MapTemplate } from "./map-template.ts";
 import { MapTemplateLine } from "./map-template-line.ts";
+import { MapTemplateNodeChallenge } from "./map-template-node-challenge.ts";
 import { MapTemplateNodeLine } from "./map-template-node-line.ts";
 
 @Table({ tableName: "map_template_nodes" })
@@ -56,4 +57,7 @@ export class MapTemplateNode extends BaseModel {
 
   @HasMany(() => MapTemplateNodeLine)
   declare nodeLines?: MapTemplateNodeLine[];
+
+  @HasMany(() => MapTemplateNodeChallenge)
+  declare challenges?: MapTemplateNodeChallenge[];
 }
