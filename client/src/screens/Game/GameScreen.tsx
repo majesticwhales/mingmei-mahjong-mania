@@ -7,6 +7,8 @@ import { StationPanel } from "../../components/StationPanel";
 import { captureGeolocation } from "../../hooks/useGeolocation";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useAtStation, useEventLog, useGame, useGameProjection } from "../../state/game/hooks";
+import { useOutbox } from "../../state/outbox/hooks";
+import { HttpError } from "../../transport/httpError";
 import { EventLogDrawer } from "./EventLogDrawer";
 import { GameTimer } from "./GameTimer";
 import { SwapTileModal } from "./SwapTileModal";
@@ -19,6 +21,7 @@ export function GameScreen() {
   const projection = useGameProjection();
   const atStation = useAtStation();
   const eventLog = useEventLog();
+  const { state: outboxState, pushToast } = useOutbox();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [eventLogOpen, setEventLogOpen] = useState(false);
   const [swapOpen, setSwapOpen] = useState(false);
@@ -45,19 +48,31 @@ export function GameScreen() {
     );
   }, [projection]);
 
-  const activeNodeId = selectedNodeId ?? atStation?.nodeId ?? null;
+  const mapSelectedNodeId = selectedNodeId ?? atStation?.nodeId ?? null;
 
-  const selectedNodeName = useMemo(() => {
-    if (!projection || !activeNodeId) return null;
-    return projection.mapNodes.find((node) => node.id === activeNodeId)?.name ?? null;
-  }, [projection, activeNodeId]);
+  const viewingNode = useMemo(() => {
+    if (!projection) return null;
+    const nodeId = selectedNodeId ?? atStation?.nodeId ?? null;
+    if (!nodeId) return null;
+    return projection.mapNodes.find((node) => node.id === nodeId) ?? null;
+  }, [projection, selectedNodeId, atStation]);
+
+  const checkedInNodeName = useMemo(() => {
+    if (!projection || !atStation) return null;
+    return projection.mapNodes.find((node) => node.id === atStation.nodeId)?.name ?? atStation.code;
+  }, [projection, atStation]);
 
   const stationLines = useMemo(() => {
-    if (!projection || !activeNodeId) return [];
-    const node = projection.mapNodes.find((item) => item.id === activeNodeId);
-    if (!node) return [];
-    return network?.lines.filter((line) => node.lineIds.includes(line.id)) ?? [];
-  }, [projection, activeNodeId, network]);
+    if (!viewingNode || !network) return [];
+    return network.lines.filter((line) => viewingNode.lineIds.includes(line.id));
+  }, [viewingNode, network]);
+
+  const commandsPending = useMemo(() => {
+    if (!id) return false;
+    return (outboxState.byGame[id] ?? []).some(
+      (row) => row.status === "pending" || row.status === "in_flight",
+    );
+  }, [id, outboxState.byGame]);
 
   if (!id) return null;
 
@@ -78,26 +93,43 @@ export function GameScreen() {
     );
   }
 
+  async function runCommand(task: () => Promise<void>) {
+    try {
+      await task();
+    } catch (error) {
+      const message =
+        error instanceof HttpError ? error.message : "Command failed — try again";
+      pushToast(message);
+    }
+  }
+
   async function handleCheckIn(nodeId: string) {
-    const geo = await captureGeolocation();
-    await submitCommand("CHECK_IN", {
-      nodeId,
-      ...(geo ? { geo } : {}),
+    await runCommand(async () => {
+      const geo = await captureGeolocation();
+      await submitCommand("CHECK_IN", {
+        nodeId,
+        ...(geo ? { geo } : {}),
+      });
+      setSelectedNodeId(null);
     });
-    setSelectedNodeId(null);
   }
 
   async function handleCheckOut() {
-    await submitCommand("CHECK_OUT", {});
+    await runCommand(async () => {
+      await submitCommand("CHECK_OUT", {});
+      setSelectedNodeId(null);
+    });
   }
 
   async function handleSwap(handTileId: string, stationTileId: string, slotIndex?: number) {
-    await submitCommand("SWAP_TILE", {
-      handTileId,
-      stationTileId,
-      ...(slotIndex != null ? { slotIndex } : {}),
+    await runCommand(async () => {
+      await submitCommand("SWAP_TILE", {
+        handTileId,
+        stationTileId,
+        ...(slotIndex != null ? { slotIndex } : {}),
+      });
+      setSwapOpen(false);
     });
-    setSwapOpen(false);
   }
 
   return (
@@ -131,16 +163,17 @@ export function GameScreen() {
         <MapShell
           network={network}
           mapNodes={projection.mapNodes}
-          selectedStationId={activeNodeId}
+          selectedStationId={mapSelectedNodeId}
           onSelectStation={setSelectedNodeId}
         />
       </main>
       <StationPanel
         atStation={atStation}
-        selectedNodeId={selectedNodeId}
-        selectedNodeName={selectedNodeName}
+        viewingNode={viewingNode}
+        checkedInNodeName={checkedInNodeName}
         stationLines={stationLines}
         handTiles={projection.handTiles}
+        commandsPending={commandsPending}
         onClose={() => setSelectedNodeId(null)}
         onCheckIn={handleCheckIn}
         onCheckOut={handleCheckOut}

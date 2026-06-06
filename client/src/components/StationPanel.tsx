@@ -1,14 +1,14 @@
 import type { SubwayLine } from "../data/types";
 import { tileImagePath } from "../lib/tileImages";
-import type { AtStationDto } from "../wire/projection";
-import type { HandTileDto, SlotTileDto, TileDto } from "../wire/projection";
+import type { AtStationDto, HandTileDto, MapNodeDto, SlotTileDto, TileDto } from "../wire/projection";
 
 interface Props {
   atStation: AtStationDto | null;
-  selectedNodeId: string | null;
-  selectedNodeName: string | null;
+  viewingNode: MapNodeDto | null;
+  checkedInNodeName: string | null;
   stationLines?: SubwayLine[];
   handTiles: HandTileDto[];
+  commandsPending?: boolean;
   onClose: () => void;
   onCheckIn: (nodeId: string) => void;
   onCheckOut: () => void;
@@ -44,19 +44,39 @@ function renderSlotTiles(tiles: SlotTileDto[] | undefined, single?: TileDto) {
   return null;
 }
 
+function stationTilesForView(
+  viewingNode: MapNodeDto | null,
+  atStation: AtStationDto | null,
+  isViewingCheckedInStation: boolean,
+) {
+  if (!viewingNode) return null;
+  if (isViewingCheckedInStation && atStation) {
+    return renderSlotTiles(atStation.tiles, atStation.tile);
+  }
+  return renderSlotTiles(viewingNode.tiles, viewingNode.tile);
+}
+
 export function StationPanel({
   atStation,
-  selectedNodeId,
-  selectedNodeName,
+  viewingNode,
+  checkedInNodeName,
   stationLines = [],
   handTiles,
+  commandsPending = false,
   onClose,
   onCheckIn,
   onCheckOut,
   onSwapTile,
 }: Props) {
-  const isOpen = Boolean(atStation || selectedNodeId);
-  const showCheckIn = !atStation && selectedNodeId;
+  const isOpen = Boolean(viewingNode);
+  const checkedInId = atStation?.nodeId ?? null;
+  const viewingId = viewingNode?.id ?? null;
+  const isViewingCheckedInStation =
+    viewingId != null && checkedInId != null && viewingId === checkedInId;
+  const isBrowsingElsewhere =
+    viewingId != null && checkedInId != null && viewingId !== checkedInId;
+  const showCheckIn = viewingId != null && !isViewingCheckedInStation;
+  const stationTiles = stationTilesForView(viewingNode, atStation, isViewingCheckedInStation);
 
   return (
     <aside
@@ -68,10 +88,14 @@ export function StationPanel({
       <header className="station-panel__header">
         <div>
           <p className="station-panel__eyebrow">
-            {atStation ? `At: ${atStation.code}` : "Station"}
+            {isViewingCheckedInStation
+              ? `At: ${atStation!.code}`
+              : isBrowsingElsewhere
+                ? `Checked in at ${checkedInNodeName ?? atStation!.code}`
+                : "Station"}
           </p>
           <h2 className="station-panel__title">
-            {atStation ? selectedNodeName ?? atStation.code : selectedNodeName ?? "Pick a station"}
+            {viewingNode?.name ?? "Pick a station"}
           </h2>
         </div>
         {isOpen && (
@@ -81,7 +105,7 @@ export function StationPanel({
         )}
       </header>
       <div className="station-panel__body">
-        {!atStation && !selectedNodeId && (
+        {!viewingNode && (
           <p className="station-panel__empty">
             Tap any station on the map to check in or inspect tiles along your route.
           </p>
@@ -99,26 +123,51 @@ export function StationPanel({
             </ul>
           </section>
         )}
+        {viewingNode && stationTiles && (
+          <section>
+            <h3 className="station-panel__section-title">Station tiles</h3>
+            <div className="station-panel__slots">{stationTiles}</div>
+          </section>
+        )}
         {showCheckIn && (
-          <button type="button" className="btn btn--primary btn--block" onClick={() => onCheckIn(selectedNodeId!)}>
-            Check in here
+          <button
+            type="button"
+            className="btn btn--primary btn--block"
+            disabled={commandsPending}
+            onClick={() => onCheckIn(viewingId!)}
+          >
+            {isBrowsingElsewhere ? "Move here" : "Check in here"}
           </button>
         )}
-        {atStation && (
-          <>
-            <section>
-              <h3 className="station-panel__section-title">Station tiles</h3>
-              <div className="station-panel__slots">{renderSlotTiles(atStation.tiles, atStation.tile)}</div>
-            </section>
-            <div className="station-panel__actions">
-              <button type="button" className="btn btn--secondary" onClick={onSwapTile}>
-                Swap tile
-              </button>
-              <button type="button" className="btn btn--danger" onClick={onCheckOut}>
-                Check out
-              </button>
-            </div>
-          </>
+        {isViewingCheckedInStation && atStation && (
+          <div className="station-panel__actions">
+            <button
+              type="button"
+              className="btn btn--secondary"
+              disabled={commandsPending}
+              onClick={onSwapTile}
+            >
+              Swap tile
+            </button>
+            <button
+              type="button"
+              className="btn btn--danger"
+              disabled={commandsPending}
+              onClick={onCheckOut}
+            >
+              Check out
+            </button>
+          </div>
+        )}
+        {isBrowsingElsewhere && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--block"
+            disabled={commandsPending}
+            onClick={onCheckOut}
+          >
+            Check out from {checkedInNodeName ?? atStation!.code}
+          </button>
         )}
         <section>
           <h3 className="station-panel__section-title">Your hand ({handTiles.length})</h3>
