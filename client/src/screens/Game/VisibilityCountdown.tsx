@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
   nextVisibilityChangeAt: string | null;
@@ -13,26 +13,30 @@ function formatRemaining(ms: number) {
 }
 
 export function VisibilityCountdown({ nextVisibilityChangeAt, onElapsed }: Props) {
-  const [remaining, setRemaining] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const elapsedRef = useRef(false);
+
+  const targetMs = nextVisibilityChangeAt
+    ? new Date(nextVisibilityChangeAt).getTime()
+    : null;
+  const remaining = targetMs != null ? targetMs - now : null;
 
   useEffect(() => {
-    if (!nextVisibilityChangeAt) {
-      setRemaining(null);
-      return;
-    }
-    let elapsedFired = false;
-    const tick = () => {
-      const nextRemaining = new Date(nextVisibilityChangeAt).getTime() - Date.now();
-      setRemaining(nextRemaining);
-      if (nextRemaining <= 0 && !elapsedFired) {
-        elapsedFired = true;
-        onElapsed?.();
-      }
-    };
-    tick();
-    const timer = setInterval(tick, 1000);
+    elapsedRef.current = false;
+  }, [nextVisibilityChangeAt]);
+
+  useEffect(() => {
+    if (targetMs == null) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [nextVisibilityChangeAt, onElapsed]);
+  }, [targetMs]);
+
+  useEffect(() => {
+    if (remaining == null || remaining > 0) return;
+    if (elapsedRef.current) return;
+    elapsedRef.current = true;
+    onElapsed?.();
+  }, [remaining, onElapsed]);
 
   if (remaining == null) return null;
   return (

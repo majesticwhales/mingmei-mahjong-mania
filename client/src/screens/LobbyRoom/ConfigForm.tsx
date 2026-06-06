@@ -1,6 +1,7 @@
 import {
   FormEvent,
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useState,
@@ -39,7 +40,7 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
     setDraft(config);
   }, [config]);
 
-  async function saveDraft() {
+  const saveDraft = useCallback(async () => {
     if (!lobbyConfigHasPendingChanges(draft, config)) return;
     setSaving(true);
     try {
@@ -47,7 +48,7 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
     } finally {
       setSaving(false);
     }
-  }
+  }, [draft, config, onSave]);
 
   useImperativeHandle(
     ref,
@@ -55,7 +56,7 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
       savePendingChanges: saveDraft,
       hasPendingChanges: () => lobbyConfigHasPendingChanges(draft, config),
     }),
-    [draft, config, onSave],
+    [draft, config, saveDraft],
   );
 
   async function handleSubmit(event: FormEvent) {

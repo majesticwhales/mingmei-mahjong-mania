@@ -39,7 +39,7 @@ export async function revealPhaseVisibilityGroup(
     GameTeamHomeGroup.findAll({ where: { gameId }, transaction }),
     GameNodeVisibilityGroup.findAll({
       where: { gameNodeId: gameNodeIds },
-      transaction,
+      transaction
     }),
   ]);
 
