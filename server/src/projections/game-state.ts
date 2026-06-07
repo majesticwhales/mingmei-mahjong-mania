@@ -545,8 +545,16 @@ export async function buildGameStateProjection(
     gameId,
     status: game.status,
     endsAt: game.endsAt.toISOString(),
-    nextVisibilityChangeAt:
-      nextVisibilityJob?.runAt.toISOString() ?? null,
+    // `nextVisibilityChangeAt` advertises the next phase advance to the
+    // client (countdown banner). When the phase layer is off there are
+    // no `VISIBILITY_PHASE_ADVANCE` jobs at all (scheduler gated in
+    // chunk 3), so the lookup would return `null` anyway — we still
+    // explicitly short-circuit so a phase-off game that somehow has a
+    // stale job lying around (manual seeding, mode flip mid-flight)
+    // doesn't surface a countdown the client can't act on.
+    nextVisibilityChangeAt: phaseLayerActive
+      ? nextVisibilityJob?.runAt.toISOString() ?? null
+      : null,
     mapNodes,
     mapLines,
     mapEdges,
@@ -606,6 +614,13 @@ function buildAtStation(params: {
   multiSlot: boolean;
   nowMs: number;
   currentChallenge: AtStationChallengeDto | null;
+  /**
+   * Whether per-slot unlock rules are active (`visibility_mode`
+   * includes `slot`). When false, every slot at the station is
+   * exposed to the checked-in team regardless of the
+   * `slot_unlock_offsets_seconds` snapshot.
+   */
+  slotLayerActive: boolean;
 }): AtStationDto | null {
   const {
     game,
@@ -615,6 +630,7 @@ function buildAtStation(params: {
     multiSlot,
     nowMs,
     currentChallenge,
+    slotLayerActive,
   } = params;
   const nodeId = teamPosition?.currentGameNodeId;
   if (!nodeId) {
@@ -634,7 +650,12 @@ function buildAtStation(params: {
   };
 
   if (multiSlot) {
-    const unlocked = unlockedSlotIndices(game, game.slotsPerNode, nowMs);
+    // Slot-off games treat every slot index as unlocked at the
+    // station; otherwise we defer to the wall-clock helper that
+    // reads `game.slot_unlock_offsets_seconds`.
+    const unlocked = slotLayerActive
+      ? unlockedSlotIndices(game, game.slotsPerNode, nowMs)
+      : Array.from({ length: game.slotsPerNode }, (_v, k) => k);
     const entries: SlotTileDto[] = [];
     if (bySlot) {
       for (const slotIndex of unlocked) {
