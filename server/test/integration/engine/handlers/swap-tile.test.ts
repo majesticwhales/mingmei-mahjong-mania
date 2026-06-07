@@ -1,13 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { processCommand } from "../../../../src/engine/process-command.ts";
+import { GameTeamPosition } from "../../../../src/models/game-team-position.ts";
 import { GameTilePlacement } from "../../../../src/models/game-tile-placement.ts";
+import {
+  attachChallengeToGameNode,
+  clearTestChallenges,
+} from "../../../setup/challenges.ts";
 import { setupLightweightGame } from "../../../setup/game.ts";
 import { getSequelize, truncateMutableTables } from "../../../setup/db.ts";
 
 describe("SWAP_TILE handler", () => {
   beforeEach(async () => {
     await truncateMutableTables(await getSequelize());
+    await clearTestChallenges();
+  });
+  afterEach(async () => {
+    await truncateMutableTables(await getSequelize());
+    await clearTestChallenges();
   });
 
   it("swaps the requested hand and station tiles and emits a SWAP_TILE event", async () => {
@@ -280,5 +290,102 @@ describe("SWAP_TILE handler", () => {
         payload: { handTileId: same, stationTileId: same },
       }),
     ).rejects.toMatchObject({ status: 400, code: "invalid_payload" });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase H: challenge gate. Stations carrying any `game_node_challenges`
+  // row require `pending_swap_credit === true` (set by
+  // CHALLENGE_COMPLETED) before a SWAP_TILE will succeed. Stations with
+  // no challenges configured stay free-swap for back-compat.
+  // -------------------------------------------------------------------------
+
+  it("rejects with swap_credit_required when the station has a challenge but the team lacks a credit", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      nodeTilesByCode: { bay: 1 },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    await attachChallengeToGameNode({ gameNodeId: bayId });
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "SWAP_TILE",
+        payload: {
+          handTileId: fixture.handTiles[0]!.gameTileId,
+          stationTileId: fixture.nodeTiles[0]!.gameTileId,
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "swap_credit_required" });
+  });
+
+  it("consumes pending_swap_credit on a successful swap but keeps credit_earned_in_session sticky", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      nodeTilesByCode: { bay: 1 },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    await attachChallengeToGameNode({ gameNodeId: bayId });
+    await GameTeamPosition.update(
+      { pendingSwapCredit: true, creditEarnedInSession: true },
+      { where: { gameTeamId: participant.gameTeamId } },
+    );
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "SWAP_TILE",
+      payload: {
+        handTileId: fixture.handTiles[0]!.gameTileId,
+        stationTileId: fixture.nodeTiles[0]!.gameTileId,
+      },
+    });
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]!.eventType).toBe("SWAP_TILE");
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.pendingSwapCredit).toBe(false);
+    expect(position?.creditEarnedInSession).toBe(true);
+  });
+
+  it("permits a swap without a credit when the station has no challenges configured (back-compat)", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      nodeTilesByCode: { bay: 1 },
+    });
+    const participant = fixture.participants[0]!;
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "SWAP_TILE",
+      payload: {
+        handTileId: fixture.handTiles[0]!.gameTileId,
+        stationTileId: fixture.nodeTiles[0]!.gameTileId,
+      },
+    });
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]!.eventType).toBe("SWAP_TILE");
+
+    // Credit flags should remain untouched on a back-compat swap.
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.pendingSwapCredit).toBe(false);
+    expect(position?.creditEarnedInSession).toBe(false);
   });
 });

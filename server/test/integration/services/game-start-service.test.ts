@@ -1,18 +1,43 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as lobbyService from "../../../src/services/lobby-service.ts";
 import * as notificationService from "../../../src/services/lobby-notification-service.ts";
 import { startFromLobby } from "../../../src/services/game-start-service.ts";
+import { Challenge } from "../../../src/models/challenge.ts";
+import { ChallengeDeck } from "../../../src/models/challenge-deck.ts";
+import { ChallengeType } from "../../../src/models/challenge-type.ts";
 import { Game } from "../../../src/models/game.ts";
+import { GameNode } from "../../../src/models/game-node.ts";
+import { GameNodeChallenge } from "../../../src/models/game-node-challenge.ts";
 import { GameScheduledJob } from "../../../src/models/game-scheduled-job.ts";
 import { GameTile } from "../../../src/models/game-tile.ts";
-import { GameNode } from "../../../src/models/game-node.ts";
 import { Lobby } from "../../../src/models/lobby.ts";
+import { MapTemplateNode } from "../../../src/models/map-template-node.ts";
+import { MapTemplateNodeChallenge } from "../../../src/models/map-template-node-challenge.ts";
 import { createLobbyWithFourPlayers } from "../../setup/lobby.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
+
+const START_TEST_DECK_CODE = "start-test-deck";
+const START_TEST_CARD_CODE = "start-test-card";
+
+async function clearStartTestCatalog(): Promise<void> {
+  const stale = await Challenge.findAll({ where: { code: START_TEST_CARD_CODE } });
+  if (stale.length > 0) {
+    await MapTemplateNodeChallenge.destroy({
+      where: { challengeId: stale.map((c) => c.id) },
+    });
+  }
+  await ChallengeDeck.destroy({ where: { code: START_TEST_DECK_CODE } });
+}
 
 describe("startFromLobby", () => {
   beforeEach(async () => {
     await truncateMutableTables(await getSequelize());
+    await clearStartTestCatalog();
+  });
+
+  afterEach(async () => {
+    await truncateMutableTables(await getSequelize());
+    await clearStartTestCatalog();
   });
 
   // will update this as the phases progress
@@ -69,6 +94,64 @@ describe("startFromLobby", () => {
       "VISIBILITY_PHASE_ADVANCE",
       "GAME_END",
     ]);
+  });
+
+  it("snapshots map_template_node_challenges into game_node_challenges per cloned game node", async () => {
+    const type = await ChallengeType.findOne();
+    if (!type) throw new Error("expected at least one seeded challenge_type");
+    const deck = await ChallengeDeck.create({
+      code: START_TEST_DECK_CODE,
+      name: "Start test deck",
+      isActive: true,
+      sortOrder: 0,
+    });
+    const card = await Challenge.create({
+      challengeDeckId: deck.id,
+      challengeTypeId: type.id,
+      code: START_TEST_CARD_CODE,
+      title: "Start test card",
+      description: null,
+      flavorText: "flavour",
+      parameters: {},
+      sortOrder: 0,
+      isActive: true,
+    });
+
+    // Attach to exactly two template nodes so we can assert per-node fidelity
+    // without depending on the full seeded template size.
+    const templateNodes = await MapTemplateNode.findAll({
+      attributes: ["id"],
+      order: [["code", "ASC"]],
+      limit: 2,
+    });
+    expect(templateNodes).toHaveLength(2);
+    await MapTemplateNodeChallenge.bulkCreate(
+      templateNodes.map((node) => ({
+        mapTemplateNodeId: node.id,
+        challengeId: card.id,
+        sortOrder: 0,
+      })),
+    );
+
+    const { lobbyId, hostId } = await createLobbyWithFourPlayers();
+    const result = await startFromLobby(lobbyId, hostId);
+
+    const queueRows = await GameNodeChallenge.findAll({
+      include: [
+        {
+          model: GameNode,
+          where: { gameId: result.gameId },
+          attributes: ["id", "templateNodeId"],
+        },
+      ],
+    });
+    expect(queueRows).toHaveLength(2);
+    const templateIds = new Set(templateNodes.map((n) => n.id));
+    for (const row of queueRows) {
+      expect(row.challengeId).toBe(card.id);
+      expect(row.sortOrder).toBe(0);
+      expect(templateIds.has(row.gameNode!.templateNodeId)).toBe(true);
+    }
   });
 
   it("copies lobby_notifications into NOTIFICATION scheduled jobs at game start", async () => {

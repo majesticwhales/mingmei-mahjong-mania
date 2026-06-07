@@ -1,7 +1,7 @@
 # Mingmei's Mahjong Mania — Technical Design Document
 
 **Status:** Living document (v1 infrastructure)  
-**Last updated:** 2026-05-24
+**Last updated:** 2026-06-06
 
 ---
 
@@ -21,7 +21,7 @@ This document defines **infrastructure and architecture** for *mingmei-mahjong-m
 - **Cloudflare R2** media storage (MinIO locally)
 - DB-backed scheduler (visibility phases, notifications, game end)
 - **Per-lobby static notification schedule** (`lobby_notifications`)
-- Challenge system **schema + media plumbing** (resolver logic when product defines cards)
+- Challenge system **schema + honor-system swap gate** (one challenge per station gates `SWAP_TILE`; product still defines the actual card decks; reviewer-driven resolvers when product asks for them — see [§3.8](#38-challenges-honor-system-swap-gate))
 - **Riichi hand evaluation** module (stub → full scoring; see [§3.9](#39-mahjong-hand-evaluation-riichi))
 
 ### Abstraction layer vs rule layer
@@ -216,10 +216,13 @@ canSwapSlot(team, node, slotIndex) =
 
 | Command | Payload | Description |
 |---------|---------|-------------|
-| `CHECK_IN` | `{ nodeId, geo? }` | Photo upload **deferred (Phase G, post-MVP)**; v1 MVP accepts CHECK_IN without a `media_asset_id`. The optional `geo: { latitude, longitude, accuracy, capturedAt? }` triggers Phase F warn/allow (see "Travel" below). Sets `current_game_node_id` to any station; implicit check-out first if already checked in elsewhere. |
-| `CHECK_OUT` | `{}` | Clears `current_game_node_id`. |
-| `SWAP_TILE` | `{ handTileId, stationTileId }` | Exchanges a specific hand tile with a specific tile at the team's current station. Both tile ids are caller-chosen since a station may hold up to `games.slots_per_node` tiles. Rejects with `409 slot_locked` if the targeted tile occupies a slot whose unlock offset has not yet elapsed (see §3.3 `canSwapSlot`). |
-| `SWAP_LOCATION_TILES` | `{ tileAId, tileBId }` | Swap two tiles between map nodes (challenges). Uses shared `TileSwapService`. Implemented in Phase H. |
+| `CHECK_IN` | `{ nodeId, geo? }` | Photo upload **deferred (Phase G, post-MVP)**; v1 MVP accepts CHECK_IN without a `media_asset_id`. The optional `geo: { latitude, longitude, accuracy, capturedAt? }` triggers Phase F warn/allow (see "Travel" below). Sets `current_game_node_id` to any station; implicit check-out first if already checked in elsewhere. **Phase H:** if the team had an in-progress challenge at the previous station, the handler emits a `CHALLENGE_FORFEITED` event with `reason: "checkout"` before the implicit `CHECK_OUT`; the position's `pending_swap_credit` + `credit_earned_in_session` flags reset unconditionally so the team starts a fresh session at the new station. See [§3.8](#38-challenges-honor-system-swap-gate). |
+| `CHECK_OUT` | `{}` | Clears `current_game_node_id`. **Phase H:** same auto-forfeit + credit-reset semantics as `CHECK_IN`'s implicit branch. |
+| `SWAP_TILE` | `{ handTileId, stationTileId }` | Exchanges a specific hand tile with a specific tile at the team's current station. Both tile ids are caller-chosen since a station may hold up to `games.slots_per_node` tiles. Rejects with `409 slot_locked` if the targeted tile occupies a slot whose unlock offset has not yet elapsed (see §3.3 `canSwapSlot`). **Phase H:** rejects with `409 swap_credit_required` when the station has any configured challenges and the team's `pending_swap_credit` is false; consumes the credit on success (clears `pending_swap_credit` but leaves the sticky `credit_earned_in_session` flag intact). Stations with zero challenges configured stay free-swap for back-compat. |
+| `START_CHALLENGE` | `{ nodeId }` | **Phase H.** Move the team's relationship with the station's top challenge from "available" to "in_progress" (creates a `game_challenge_instances` row). `nodeId` must match the team's current station. Rejects with `409 not_checked_in`, `409 wrong_node`, `409 credit_already_used` (team already cashed a credit this session), `409 challenge_in_progress` (team has any open instance anywhere), `409 no_challenge_at_station`, or `409 challenge_on_cooldown`. See [§3.8](#38-challenges-honor-system-swap-gate). |
+| `CHALLENGE_COMPLETED` | `{ instanceId }` | **Phase H.** Honor-system completion. Transitions the instance to `completed`, stamps `cooldown_until = now + 5 min`, and flips both `pending_swap_credit` and `credit_earned_in_session` to true on the team's position. Rejects with `404 not_found`, `403 forbidden` (owned by another team), `409 challenge_not_in_progress`, or position guards (`409 not_checked_in` / `409 wrong_node`). |
+| `CHALLENGE_FORFEITED` | `{ instanceId }` | **Phase H.** Player-driven forfeit. Same lifecycle as `CHALLENGE_COMPLETED` (transitions to `failed`, same cooldown) but DOES NOT grant a swap credit. Emits `reason: "explicit"` to distinguish from auto-forfeits (which emit `reason: "checkout"`). |
+| `SWAP_LOCATION_TILES` | `{ tileAId, tileBId }` | Swap two tiles between map nodes (resolver-driven challenges). Uses shared `TileSwapService`. **Stub in v1** — the honor-system flow above is the MVP gate; the resolver workflow that drives `SWAP_LOCATION_TILES` is deferred until product defines decks that need it. |
 | *(future)* | | Additional station actions while checked in. |
 
 **Travel:** No adjacency requirement. Geolocation optional on `CHECK_IN` (Phase F) — `SWAP_TILE` inherits the team's most-recent check-in coordinates. The handler **always accepts** the check-in (allow); the `geofenceValidated` / `geolocationWarning` flags are advisory and persisted on `game_team_positions` + lifted onto the CHECK_IN event payload. Two independent warning triggers, both relative to the station's own `geofence_radius_meters` (default 100 m):
@@ -272,21 +275,79 @@ sortKey(tile) = (tile_types.suit_sort_order, tile_types.rank, game_tiles.copy_in
 - Hand order is **not stored** in the DB. The engine/projection layer sorts by `sortKey` when building `handTiles[]`.
 - Projections emit `handTiles[]` with `slotIndex` 0–12 assigned at read time; **client must not re-sort**.
 
-### 3.8 Challenges (architecture; rules TBD)
+### 3.8 Challenges (honor-system swap gate)
 
-Static catalog: `challenge_decks`, `challenge_types`, `challenges` (parameters JSONB OK).
+**Status:** MVP shipped Phase H — the honor-system flow below gates `SWAP_TILE`. Resolver-driven workflow (`ChallengeResolutionService` with `resolver_key` dispatch, reviewer-approved submissions, `purpose = challenge_submission` media) is **deferred until product defines decks that need it**; the schema for submissions is already migrated so the re-enable is purely additive.
 
-Runtime: `game_challenge_instances`, `game_challenge_submissions`.
+#### Honor-system mental model
 
-`ChallengeResolutionService` dispatches by `resolver_key`:
+Every station carries a **queue of challenges** (`game_node_challenges`, ordered by `sort_order`). To claim a tile from a station via `SWAP_TILE` a team must first complete that station's **top challenge** (`sort_order = 0`) on the honor system. MVP stations carry exactly one challenge — the multi-challenge "discard the top card" mechanic is forward-compatible but deferred.
 
-| Type | Examples (product) |
-|------|-------------------|
-| `travel` | “Travel 500m in direction of drawn wind” |
-| `photo` | “Photo of 3 round objects”, “three same-colour foods” |
-| `tile_swap` | Map tile exchanges via `TileSwapService` |
+#### Per-team challenge state machine
 
-Photo challenges reuse media pipeline (`purpose = challenge_submission`). Implement resolvers when product defines decks (Phase H).
+Per-team progress on a single station challenge is tracked in `game_challenge_instances`. Three observable states (`status` + `cooldown_until` + the team's `game_team_positions.credit_earned_in_session` flag):
+
+| State | Definition | Engine command |
+|-------|------------|----------------|
+| `available` | No row exists OR the latest row has `cooldown_until <= now()`. Team can engage. | `START_CHALLENGE` |
+| `in_progress` | Latest row has `status = "in_progress"`. Team is actively working on it. | `CHALLENGE_COMPLETED` or `CHALLENGE_FORFEITED` |
+| `cooldown` | Latest row has `status ∈ {completed, failed}` and `cooldown_until > now()`. | (none — wait) |
+
+**Cooldown:** 5 minutes (`CHALLENGE_COOLDOWN_MS` in `engine/challenge-lifecycle.ts`). Applies identically to `completed` (honor-system "great, you got the credit, now go somewhere else for a few minutes") and `failed` (so a team can't spam-forfeit to skip an unwanted challenge).
+
+#### Swap credit (per-session economy)
+
+A successful `CHALLENGE_COMPLETED` mints a **single-use, single-session swap credit** stored on the team's `game_team_positions` row:
+
+| Column | Meaning |
+|--------|---------|
+| `pending_swap_credit BOOLEAN` | True between `CHALLENGE_COMPLETED` and the next `SWAP_TILE`. Consumed on swap. |
+| `credit_earned_in_session BOOLEAN` | Sticky — set true on `CHALLENGE_COMPLETED`, stays true through `SWAP_TILE`, used by `START_CHALLENGE` to enforce "at most one credit per check-in session". |
+
+Both flags reset to false on every `CHECK_IN` and `CHECK_OUT` (explicit or implicit). The session begins on check-in and dies on check-out — credits never bank across sessions.
+
+#### Auto-forfeit on station change
+
+A team can only carry one in-progress challenge at a time, and they must resolve it (or abandon it) before moving on. Any `CHECK_IN` at a different station or explicit `CHECK_OUT` auto-forfeits any in-progress instance (`status → failed`, same 5-minute cooldown, `resolution_payload = { reason: "checkout" }`). The auto-forfeit emits a `CHALLENGE_FORFEITED` event with `reason: "checkout"` so the event log distinguishes it from a player-driven `reason: "explicit"` forfeit.
+
+#### Verification (out of scope for v1)
+
+Completion is on the honor system — the player taps "Done" and the server takes their word. No photo upload, no reviewer queue, no automatic verification. The resolver workflow that would replace this lives in the deferred [§9 Phase H follow-up](#9-implementation-phases); the schema (`game_challenge_submissions` + the additional `status` enum values `active / submitted / approved / rejected / cancelled` on `game_challenge_instances`) is already migrated so the un-defer is purely a code path.
+
+#### Engine event flow (single station)
+
+```
+[available]
+   │ START_CHALLENGE { nodeId }
+   ▼
+[in_progress] ──── CHECK_IN elsewhere / CHECK_OUT ────► [cooldown (failed, reason: checkout)]
+   │                                                      │
+   │ CHALLENGE_COMPLETED { instanceId }                    │
+   │   → pending_swap_credit = true                        │
+   │   → credit_earned_in_session = true                   │
+   ▼                                                       │
+[cooldown (completed)]                                     │
+   │                                                       │
+   │ SWAP_TILE consumes the credit ──► pending_swap_credit │
+   │                                   = false             │
+   ▼                                                       ▼
+(wait 5 min)                                          (wait 5 min)
+   │                                                       │
+   ▼                                                       ▼
+[available again — but credit_earned_in_session blocks new starts in this session]
+   │
+   │ CHECK_OUT / CHECK_IN resets credit_earned_in_session
+   ▼
+[available, fresh session]
+```
+
+#### Back-compat
+
+Stations with **zero** rows in `game_node_challenges` skip the credit gate entirely — `SWAP_TILE` succeeds without `pending_swap_credit`. This keeps existing templates that predate the challenge wiring functional and lets a future template opt in to the gate by simply attaching a `map_template_node_challenges` queue.
+
+#### Schema summary
+
+See [§4.8](#48-challenges-schema-honor-system--reserved-resolver-flow). The honor-system flow uses `challenges` + `challenge_decks` + the new `map_template_node_challenges` / `game_node_challenges` join tables; per-team state lives on `game_challenge_instances` (new `game_node_challenge_id` FK, new `cooldown_until` column, extended `status` enum). The reserved resolver tables (`challenge_types`, `game_challenge_submissions`) stay migrated but unused on the v1 write path.
 
 ### 3.9 Mahjong hand evaluation (Riichi)
 
@@ -666,29 +727,90 @@ Set at game start from lobby config (when product defines it). Other keys may be
 
 Use `@aws-sdk/client-s3` with custom endpoint + path-style for R2.
 
-### 4.8 Challenges (schema; seeds later)
+### 4.8 Challenges (schema; honor-system + reserved resolver flow)
 
-#### `challenge_types`
+The honor-system swap gate (TDD §3.8) ships in v1. The resolver-driven workflow tables (`challenge_types`, `game_challenge_submissions`) stay migrated but are unused on the write path until product defines decks that need them. See §3.8 for the lifecycle these tables back.
 
-Global catalog: `code`, `name`, `resolver_key` (dispatches `ChallengeResolutionService`).
+#### Catalog (rule-agnostic; seeded by product)
 
-#### `challenge_decks`
+##### `challenge_types`
 
-`code`, `name`, `is_active`, `sort_order`.
+Global catalog: `code`, `name`, `resolver_key`. Reserved — dispatches the future `ChallengeResolutionService`. Honor-system flow ignores this column.
 
-#### `challenges`
+##### `challenge_decks`
 
-`challenge_deck_id`, `challenge_type_id`, `code` (unique per deck), `title`, `parameters` (JSONB), `sort_order`, `is_active`.
+`code` (unique), `name`, `is_active`, `sort_order`.
 
-#### `game_challenge_instances`
+##### `challenges`
 
-Runtime draw per team: `game_id`, `game_team_id`, `challenge_id`, `status` (`active` \| `submitted` \| `approved` \| `rejected` \| `cancelled`), `assigned_at`, `expires_at`, `resolved_at`, `resolution_payload` (JSONB).
+`challenge_deck_id`, `challenge_type_id`, `code` (unique per deck), `title`, `description` (nullable TEXT), `flavor_text` (nullable TEXT — added Phase H for the UI's flavour-line above the description), `parameters` (JSONB), `sort_order`, `is_active`.
 
-#### `game_challenge_submissions`
+#### Per-template queue (honor-system binding)
 
-`game_challenge_instance_id`, `submitted_by_user_id`, optional `media_asset_id`, `payload` (JSONB), `status` (`pending` \| `accepted` \| `rejected`), `submitted_at`, `reviewed_at`, `rejection_reason`.
+##### `map_template_node_challenges`
 
-Seeder: `challenge_types` only (`travel`, `photo`, `tile_swap`); decks/cards when product defines them.
+Catalog-level binding: which challenges (and in what order) appear at each station of a `map_template`. Snapshotted into `game_node_challenges` at game start.
+
+| Column | Notes |
+|--------|--------|
+| `id` | UUID PK |
+| `map_template_node_id` | FK → `map_template_nodes`, `ON DELETE RESTRICT` |
+| `challenge_id` | FK → `challenges`, `ON DELETE RESTRICT` |
+| `sort_order` | INT NOT NULL, `>= 0`. UNIQUE on `(map_template_node_id, sort_order)` — the queue is dense and totally-ordered. |
+
+MVP map templates set exactly one row per station (sort_order = 0). The multi-row case is forward-compatible (multi-challenge "deck per station" with discard mechanic) but deferred — no engine code consumes `sort_order > 0` today.
+
+##### `game_node_challenges`
+
+Per-game snapshot of the template queue, created by `bootstrapGameChallenges` after `cloneMapTemplateToGame`.
+
+| Column | Notes |
+|--------|--------|
+| `id` | UUID PK |
+| `game_node_id` | FK → `game_nodes`, `ON DELETE RESTRICT` |
+| `challenge_id` | FK → `challenges`, `ON DELETE RESTRICT` |
+| `sort_order` | INT NOT NULL, `>= 0`. UNIQUE on `(game_node_id, sort_order)`. |
+
+Truncated by the integration-test harness (`MUTABLE_TABLES`) but `challenges` / `challenge_decks` are catalog — tests that seed cards must clean up explicitly via `clearTestChallenges`.
+
+#### Per-team runtime state
+
+##### `game_challenge_instances`
+
+Per-team progress on a single `game_node_challenge`. The honor-system flow uses the first three status values; the remaining five are reserved for the resolver workflow.
+
+| Column | Notes |
+|--------|--------|
+| `id` | UUID PK |
+| `game_id` | FK → `games` |
+| `game_team_id` | FK → `game_teams` |
+| `challenge_id` | FK → `challenges`. Denormalized for convenience; equal to `game_node_challenges.challenge_id`. |
+| `game_node_challenge_id` | FK → `game_node_challenges`, added Phase H. Identifies WHICH station-queue slot this attempt is against. |
+| `status` | CHECK in `{in_progress, completed, failed, active, submitted, approved, rejected, cancelled}`. Honor-system uses `in_progress / completed / failed`; the other five are reserved for the resolver workflow and never participate in the swap-credit lifecycle. |
+| `assigned_at` | DATE NOT NULL — when the team issued `START_CHALLENGE`. |
+| `expires_at` | DATE NULL — reserved for resolver workflow timeouts. |
+| `resolved_at` | DATE NULL — stamped on `completed` / `failed`. |
+| `cooldown_until` | DATE NULL — added Phase H. Stamped to `resolved_at + 5 min` on resolution. `START_CHALLENGE` rejects with `409 challenge_on_cooldown` while `cooldown_until > now()`. |
+| `resolution_payload` | JSONB NULL. Honor-system writes `{ reason: "completed" \| "explicit" \| "checkout" }`. |
+
+Index: `(game_team_id, game_node_challenge_id)` for the projection's "latest attempt by this team at this challenge" lookup.
+
+##### `game_challenge_submissions` (reserved)
+
+Resolver workflow only — unused in v1. `game_challenge_instance_id`, `submitted_by_user_id`, optional `media_asset_id`, `payload` (JSONB), `status` (`pending` \| `accepted` \| `rejected`), `submitted_at`, `reviewed_at`, `rejection_reason`.
+
+#### Per-team swap-credit flags (on `game_team_positions`)
+
+Phase H adds two booleans to `game_team_positions` (documented here alongside the challenge state they belong to; the rest of `game_team_positions` lives in §4.5):
+
+| Column | Notes |
+|--------|--------|
+| `pending_swap_credit` | BOOLEAN NOT NULL DEFAULT FALSE. True between `CHALLENGE_COMPLETED` and the next `SWAP_TILE`. Consumed on swap. |
+| `credit_earned_in_session` | BOOLEAN NOT NULL DEFAULT FALSE. Sticky within a check-in session: set on `CHALLENGE_COMPLETED`, stays true through the credit-consuming `SWAP_TILE`, blocks further `START_CHALLENGE` until the session ends. |
+
+Both reset to false on every `CHECK_IN` and `CHECK_OUT` (explicit or implicit). See §3.8.
+
+Seeder: `challenge_types` only (`travel`, `photo`, `tile_swap`); decks/cards/queue bindings live in template-specific seeders that product owns.
 
 ### 4.9 Events and command queue
 
@@ -785,9 +907,9 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 | `mapNodes[]` | Layout fields per `game_node`; `lineIds[]` (string codes); `tile` (default config) or `tiles[]` (when `slots_per_node > 1`) only if phase-visible on map |
 | `mapLines[]` | Line catalog (`code`, `name`, `shortName`, `color`, `renderMetadata`) — sent once / on reconnect |
 | `mapEdges[]` | Static graph (`fromNodeId`, `toNodeId`) — sent once / on reconnect |
-| `atStation` | When checked in: `nodeId`, `code`, `tile` (always) |
+| `atStation` | When checked in: `nodeId`, `code`, `tile` / `tiles[]`, plus Phase H `currentChallenge` + `pendingSwapCredit` + `creditEarnedInSession` |
 | `handTiles[]` | Own team, pre-sorted |
-| `recentEvents[]` | Shared metadata (no photo URLs) |
+| `recentEvents[]` | Shared metadata (no photo URLs). Phase H lifts `challengeId` + `instanceId` to top-level on START / COMPLETED / FORFEITED events. |
 | `roundWind`, `seatWind` | Wind ranks `1..4` (East/South/West/North) — round wind is the game-wide randomized value, seat wind is derived from the team's `team_definition.code` |
 | `doraIndicator` | The dead-wall tile at `dead_wall_index = 0`, or `null` when the game has no dead wall. Public — same value across every team's projection. Threaded into `analyzeHand.doraIndicators` so the per-wait `han` already includes the dora bonus. |
 | `handAnalysis?` | Riichi shanten / tenpai analysis from the scoring module (§3.9). Present when `handTiles.length === 13` or `14`; omitted otherwise. |
@@ -909,6 +1031,34 @@ includedTiles =
 
 The `SWAP_TILE` payload (`{ handTileId, stationTileId }`) already addresses a specific tile by id, so the array shape requires no payload change — clients pick which slot's tile to swap by passing its `stationTileId`.
 
+**Phase H challenge extension (`atStation.currentChallenge` + credit flags).** Every `atStation` payload now includes three additional fields scoped to the honor-system swap gate (§3.8):
+
+```json
+{
+  "nodeId": "uuid",
+  "code": "STN_01",
+  "tile": { "...": "..." },
+  "currentChallenge": {
+    "challengeId": "uuid",
+    "title": "Tap the eastern pillar",
+    "description": "Touch the pillar nearest the eastbound platform.",
+    "flavorText": "Watch your step.",
+    "status": "available"
+  },
+  "pendingSwapCredit": false,
+  "creditEarnedInSession": false
+}
+```
+
+- `currentChallenge`: the top (`sort_order = 0`) `game_node_challenges` row for the team's current station, joined to its catalog `challenges` row. `null` when the station has zero challenges configured (back-compat).
+  - `status: "available"` — team can issue `START_CHALLENGE`. No `instanceId` / `cooldownUntil`.
+  - `status: "in_progress"` — team has an open instance. `instanceId` is present; pass it back via `CHALLENGE_COMPLETED` / `CHALLENGE_FORFEITED`.
+  - `status: "cooldown"` — team's most recent attempt is still cooling down. `cooldownUntil` is an ISO 8601 timestamp; the client renders a countdown.
+- `pendingSwapCredit`: boolean. True between `CHALLENGE_COMPLETED` and the consuming `SWAP_TILE`; the swap button stays enabled while this is true. Reset on every `CHECK_IN` / `CHECK_OUT`.
+- `creditEarnedInSession`: boolean. Sticky once `CHALLENGE_COMPLETED` fires this session; the client uses it to grey out the "Start challenge" button after the team has already cashed in. Reset on every `CHECK_IN` / `CHECK_OUT`.
+
+All three fields are scoped to the issuing team — team A's `in_progress` is never visible to team B. The full per-state-machine projection contract lives in `server/src/projections/game-state.ts::buildCurrentChallenge`.
+
 **Why not let the client render from full data?**  
 Exposing every location’s tile in `game.state` would leak map state via devtools/network and breaks competitive play. Any “hidden” UI must be based on **missing data**, not client-side filtering.
 
@@ -1006,7 +1156,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 | **E** | Socket.IO, projections (sorted hands), reconnect |
 | **F** | **Complete** — Geolocation warn/allow. `services/geolocation.ts` (pure haversine + payload parser + evaluator) feeds the `CHECK_IN` handler; results persist to `game_team_positions.{lastCheckInLatitude,lastCheckInLongitude,geofenceValidated,geolocationWarning}` and are lifted onto the `CHECK_IN` event payload (`geolocationWarning`, `geofenceValidated`, `distanceMeters`) and the `RecentEventDto` (`geolocationWarning` only). `SWAP_TILE` inherits the most-recent-check-in coordinates from the position row. See [§3.4 Travel](#34-station-commands-and-travel). |
 | **G** | **Deferred (post-MVP)** — R2/MinIO, check-in photo, game summary URLs, retention. v1 MVP CHECK_IN is photo-less; schema is already migrated so the re-enable path is purely additive (UX + upload pipeline + presigned-URL plumbing). See [§1](#1-purpose-and-scope) "Out of scope". |
-| **H** | Challenge catalog + resolvers (when product ready) |
+| **H** | **Honor-system swap gate — Shipped.** Three new commands + events (`START_CHALLENGE` / `CHALLENGE_COMPLETED` / `CHALLENGE_FORFEITED`) wire challenges to `SWAP_TILE` via a per-team swap credit. New tables `map_template_node_challenges` / `game_node_challenges` snapshot a per-station queue at game start (`bootstrapGameChallenges`). `game_challenge_instances` gains `game_node_challenge_id` + `cooldown_until` + extended `status` enum; `game_team_positions` gains `pending_swap_credit` + `credit_earned_in_session`. `CHECK_IN` / `CHECK_OUT` auto-forfeit any in-progress instance and reset both credit flags. `SWAP_TILE` rejects with `409 swap_credit_required` when the station has challenges and the team lacks a credit; back-compat path (no challenges configured) stays free-swap. `buildGameStateProjection` exposes `atStation.currentChallenge` + the two credit flags. **Deferred follow-ups:** resolver-driven workflow (`ChallengeResolutionService` + `purpose = challenge_submission` media + reviewer queue) — the schema is migrated, just no v1 write path; the multi-challenge "discard the top card" mechanic for stations carrying `sort_order > 0` rows. See [§3.8](#38-challenges-honor-system-swap-gate). |
 | **I** | **Scoring — Shipped.** Pure `analyzeHand` module under `server/src/scoring/`: shanten (standard / chiitoitsu / kokushi), wait enumeration, 28-detector yaku catalog (1–6 han + 8 yakuman with additive stacking), fu + non-dealer tsumo points, red-five bonus, **dora indicator** bonus (`scoring/dora.ts`, `+1 han per matching tile`, gated by the same "needs a yaku" rule as red fives, ignored by yakuman). `games.round_wind` + `games.dead_wall_size` migrations; `GameStartService` randomizes the round wind and snapshots `dead_wall_size`; the dealer parks the trailing tiles in the dead wall as `dead_wall_index = 0..n-1` placements (index 0 = dora indicator). `buildGameStateProjection` wires `analyzeHand` into every team's `game.state` (new fields: `roundWind`, `seatWind`, `doraIndicator`, `handAnalysis?`). **Follow-ups (post-MVP):** wire `analyzeHand` into `GET /api/games/:id/summary` for per-team end-of-game scores. Uradora + kan-dora (the multi-indicator path is already in the API) when kan / riichi land. Challenge resolvers (Phase H) reuse the same module when a card requires proving a scoring hand. |
 
 ---
@@ -1019,9 +1169,11 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
 |------|--------|
 | Deal algorithm | Resolved — Fisher–Yates |
 | Notification copy | Resolved — opaque `template` key per `lobby_notifications` row; concrete text catalog is a rule-layer concern |
-| Challenge definitions | Waiting on product (rule layer) |
+| Challenge definitions (catalog content) | Waiting on product (rule layer). Honor-system swap-gate infrastructure ships in Phase H; product still owns the actual deck/card seeds. |
+| Challenge resolver workflow | Deferred — v1 uses the honor-system flow (§3.8). Schema for `game_challenge_submissions` + the `active / submitted / approved / rejected / cancelled` `status` values stays migrated for a purely additive re-enable. |
+| Multi-challenge station queue (discard mechanic) | Deferred — `map_template_node_challenges` and `game_node_challenges` already store `sort_order` and allow `> 0` rows, but no engine code consumes them today. Re-enable means adding a "discard top card" command + plumbing the `sort_order = k` lookup into `START_CHALLENGE`. |
 | GDPR media delete | Deferred |
-| Challenge photo visibility during game | Likely same as check-in; confirm with product (rule layer) |
+| Challenge photo visibility during game | Deferred with the resolver workflow above (no photos in the honor-system flow). |
 | Riichi: dora / red dora / full yaku list | Resolved — red-fives ship as `+1 han` per copy; **dora indicator** ships as `+1 han per matching tile` (single indicator parked at `dead_wall_index = 0`); uradora and kan-dora are deferred (the multi-indicator path already exists in the API, see §3.9 "Out of scope"). v1 yaku catalog is the 28 detectors in §3.9. |
 | 13 vs 14 tiles for evaluation API | Resolved — `analyzeHand` accepts both: 13 tiles ⇒ shanten + waits; 14 tiles ⇒ scored directly (last tile = winning tile). |
 | Scoring affects game winner | Rule layer — summary ranking only vs mechanical win condition; decided post-MVP once scoring is wired into the summary. |
@@ -1085,6 +1237,15 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
   - **Lobby create-time fix (no migration):** `createLobby` now algorithmically defaults the per-slot arrays (`[0,…,0]` / `[true,…,true]`) when the host overrides `slotsPerNode` past the template default's length, mirroring the auto-resize logic that already existed in `updateConfig`. Hosts no longer have to supply matched-length arrays just to start a non-default-slots lobby. Validation still rejects explicit-but-wrong-length arrays.
   - Test coverage: `test/unit/services/slot-visibility.test.ts` — 14 unit tests covering `slotUnlockAtMs` (slot 0, non-zero, out-of-range), `isSlotUnlocked` (slot 0 always, threshold around unlock time), `assertSlotUnlocked` (no-throw / 409 with timestamp), `unlockedSlotIndices` (all / prefix / start-of-game / non-monotonic offsets), `isSlotMapVisible` (lookup + out-of-range), and `mapVisibleSlotIndices` (full / partial / all-true). The existing `tile-swap-service.test.ts` (hand↔node and node↔node-on-same-node) now passes against the deferred EXCLUDE constraint, and `swap-tile.test.ts` covers the engine refactor end-to-end.
 - [x] Phase I scoring projection wiring (`20260602225000-add-round-wind.cjs`): adds `games.round_wind INTEGER NOT NULL DEFAULT 1` (1 = East) with CHECK `1..4`. Snapshotted from a uniform random pick in `GameStartService` at game creation. Consumed by the `analyzeHand` projection wiring (§3.9). Existing rows backfill to East via the default.
+- [x] Phase H honor-system challenge wiring (`20260606000000-add-node-challenges.cjs`): adds the storage + per-team state needed for the challenge swap gate (§3.8). Wrapped in a single transaction.
+  - New table `map_template_node_challenges (id, map_template_node_id FK RESTRICT, challenge_id FK RESTRICT, sort_order, timestamps)` with `UNIQUE (map_template_node_id, sort_order)` and `sort_order >= 0`. Template-level binding of challenges to stations.
+  - New table `game_node_challenges (id, game_node_id FK RESTRICT, challenge_id FK RESTRICT, sort_order, timestamps)` with `UNIQUE (game_node_id, sort_order)` and `sort_order >= 0`. Per-game snapshot copied by `bootstrapGameChallenges` from the template queue right after `cloneMapTemplateToGame`. Added to `MUTABLE_TABLES` so the integration harness truncates it; the seeded `challenges` / `challenge_decks` themselves are catalog and must be cleaned up by tests that mint them (see `server/test/setup/challenges.ts::clearTestChallenges`).
+  - `challenges`: add `flavor_text TEXT NULL` — the UI's flavour-line above the description; never required.
+  - `game_challenge_instances`: add `game_node_challenge_id UUID NOT NULL FK → game_node_challenges` (identifies WHICH station-queue slot this attempt is against — the legacy `challenge_id` is denormalized for convenience), add `cooldown_until TIMESTAMPTZ NULL` (stamped to `resolved_at + 5 min` on resolution; gates `START_CHALLENGE`), extend the `status` CHECK from `{active, submitted, approved, rejected, cancelled}` to also include `{in_progress, completed, failed}` for the honor-system flow. Added index on `(game_team_id, game_node_challenge_id)` for the projection's "latest attempt by this team at this challenge" lookup.
+  - `game_team_positions`: add `pending_swap_credit BOOLEAN NOT NULL DEFAULT FALSE` and `credit_earned_in_session BOOLEAN NOT NULL DEFAULT FALSE`. Both reset to false on every `CHECK_IN` / `CHECK_OUT` (explicit or implicit); `CHALLENGE_COMPLETED` flips both to true; `SWAP_TILE` clears `pending_swap_credit` on success but leaves the sticky `credit_earned_in_session` alone. See §3.8.
+  - Engine code (chunks 2 + 3): new service `game-challenge-bootstrap.ts` (template → game queue copy at start); new handlers `start-challenge.ts` / `complete-challenge.ts` / `forfeit-challenge.ts` registered in `engine/handlers/index.ts`; shared `engine/challenge-lifecycle.ts` exporting `CHALLENGE_COOLDOWN_MS` + `autoForfeitActiveChallenge` (used by both `check-in.ts` and `check-out.ts`); `swap-tile.ts` extended with the credit gate (back-compat for zero-challenge stations); `recent-events.ts` lifts `challengeId` + `instanceId` to top-level on START / COMPLETED / FORFEITED events.
+  - Projection (chunk 4): `buildGameStateProjection` exposes `atStation.currentChallenge` (`{ challengeId, title, description, flavorText, status, instanceId?, cooldownUntil? }`) plus `pendingSwapCredit` + `creditEarnedInSession`. New helper `buildCurrentChallenge` derives the three observable states (`available` / `in_progress` / `cooldown`) from the team's latest `game_challenge_instances` row.
+  - Test coverage: schema smoke (`schema/node-challenges.test.ts`), bootstrap service (`services/game-challenge-bootstrap.test.ts`), each new handler (`engine/handlers/{start,complete,forfeit}-challenge.test.ts`), extended `check-in.test.ts` / `check-out.test.ts` / `swap-tile.test.ts` for auto-forfeit + credit reset + gate / consumption, and projection (`projections/at-station-challenge.test.ts`) covering all three states + cooldown elapse + credit consumption + per-team scoping.
 - [x] Dead wall + dora indicator chunk 1 (`20260605120000-add-dead-wall.cjs`): adds the storage needed for a per-game "dead wall". Wrapped in a single transaction.
   - Adds `game_tile_placements.dead_wall_index INTEGER NULL`.
   - Drops the legacy `game_tile_placements_node_xor_team` CHECK and replaces it with a tri-state `game_tile_placements_target_exactly_one` CHECK: exactly one of `game_node_id`, `game_team_id`, `dead_wall_index` is non-null. `dead_wall_index >= 0` is folded into the same CHECK.
@@ -1153,7 +1314,17 @@ Team is checked in at `STN_42` (fogged on map). Home group nodes include `STN_01
       "suit": "dots",
       "rank": 9,
       "displayName": "9 Dot"
-    }
+    },
+    "currentChallenge": {
+      "challengeId": "challenge-…",
+      "title": "Tap the eastern pillar",
+      "description": "Touch the pillar nearest the eastbound platform.",
+      "flavorText": "Watch your step.",
+      "status": "in_progress",
+      "instanceId": "instance-…"
+    },
+    "pendingSwapCredit": false,
+    "creditEarnedInSession": false
   },
   "mapNodes": [
     {
@@ -1202,6 +1373,15 @@ Team is checked in at `STN_42` (fogged on map). Home group nodes include `STN_01
       "nodeCode": "STN_42",
       "hasPhoto": true,
       "at": "2026-05-17T18:12:00.000Z"
+    },
+    {
+      "sequence": 43,
+      "type": "START_CHALLENGE",
+      "teamCode": "red",
+      "nodeCode": "STN_42",
+      "challengeId": "challenge-…",
+      "instanceId": "instance-…",
+      "at": "2026-05-17T18:13:14.000Z"
     }
   ],
   "roundWind": 2,

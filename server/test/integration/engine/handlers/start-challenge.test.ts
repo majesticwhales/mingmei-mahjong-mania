@@ -1,0 +1,293 @@
+import { randomUUID } from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { processCommand } from "../../../../src/engine/process-command.ts";
+import { GameChallengeInstance } from "../../../../src/models/game-challenge-instance.ts";
+import { GameTeamPosition } from "../../../../src/models/game-team-position.ts";
+import {
+  attachChallengeToGameNode,
+  clearTestChallenges,
+} from "../../../setup/challenges.ts";
+import { setupLightweightGame } from "../../../setup/game.ts";
+import { getSequelize, truncateMutableTables } from "../../../setup/db.ts";
+
+describe("START_CHALLENGE handler", () => {
+  beforeEach(async () => {
+    await truncateMutableTables(await getSequelize());
+    await clearTestChallenges();
+  });
+  afterEach(async () => {
+    await truncateMutableTables(await getSequelize());
+    await clearTestChallenges();
+  });
+
+  it("creates an in_progress instance and emits START_CHALLENGE", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "START_CHALLENGE",
+      payload: { nodeId: bayId },
+    });
+
+    expect(result.events).toHaveLength(1);
+    const [event] = result.events;
+    expect(event!.eventType).toBe("START_CHALLENGE");
+    expect(event!.payload).toMatchObject({
+      nodeId: bayId,
+      nodeCode: "bay",
+      challengeId: seed.challengeId,
+    });
+    const instanceId = (event!.payload as { instanceId: string }).instanceId;
+    expect(typeof instanceId).toBe("string");
+
+    const instance = await GameChallengeInstance.findByPk(instanceId);
+    expect(instance?.status).toBe("in_progress");
+    expect(instance?.gameTeamId).toBe(participant.gameTeamId);
+    expect(instance?.gameNodeChallengeId).toBe(seed.gameNodeChallengeId);
+    expect(instance?.resolvedAt).toBeNull();
+    expect(instance?.cooldownUntil).toBeNull();
+  });
+
+  it("rejects with not_checked_in when the team has no current station", async () => {
+    const fixture = await setupLightweightGame({ nodeCodes: ["bay"] });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    await attachChallengeToGameNode({ gameNodeId: bayId });
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "START_CHALLENGE",
+        payload: { nodeId: bayId },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "not_checked_in" });
+  });
+
+  it("rejects with wrong_node when nodeId differs from the team's current station", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay", "bloor-yonge"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bloorId = fixture.nodeIdByCode.get("bloor-yonge")!;
+    await attachChallengeToGameNode({ gameNodeId: bloorId });
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "START_CHALLENGE",
+        payload: { nodeId: bloorId },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "wrong_node" });
+  });
+
+  it("rejects with no_challenge_at_station when the node has no challenges configured", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "START_CHALLENGE",
+        payload: { nodeId: bayId },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "no_challenge_at_station" });
+  });
+
+  it("rejects with credit_already_used when the team has banked a credit this session", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    await attachChallengeToGameNode({ gameNodeId: bayId });
+    await GameTeamPosition.update(
+      { creditEarnedInSession: true },
+      { where: { gameTeamId: participant.gameTeamId } },
+    );
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "START_CHALLENGE",
+        payload: { nodeId: bayId },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "credit_already_used" });
+  });
+
+  it("rejects with challenge_in_progress when the team already has an open instance", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    await GameChallengeInstance.create({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+      status: "in_progress",
+      assignedAt: new Date(),
+    });
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "START_CHALLENGE",
+        payload: { nodeId: bayId },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "challenge_in_progress" });
+  });
+
+  it("rejects with challenge_on_cooldown when the team's last attempt is still cooling down", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    await GameChallengeInstance.create({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+      status: "failed",
+      assignedAt: new Date(Date.now() - 60 * 1000),
+      resolvedAt: new Date(Date.now() - 30 * 1000),
+      cooldownUntil: new Date(Date.now() + 60 * 1000),
+      resolutionPayload: { reason: "explicit" },
+    });
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "START_CHALLENGE",
+        payload: { nodeId: bayId },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "challenge_on_cooldown" });
+  });
+
+  it("permits a fresh start once the prior cooldown has elapsed", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    await GameChallengeInstance.create({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+      status: "completed",
+      assignedAt: new Date(Date.now() - 10 * 60 * 1000),
+      resolvedAt: new Date(Date.now() - 6 * 60 * 1000),
+      cooldownUntil: new Date(Date.now() - 60 * 1000),
+      resolutionPayload: { reason: "completed" },
+    });
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "START_CHALLENGE",
+      payload: { nodeId: bayId },
+    });
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]!.eventType).toBe("START_CHALLENGE");
+  });
+
+  it("picks the sort_order=0 challenge when a node has multiple queued challenges", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const first = await attachChallengeToGameNode({
+      gameNodeId: bayId,
+      sortOrder: 0,
+    });
+    await attachChallengeToGameNode({ gameNodeId: bayId, sortOrder: 1 });
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "START_CHALLENGE",
+      payload: { nodeId: bayId },
+    });
+    expect((result.events[0]!.payload as { challengeId: string }).challengeId).toBe(
+      first.challengeId,
+    );
+  });
+
+  it("rejects with invalid_payload when nodeId is missing", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "START_CHALLENGE",
+        payload: {},
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "invalid_payload" });
+  });
+
+  it("rejects with node_not_in_game when nodeId is unknown", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+
+    // Force a position so the not_checked_in check passes; the unknown
+    // nodeId must still fail the wrong_node guard. (node_not_in_game
+    // requires the team to be checked in AT a matching nodeId — which
+    // they aren't, so wrong_node fires first by design.)
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "START_CHALLENGE",
+        payload: { nodeId: randomUUID() },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "wrong_node" });
+  });
+});

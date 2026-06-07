@@ -156,6 +156,9 @@ describe("buildGameStateProjection", () => {
       nodeId: aId,
       code: "a",
       tile: expect.objectContaining({ instanceId: tileId }),
+      currentChallenge: null,
+      pendingSwapCredit: false,
+      creditEarnedInSession: false,
     });
   });
 
