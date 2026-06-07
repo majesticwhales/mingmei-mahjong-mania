@@ -6,8 +6,11 @@ const PATCH_KEYS = [
   "visibilityPhaseIntervalSeconds",
   "visibilityPhaseCount",
   "slotsPerNode",
+  "slotUnlockOffsetsSeconds",
+  "slotMapVisible",
   "deadWallSize",
   "teamAssignmentMode",
+  "visibilityMode",
   "minPlayersToStart",
   "defaultStartNodeCode",
 ] as const satisfies ReadonlyArray<keyof LobbyConfigPatch>;
@@ -19,8 +22,11 @@ export function lobbyConfigPatchFromDto(config: LobbyConfigDto): LobbyConfigPatc
     visibilityPhaseIntervalSeconds: config.visibilityPhaseIntervalSeconds,
     visibilityPhaseCount: config.visibilityPhaseCount,
     slotsPerNode: config.slotsPerNode,
+    slotUnlockOffsetsSeconds: config.slotUnlockOffsetsSeconds,
+    slotMapVisible: config.slotMapVisible,
     deadWallSize: config.deadWallSize,
     teamAssignmentMode: config.teamAssignmentMode,
+    visibilityMode: config.visibilityMode,
     minPlayersToStart: config.minPlayersToStart,
     defaultStartNodeCode: config.defaultStartNodeCode,
   };

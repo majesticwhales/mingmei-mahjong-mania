@@ -1,3 +1,4 @@
+import type { VisibilityMode } from "../game/visibility-mode.ts";
 import { isDevRelaxLobbyStart } from "../lib/dev-flags.ts";
 import type { Lobby, LobbyStatus, TeamAssignmentMode } from "../models/lobby.ts";
 import type { LobbyMember } from "../models/lobby-member.ts";
@@ -57,6 +58,14 @@ export interface LobbyConfigDto {
    * module. See TDD §3.9.
    */
   deadWallSize: number;
+  /**
+   * Which visibility layers are active for the resulting game. The host
+   * picks this in the lobby UI; the engine snapshots it onto
+   * `games.visibility_mode` at start. Locked-knob errors surface as
+   * `400 visibility_knob_locked` from the patch endpoint. See TDD
+   * §3.2 / §3.3.
+   */
+  visibilityMode: VisibilityMode;
   teamAssignmentMode: TeamAssignmentMode;
   minPlayersToStart: number;
   /** Station code where all teams spawn at game start (null = no default). */
@@ -226,6 +235,7 @@ export function serializeLobbyDetail(
       slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
       slotMapVisible: lobby.slotMapVisible,
       deadWallSize: lobby.deadWallSize,
+      visibilityMode: lobby.visibilityMode,
       teamAssignmentMode: lobby.teamAssignmentMode,
       minPlayersToStart: lobby.minPlayersToStart,
       defaultStartNodeCode: lobby.defaultStartNodeCode,

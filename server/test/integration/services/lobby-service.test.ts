@@ -343,4 +343,197 @@ describe("lobby-service", () => {
       ).rejects.toMatchObject({ status: 400, code: "validation_error" });
     });
   });
+
+  describe("visibility mode (chunk 2)", () => {
+    it("defaults to the template's defaultVisibilityMode ('both')", async () => {
+      const host = await registerUser();
+      const lobby = await lobbyService.createLobby(host.user.id);
+      expect(lobby.config.visibilityMode).toBe("both");
+    });
+
+    it.each(["none", "phase", "slot", "both"] as const)(
+      "accepts visibilityMode=%s on create",
+      async (mode) => {
+        const host = await registerUser();
+        const lobby = await lobbyService.createLobby(host.user.id, {
+          visibilityMode: mode,
+        });
+        expect(lobby.config.visibilityMode).toBe(mode);
+      },
+    );
+
+    it("rejects an unknown visibilityMode on create", async () => {
+      const host = await registerUser();
+      await expect(
+        lobbyService.createLobby(host.user.id, {
+          // @ts-expect-error - intentionally bad input for runtime check
+          visibilityMode: "bogus",
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+
+    it("host can patch visibilityMode via updateConfig", async () => {
+      const host = await registerUser();
+      const created = await lobbyService.createLobby(host.user.id);
+      const updated = await lobbyService.updateConfig(
+        created.id,
+        host.user.id,
+        { visibilityMode: "slot" },
+      );
+      expect(updated.config.visibilityMode).toBe("slot");
+    });
+
+    describe("knob lock", () => {
+      it("rejects visibilityPhaseCount in a patch when mode excludes phase", async () => {
+        const host = await registerUser();
+        const created = await lobbyService.createLobby(host.user.id, {
+          visibilityMode: "slot",
+        });
+        await expect(
+          lobbyService.updateConfig(created.id, host.user.id, {
+            visibilityPhaseCount: 5,
+          }),
+        ).rejects.toMatchObject({
+          status: 400,
+          code: "visibility_knob_locked",
+        });
+      });
+
+      it("rejects visibilityPhaseIntervalSeconds in a patch when mode excludes phase", async () => {
+        const host = await registerUser();
+        const created = await lobbyService.createLobby(host.user.id, {
+          visibilityMode: "none",
+        });
+        await expect(
+          lobbyService.updateConfig(created.id, host.user.id, {
+            visibilityPhaseIntervalSeconds: 30,
+          }),
+        ).rejects.toMatchObject({
+          status: 400,
+          code: "visibility_knob_locked",
+        });
+      });
+
+      it("rejects non-zero slotUnlockOffsetsSeconds when mode excludes slot", async () => {
+        const host = await registerUser();
+        const created = await lobbyService.createLobby(host.user.id, {
+          visibilityMode: "phase",
+          slotsPerNode: 3,
+        });
+        await expect(
+          lobbyService.updateConfig(created.id, host.user.id, {
+            slotUnlockOffsetsSeconds: [0, 60, 0],
+          }),
+        ).rejects.toMatchObject({
+          status: 400,
+          code: "visibility_knob_locked",
+        });
+      });
+
+      it("rejects a `false` slotMapVisible entry when mode excludes slot", async () => {
+        const host = await registerUser();
+        const created = await lobbyService.createLobby(host.user.id, {
+          visibilityMode: "phase",
+          slotsPerNode: 2,
+        });
+        await expect(
+          lobbyService.updateConfig(created.id, host.user.id, {
+            slotMapVisible: [true, false],
+          }),
+        ).rejects.toMatchObject({
+          status: 400,
+          code: "visibility_knob_locked",
+        });
+      });
+
+      it("still allows a trivial slotUnlockOffsetsSeconds (all zeros) when slot is off", async () => {
+        // All-zero offsets are a no-op for the slot layer (it's
+        // skipped at the engine when off), so the lock lets the host
+        // re-send the existing trivial value.
+        const host = await registerUser();
+        const created = await lobbyService.createLobby(host.user.id, {
+          visibilityMode: "phase",
+          slotsPerNode: 2,
+        });
+        const updated = await lobbyService.updateConfig(
+          created.id,
+          host.user.id,
+          { slotUnlockOffsetsSeconds: [0, 0] },
+        );
+        expect(updated.config.slotUnlockOffsetsSeconds).toEqual([0, 0]);
+      });
+
+      it("rejects visibilityPhaseCount on create when visibilityMode excludes phase", async () => {
+        const host = await registerUser();
+        await expect(
+          lobbyService.createLobby(host.user.id, {
+            visibilityMode: "slot",
+            visibilityPhaseCount: 6,
+          }),
+        ).rejects.toMatchObject({
+          status: 400,
+          code: "visibility_knob_locked",
+        });
+      });
+    });
+
+    describe("mode-transition cleanup", () => {
+      it("zeros out slot knobs when host switches from `both` to `phase`", async () => {
+        const host = await registerUser();
+        const created = await lobbyService.createLobby(host.user.id, {
+          slotsPerNode: 3,
+          slotUnlockOffsetsSeconds: [0, 60, 300],
+          slotMapVisible: [true, false, true],
+        });
+        expect(created.config.slotUnlockOffsetsSeconds).toEqual([0, 60, 300]);
+
+        const updated = await lobbyService.updateConfig(
+          created.id,
+          host.user.id,
+          { visibilityMode: "phase" },
+        );
+        expect(updated.config.visibilityMode).toBe("phase");
+        expect(updated.config.slotUnlockOffsetsSeconds).toEqual([0, 0, 0]);
+        expect(updated.config.slotMapVisible).toEqual([true, true, true]);
+      });
+
+      it("resets phase knobs to template defaults when host switches to `slot`", async () => {
+        const host = await registerUser();
+        const created = await lobbyService.createLobby(host.user.id, {
+          visibilityPhaseCount: 6,
+          visibilityPhaseIntervalSeconds: 30,
+        });
+        expect(created.config.visibilityPhaseCount).toBe(6);
+
+        const updated = await lobbyService.updateConfig(
+          created.id,
+          host.user.id,
+          { visibilityMode: "slot" },
+        );
+        expect(updated.config.visibilityMode).toBe("slot");
+        // Template default for TTC 2026 is 4.
+        expect(updated.config.visibilityPhaseCount).toBe(4);
+        expect(updated.config.visibilityPhaseIntervalSeconds).toBeGreaterThan(0);
+      });
+
+      it("does not mutate slot knobs when transitioning between two slot-active modes", async () => {
+        const host = await registerUser();
+        const created = await lobbyService.createLobby(host.user.id, {
+          visibilityMode: "both",
+          slotsPerNode: 2,
+          slotUnlockOffsetsSeconds: [0, 60],
+          slotMapVisible: [true, false],
+        });
+
+        const updated = await lobbyService.updateConfig(
+          created.id,
+          host.user.id,
+          { visibilityMode: "slot" },
+        );
+        expect(updated.config.visibilityMode).toBe("slot");
+        expect(updated.config.slotUnlockOffsetsSeconds).toEqual([0, 60]);
+        expect(updated.config.slotMapVisible).toEqual([true, false]);
+      });
+    });
+  });
 });

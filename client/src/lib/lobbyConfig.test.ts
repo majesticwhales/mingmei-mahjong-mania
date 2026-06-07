@@ -12,6 +12,7 @@ const baseConfig: LobbyConfigDto = {
   slotMapVisible: [true],
   deadWallSize: 14,
   teamAssignmentMode: "pick",
+  visibilityMode: "both",
   minPlayersToStart: 4,
   defaultStartNodeCode: "union",
   configUpdatedAt: "2026-01-01T00:00:00.000Z",
@@ -25,8 +26,11 @@ describe("lobbyConfig", () => {
       visibilityPhaseIntervalSeconds: 1800,
       visibilityPhaseCount: 4,
       slotsPerNode: 1,
+      slotUnlockOffsetsSeconds: [0],
+      slotMapVisible: [true],
       deadWallSize: 14,
       teamAssignmentMode: "pick",
+      visibilityMode: "both",
       minPlayersToStart: 4,
       defaultStartNodeCode: "union",
     });
@@ -36,6 +40,15 @@ describe("lobbyConfig", () => {
     expect(
       lobbyConfigHasPendingChanges(
         { ...baseConfig, gameDurationSeconds: 240 },
+        baseConfig,
+      ),
+    ).toBe(true);
+  });
+
+  it("detects pending visibility mode changes", () => {
+    expect(
+      lobbyConfigHasPendingChanges(
+        { ...baseConfig, visibilityMode: "slot" },
         baseConfig,
       ),
     ).toBe(true);

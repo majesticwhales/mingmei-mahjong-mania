@@ -7,6 +7,7 @@ import {
   Table,
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
+import type { VisibilityMode } from "../game/visibility-mode.ts";
 import { GameCommandQueueItem } from "./game-command-queue-item.ts";
 import { GameEdge } from "./game-edge.ts";
 import { GameLine } from "./game-line.ts";
@@ -104,6 +105,20 @@ export class Game extends BaseModel {
 
   @Column({ type: DataType.INTEGER, allowNull: false })
   declare visibilityPhaseIntervalSeconds: number;
+
+  /**
+   * Snapshot of `lobby.visibility_mode` taken at game start. Selects
+   * which of the two visibility layers (phase reveal §3.2 / per-slot
+   * tier §3.3) are active for this game. The engine, scheduler, and
+   * projection branch on this value via `visibilityIncludes()`. See
+   * `server/src/game/visibility-mode.ts`.
+   */
+  @Column({
+    type: DataType.STRING(8),
+    allowNull: false,
+    defaultValue: "both",
+  })
+  declare visibilityMode: VisibilityMode;
 
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })
   declare configVersion: number;

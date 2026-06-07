@@ -20,6 +20,7 @@ This document defines **infrastructure and architecture** for *mingmei-mahjong-m
 - Station check-in with **required photo**, geolocation (warn + allow)
 - **Cloudflare R2** media storage (MinIO locally)
 - DB-backed scheduler (visibility phases, notifications, game end)
+- **Per-game visibility mode** (`games.visibility_mode`: `none | phase | slot | both`) that gates the two visibility layers (node-group phase reveal §3.2 and per-slot tier §3.3) independently; default `both` preserves current behaviour
 - **Per-lobby static notification schedule** (`lobby_notifications`)
 - Challenge system **schema + honor-system swap gate** (one challenge per station gates `SWAP_TILE`; product still defines the actual card decks; reviewer-driven resolvers when product asks for them — see [§3.8](#38-challenges-honor-system-swap-gate))
 - **Riichi hand evaluation** module (stub → full scoring; see [§3.9](#39-mahjong-hand-evaluation-riichi))
@@ -150,6 +151,8 @@ flowchart TB
 
 Visibility is parameterized by `games.visibility_phase_count` (`N`, default 4). N phases ⇒ N visibility groups ⇒ (N-1) `VISIBILITY_PHASE_ADVANCE` jobs scheduled at `started_at + interval × k` for `k = 1 … N-1`.
 
+**Mode gate:** This entire layer is gated by `games.visibility_mode` (see §1, §4.3). The phase reveal runs only when the snapshotted mode is `phase` or `both`. When the mode excludes phase (`none` / `slot`), `game-start-service` skips `bootstrapGameVisibilityGroups` (no `game_node_visibility_groups`, `game_team_home_groups`, or phase-0 `game_location_team_visibility` rows are seeded); `game-schedule-service` emits no `VISIBILITY_PHASE_ADVANCE` jobs; the projection treats every node as face-up and reports `nextVisibilityChangeAt = null`. The lobby surface locks `visibility_phase_count` / `visibility_phase_interval_seconds` in phase-off modes and resets them to template defaults on transition.
+
 **At game start:**
 
 1. Random partition of all `game_nodes` into N groups (`game_node_visibility_groups`). Sizes differ by at most 1 when `node_count` doesn't divide evenly.
@@ -203,6 +206,8 @@ canSwapSlot(team, node, slotIndex) =
   AND now() >= games[game].started_at
       + games[game].slot_unlock_offsets_seconds[slotIndex] * 1000
 ```
+
+**Mode gate:** The per-slot tier (unlock + map-visibility) is gated by `games.visibility_mode`. It runs only when the snapshotted mode is `slot` or `both`. When the mode excludes slot (`none` / `phase`), `game-schedule-service` emits no `SLOT_UNLOCKED` jobs and the projection treats every slot as unlocked **and** map-visible (the `slot_unlock_offsets_seconds[k]` / `slot_map_visible[k]` snapshot columns are ignored). The lobby surface rejects patches that set non-zero `slot_unlock_offsets_seconds[k>0]` or `false` in `slot_map_visible[k>0]` while slot is off, and zeros out the snapshots on mode transition.
 
 **Per-slot unlock (chunk 4):** Each addressable slot at a node has a uniform game-wide unlock offset (`games.slot_unlock_offsets_seconds[slotIndex]`). Slot 0 always has offset 0 (always unlocked at game start). Higher slots may carry positive offsets; `SWAP_TILE` rejects with `409 slot_locked` if the targeted slot is still locked at the wall-clock check. The rule is wall-clock-based and independent of whether the `SLOT_UNLOCKED` scheduled job has actually fired (the job exists for replay/broadcast, not gameplay).
 
@@ -505,6 +510,7 @@ Sequelize model: `User` (`server/src/models/user.ts`).
 | `slots_per_node` | INT NOT NULL DEFAULT 1 (sourced from `map_template.default_slots_per_node`); snapshotted to `games.slots_per_node` at start. `>= 1`. Capacity, not realized count. |
 | `slot_unlock_offsets_seconds` | INTEGER[] NOT NULL DEFAULT `{0}`. One offset per slot index. `cardinality = slots_per_node`; entry `[1]` must be `0` (slot 0 always unlocked); all entries `>= 0`. Sourced from `map_template.default_slot_unlock_offsets_seconds` on lobby creation; host-editable while `waiting`; snapshotted to `games.slot_unlock_offsets_seconds` at start. Uniform across nodes and teams. |
 | `slot_map_visible` | BOOLEAN[] NOT NULL DEFAULT `{true}`. One flag per slot index. `cardinality = slots_per_node`; entry `[1]` must be `true` (slot 0 follows phase rules). When `false`, slot `k`'s tile is never face-up on the map regardless of phase; only revealed via `atStation` once unlocked. Sourced from `map_template.default_slot_map_visible`; host-editable. |
+| `visibility_mode` | VARCHAR(8) NOT NULL DEFAULT `'both'` CHECK in (`none`, `phase`, `slot`, `both`). Picks which of the two visibility layers (§3.2 phase reveal / §3.3 per-slot tier) are active for the resulting game. Sourced from `map_template.default_visibility_mode`; host-editable. Snapshotted to `games.visibility_mode` at start. Picking a mode that excludes a layer **locks** the corresponding knobs at the service layer: phase-off rejects any patch that sets `visibility_phase_count` / `visibility_phase_interval_seconds`; slot-off rejects non-zero `slot_unlock_offsets_seconds[k>0]` and `false` entries in `slot_map_visible[k>0]`. On mode transition the locked knobs are reset to safe defaults. |
 | `team_assignment_mode` | `pick` \| `random` \| `mixed` |
 | `min_players_to_start` | default **4** |
 | `config_updated_at` | |
@@ -561,6 +567,7 @@ Index: `(lobby_id, at_seconds)`. Same `at_seconds` may repeat (two distinct temp
 | `slot_map_visible` | BOOLEAN[] NOT NULL DEFAULT `{true}`; snapshot from `lobby.slot_map_visible` at start. Same length/invariant rules as on `lobbies`. Drives projection-time filtering of `mapNodes[].tiles[]`. |
 | `visibility_phase` | 0 … `visibility_phase_count - 1` |
 | `visibility_phase_count` | INT NOT NULL DEFAULT 4; snapshot from `lobby.visibility_phase_count` at start |
+| `visibility_mode` | VARCHAR(8) NOT NULL DEFAULT `'both'` CHECK in (`none`, `phase`, `slot`, `both`); snapshot from `lobby.visibility_mode` at start. Gates the two visibility layers via `visibilityIncludes()`: `game-start-service` skips `bootstrapGameVisibilityGroups` when phase is off; `game-schedule-service` skips `VISIBILITY_PHASE_ADVANCE` / `SLOT_UNLOCKED` job loops per layer; the projection short-circuits phase fog and slot-tier filters per layer. See §3.2, §3.3, §6.3. |
 | `started_at`, `ends_at`, `duration_seconds` | |
 | `visibility_phase_interval_seconds` | snapshot from lobby |
 | `config_version` | |
@@ -595,6 +602,7 @@ Seeded: `east`, `south`, `west`, `north` (`20260517180000-seed-team-definitions.
 | `default_slot_unlock_offsets_seconds` | INTEGER[] NOT NULL DEFAULT `{0}`. Per-slot unlock offsets in seconds from `started_at`; one entry per slot index. `cardinality = default_slots_per_node`; entry `[1]` must be `0`; all entries `>= 0`. Lobbies inherit as `slot_unlock_offsets_seconds`. |
 | `default_slot_map_visible` | BOOLEAN[] NOT NULL DEFAULT `{true}`. Per-slot map-visibility flags. `cardinality = default_slots_per_node`; entry `[1]` must be `true`. Lobbies inherit as `slot_map_visible`. |
 | `default_visibility_phase_count` | Default `lobby.visibility_phase_count`. Default 4. |
+| `default_visibility_mode` | VARCHAR(8) NOT NULL DEFAULT `'both'` CHECK in (`none`, `phase`, `slot`, `both`). Default visibility mode lobbies built from this template inherit; see `lobbies.visibility_mode` for semantics. |
 | `default_start_node_code` | Station code where teams spawn at game start (nullable; null = teams start unchecked). |
 
 #### `map_template_nodes`
@@ -903,7 +911,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 | Field | Scope |
 |-------|--------|
 | `gameId`, `status`, `endsAt` | Shared |
-| `nextVisibilityChangeAt` | Optional; for UI timer only |
+| `nextVisibilityChangeAt` | Optional; for UI timer only. Always `null` when `games.visibility_mode` excludes the phase layer (no `VISIBILITY_PHASE_ADVANCE` jobs are scheduled, and the projection short-circuits stale ones). |
 | `mapNodes[]` | Layout fields per `game_node`; `lineIds[]` (string codes); `tile` (default config) or `tiles[]` (when `slots_per_node > 1`) only if phase-visible on map |
 | `mapLines[]` | Line catalog (`code`, `name`, `shortName`, `color`, `renderMetadata`) — sent once / on reconnect |
 | `mapEdges[]` | Static graph (`fromNodeId`, `toNodeId`) — sent once / on reconnect |
@@ -1028,6 +1036,7 @@ includedTiles =
 - A still-locked slot (`now < started_at + slot_unlock_offsets_seconds[k] * 1000`) is omitted; the station UI must indicate the slot exists and show a countdown, not the tile.
 - `slot_map_visible` does **not** gate `atStation` — once unlocked, a station-visible tile is shown to the checked-in team even when it's never shown on the map. That's the whole point of the per-slot "always fogged on the map but visible at the station" tier.
 - For `slots_per_node = 1` the singular `tile` field is retained; the array shape only appears when the game opts into multiple slots.
+- **Mode gate:** When `games.visibility_mode` excludes the slot layer (`none` / `phase`), the projection treats every slot as unlocked at `atStation` regardless of the `slot_unlock_offsets_seconds` snapshot. The map-side `tiles[]` builder similarly ignores `slot_map_visible` and exposes every slot index. See §3.3.
 
 The `SWAP_TILE` payload (`{ handTileId, stationTileId }`) already addresses a specific tile by id, so the array shape requires no payload change — clients pick which slot's tile to swap by passing its `stationTileId`.
 

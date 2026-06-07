@@ -167,7 +167,7 @@ The server is the source of truth for every type the client renders. This sectio
 For v1 we duplicate wire types under `client/src/wire/`. The mirrored files are:
 
 - `client/src/wire/auth.ts` — `RegisterRequest`, `LoginRequest`, `AuthResponse`, `User`.
-- `client/src/wire/lobby.ts` — `LobbyDetailDto`, `LobbyConfigDto`, `LobbyMemberDto`, `LobbyReadinessDto`, `LobbyNotificationDto`, `LobbyConfigPatch`, `CreateLobbyInput`.
+- `client/src/wire/lobby.ts` — `LobbyDetailDto`, `LobbyConfigDto`, `LobbyMemberDto`, `LobbyReadinessDto`, `LobbyNotificationDto`, `LobbyConfigPatch`, `CreateLobbyInput`, `VisibilityMode` (`"none" | "phase" | "slot" | "both"`), `TeamAssignmentMode`.
 - `client/src/wire/projection.ts` — `GameStateProjection`, `TileDto`, `SlotTileDto`, `MapNodeDto`, `MapLineDto`, `MapEdgeDto`, `AtStationDto`, `HandTileDto`, `RecentEventDto`.
 - `client/src/wire/command.ts` — `GameCommandPayload`, `GameCommandAcked`, `GameCommandRejected`, `GameJoinPayload`, `GameJoinResponse`, `Ack<T>` envelope, `CommandType` literal union, per-command-type payload narrowings.
 - `client/src/wire/error.ts` — `HttpErrorBody` (`{ error: { code: string; message: string; details?: unknown } }`).
@@ -247,6 +247,7 @@ The `restClient` parses non-2xx responses into a typed `HttpError(code, message,
 | `duplicate` | `enqueueCommand` (same id + same payload) | Treat as success — the outbox row transitions to `acked`. |
 | `game_not_active` | command auth | Toast "Game already ended"; remove the outbox row; resync via `GET /api/games/:id` if we add it later, otherwise drop the row silently. |
 | `slot_locked` | engine validation (swap pre-unlock) | Toast "Tile not yet available"; remove the outbox row. |
+| `visibility_knob_locked` | lobby config validation (`PATCH /api/lobbies/:id/config`) when a host tries to set a knob the chosen `visibilityMode` excludes (phase off → phase knobs; slot off → non-trivial slot arrays) | Surface the `message` via the existing inline form error. Do not retry. The host config form (`ConfigForm`) already prevents this in normal use by disabling the offending inputs (see §7.3); the error path catches malicious or out-of-date clients. Rely on the next `lobby.config` push to re-sync the draft to the server's reset values. |
 | `command_queue_full` (future) | rate limit | Toast "Slow down"; retry with backoff. |
 
 For any error code not in this list the client falls back to a generic toast carrying `message`, and the row is marked `rejected` in the outbox so it never retries.
@@ -380,6 +381,8 @@ The client tracks **at most one active lobby at a time**. Switching lobbies disp
 - `useLobbyNotifications()` — selector returning the notifications array (already sorted by the server).
 
 **Side effects in `LobbyProvider`:** on entering `loading`, emit `lobby.join` (if socket connected) plus `GET /api/lobbies/:id` (always; gives us a fast path that doesn't depend on socket). On `lobby.config` push, dispatch `lobby/updated`.
+
+**Visibility-mode error path:** `updateConfig` may reject with `visibility_knob_locked` if the host's patch sets a knob the chosen `visibilityMode` excludes (phase knobs while mode is `slot`/`none`; non-trivial slot arrays while mode is `phase`/`none`). The host form prevents this in normal use by disabling the offending inputs (see §7.3 wireframes and `client/src/screens/LobbyRoom/ConfigForm.tsx`), so the error path catches stale clients and adversarial requests only. The error surfaces inline via the existing `LobbyRoomScreen` error state; the next `lobby.config` push resyncs the draft to the server's reset values. See §4.4 for the error-code row.
 
 ### 5.4 `GameContext`
 
@@ -706,36 +709,50 @@ The lobby list is omitted because the server doesn't expose "lobbies I'm in". On
 Host view:
 
 ```
-+--------------------------------------+
-| < Back                  [Connection] |
-|                                       |
-|  Lobby ABC123                  HOST   |
-|                                       |
-|  Members (3 / min 4)                  |
-|    @alice    Team 1                   |
-|    @bob      Team 2                   |
-|    @carol    —                        |
-|                                       |
-|  Your team:                           |
-|  [Team 1] [Team 2] [Team 3] [Team 4]  |
-|                                       |
-|  > Config                             |
-|    map      [TYO_BASE     v]         |
-|    duration [ 7200  ] sec             |
-|    phases   [ 4 ] x [ 1200 ] sec      |
-|    slots    [ 2 ]                     |
-|    team mode[ host    v]              |
-|    start at [—————        v]         |
-|                                       |
-|  > Notifications  [+]                 |
-|    @ 0:30:00  "halfway"   [edit][x]   |
-|    @ 1:30:00  "30 min left"  [...]    |
-|                                       |
-|  [ Start game ]   (disabled if not ready) |
-|                                       |
-|  Readiness: 1 player missing on Team 3 |
-+--------------------------------------+
++----------------------------------------------+
+| < Back                          [Connection] |
+|                                              |
+|  Lobby ABC123                          HOST  |
+|                                              |
+|  Members (3 / min 4)                         |
+|    @alice    Team 1                          |
+|    @bob      Team 2                          |
+|    @carol    -                               |
+|                                              |
+|  Your team:                                  |
+|  [Team 1] [Team 2] [Team 3] [Team 4]         |
+|                                              |
+|  > Config                                    |
+|    map         [TYO_BASE     v]              |
+|    duration    [ 7200 ] sec                  |
+|    phases      [ 4 ] x [ 1200 ] sec          |  <- greys out under mode = slot|none
+|    > Slot tier                               |
+|      slots/node [ 4 ]                        |
+|      [x] auto-distribute unlock times        |
+|      slot 0:    0s   map visible: (on)       |  <- slot 0 always locked
+|      slot 1: 1800s   map visible: [x]        |  <- offset disabled while auto on
+|      slot 2: 3600s   map visible: [x]        |
+|      slot 3: 5400s   map visible: [x]        |
+|    visibility  [ both    v]                  |
+|    team mode   [ pick    v]                  |
+|    start at    [-----    v]                  |
+|                                              |
+|  > Notifications  [+]                        |
+|    @ 0:30:00  "halfway"     [edit][x]        |
+|    @ 1:30:00  "30 min left" [...]            |
+|                                              |
+|  [ Start game ]   (disabled if not ready)    |
+|                                              |
+|  Readiness: 1 player missing on Team 3       |
++----------------------------------------------+
 ```
+
+The **visibility** dropdown picks one of `both | phase | slot | none`. The lock UX mirrors the server's chunk-2 enforcement:
+
+- `none` / `slot` → `phases` row greys out (server rejects patches that set `visibilityPhaseCount` / `visibilityPhaseIntervalSeconds`).
+- `none` / `phase` → the whole `Slot tier` sub-block (auto-distribute toggle + per-slot rows) greys out. `slots/node` stays editable because it's the count, not a slot-layer config.
+
+The **Auto-distribute** checkbox is a pure UI affordance — there's no persisted "auto-distribute" field on the server. On form mount the toggle reads `true` when the saved `slotUnlockOffsetsSeconds` equal `round(gameDurationSeconds * k / slotsPerNode)` for every `k` (±1s tolerance to absorb rounding), and `false` otherwise. While on, the form recomputes the offsets array on every change to `slots/node` or `duration`. Toggling it back on from a custom array snaps the offsets to the formula. See `client/src/lib/slotTier.ts` for the helper module.
 
 Non-host view: same layout minus the config form and notifications editor (read-only listings instead); the start button is replaced with "Waiting for host…".
 
@@ -930,9 +947,12 @@ The work is sliced into **7 chunks**, each independently reviewable and testable
 
 - `lobby/reducer.test.ts` — all transitions including optimistic team pick + rollback.
 - `LobbyRoomScreen.test.tsx` — host vs non-host conditional rendering.
-- `ConfigForm.test.tsx` — form → restClient call mapping; validation surface.
+- `ConfigForm.test.tsx` — form → restClient call mapping; validation surface; visibility-mode dropdown + phase-knob lock (chunk 6); slot-tier section + auto-distribute toggle + slot-knob lock (chunk 7). See §10.
+- `slotTier.test.ts` — pure helpers for the auto-distribute formula + tolerant matcher (chunk 7).
 - `NotificationsEditor.test.tsx` — add / edit / delete flows.
 - `lobbyContextSocket.test.tsx` — mock socket → `lobby.config` push → reducer dispatched → screen re-renders.
+
+The visibility-mode dropdown, phase-knob lock, slot-tier editor, and auto-distribute toggle shipped under the per-lobby visibility mode plan (chunks 6 and 7). The server-side surface lives in `lobby-service.ts` (chunk 2) and rejects locked-knob patches with `visibility_knob_locked` — see §4.4.
 
 **Manual smoke:** Open two browser tabs (different users). Tab A creates a lobby; tab B joins via id. Tab A changes config; tab B's form fields update. Tab A starts; both navigate to `/games/:id` (which is a placeholder screen until chunk 5).
 
@@ -1105,10 +1125,12 @@ Tracked here so we don't lose them, but explicitly out of scope for v1 MVP:
 
 ### 10.1 Levels
 
-- **Unit tests** — pure reducers, pure helpers, `restClient` parsers, `commandOutbox` storage primitive. Vitest, no DOM, no mocks beyond the system under test.
-- **Component tests** — RTL with `jsdom`. Each screen has a "happy path" test plus error-state coverage. Mocks: `restClient` (vi.mock at module boundary), `socketClient` (a small in-memory `EventEmitter` stub), `commandOutbox` (a `Map` in memory).
+- **Unit tests** — pure reducers, pure helpers (`lib/lobbyConfig.ts`, `lib/slotTier.ts`, etc.), `restClient` parsers, `commandOutbox` storage primitive. Vitest, no DOM, no mocks beyond the system under test.
+- **Component tests** — RTL with `jsdom`. Each screen has a "happy path" test plus error-state coverage. Mocks: `restClient` (vi.mock at module boundary), `socketClient` (a small in-memory `EventEmitter` stub), `commandOutbox` (a `Map` in memory). `ConfigForm.test.tsx` (chunks 6-7) covers the host config form including the visibility-mode dropdown, the phase-knob lock, the slot-tier section, and the auto-distribute toggle.
 - **Provider integration tests** — wire `<AuthProvider><ConnectionProvider>...` together with mock transports; verify the cross-context behavior (e.g., disconnect → outbox switches to HTTP). One test file per provider-pair that interacts.
 - **Manual smoke** — per-chunk checklist documented in each chunk's section in §8. Includes airplane-mode toggle and dual-tab tests.
+
+**CI:** `.github/workflows/ci.yml` runs four jobs per push/PR: `server-checks` (lint + typecheck), `client-checks` (lint + typecheck), `server-tests` (Postgres-backed Vitest), and `client-tests` (`npm test` → `vitest run`, no service dependencies). The client test job was added with the visibility-mode rollout.
 
 ### 10.2 Mock strategy
 
@@ -1122,8 +1144,8 @@ Three transport stubs live under `client/src/test/`:
 
 ### 10.3 Coverage targets
 
-- **Unit + component tests:** reducers should be at 100 %; transports should be at ≥ 90 %; screens at ≥ 70 % (focus on logic-heavy screens — `LobbyRoomScreen`, `GameScreen` — over thin ones).
-- **No coverage gating in CI** for v1. The number is informational only.
+- **Unit + component tests:** reducers should be at 100 %; transports should be at ≥ 90 %; screens at ≥ 70 % (focus on logic-heavy screens — `LobbyRoomScreen`, `GameScreen` — over thin ones). Pure-helper modules under `client/src/lib/` (e.g., `lobbyConfig.ts`, `slotTier.ts`) should be at 100 %.
+- **No coverage gating in CI** for v1. The number is informational only, but the `client-tests` job blocks merges on failing tests.
 
 ### 10.4 Test data
 

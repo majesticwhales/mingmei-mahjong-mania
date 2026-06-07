@@ -1,4 +1,5 @@
 import { QueryTypes, type Transaction } from "sequelize";
+import type { VisibilityMode } from "../../src/game/visibility-mode.ts";
 import { GAME_TEAM_SLOTS, type GameTeamSlot } from "../../src/services/even-team-assignment.ts";
 import { cloneMapTemplateToGame } from "../../src/services/map-clone-service.ts";
 import { startFromLobby } from "../../src/services/game-start-service.ts";
@@ -398,6 +399,13 @@ export interface LightweightGameOptions {
    * projection tests.
    */
   slotMapVisible?: boolean[];
+  /**
+   * `games.visibility_mode` snapshot. Defaults to `"both"` so existing
+   * tests keep their current behaviour. Pass `"none" | "phase" | "slot"`
+   * to exercise the per-mode projection / engine branches without going
+   * through the lobby surface.
+   */
+  visibilityMode?: VisibilityMode;
 }
 
 export interface LightweightGameFixture {
@@ -446,6 +454,7 @@ export async function setupLightweightGame(
     options.slotUnlockOffsetsSeconds ?? new Array(slotsPerNode).fill(0);
   const slotMapVisible =
     options.slotMapVisible ?? new Array(slotsPerNode).fill(true);
+  const visibilityMode = options.visibilityMode ?? "both";
 
   if (slotUnlockOffsetsSeconds.length !== slotsPerNode) {
     throw new Error(
@@ -523,6 +532,7 @@ export async function setupLightweightGame(
         visibilityPhaseIntervalSeconds: ONE_HOUR_SECONDS,
         slotUnlockOffsetsSeconds,
         slotMapVisible,
+        visibilityMode,
         configVersion: 1,
       },
       { transaction },

@@ -130,6 +130,64 @@ describe("PATCH /api/lobbies/:id/config", () => {
     expect(res.body.lobby.config.slotsPerNode).toBe(4);
     expect(res.body.lobby.config.visibilityPhaseCount).toBe(2);
   });
+
+  it("host can patch visibilityMode", async () => {
+    const agent = await getAgent();
+    const host = await registerViaApi(agent);
+
+    const created = await agent
+      .post("/api/lobbies")
+      .set(bearer(host.token))
+      .send({});
+    const lobbyId = created.body.lobby.id as string;
+    expect(created.body.lobby.config.visibilityMode).toBe("both");
+
+    const res = await agent
+      .patch(`/api/lobbies/${lobbyId}/config`)
+      .set(bearer(host.token))
+      .send({ visibilityMode: "phase" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.lobby.config.visibilityMode).toBe("phase");
+  });
+
+  it("rejects a bogus visibilityMode with 400 validation_error", async () => {
+    const agent = await getAgent();
+    const host = await registerViaApi(agent);
+
+    const created = await agent
+      .post("/api/lobbies")
+      .set(bearer(host.token))
+      .send({});
+    const lobbyId = created.body.lobby.id as string;
+
+    const res = await agent
+      .patch(`/api/lobbies/${lobbyId}/config`)
+      .set(bearer(host.token))
+      .send({ visibilityMode: "all-the-things" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("validation_error");
+  });
+
+  it("returns 400 visibility_knob_locked when patching a phase knob in slot mode", async () => {
+    const agent = await getAgent();
+    const host = await registerViaApi(agent);
+
+    const created = await agent
+      .post("/api/lobbies")
+      .set(bearer(host.token))
+      .send({ visibilityMode: "slot" });
+    const lobbyId = created.body.lobby.id as string;
+
+    const res = await agent
+      .patch(`/api/lobbies/${lobbyId}/config`)
+      .set(bearer(host.token))
+      .send({ visibilityPhaseCount: 5 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("visibility_knob_locked");
+  });
 });
 
 describe("lobby flow through start", () => {
