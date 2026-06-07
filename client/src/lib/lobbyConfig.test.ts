@@ -26,6 +26,8 @@ describe("lobbyConfig", () => {
       visibilityPhaseIntervalSeconds: 1800,
       visibilityPhaseCount: 4,
       slotsPerNode: 1,
+      slotUnlockOffsetsSeconds: [0],
+      slotMapVisible: [true],
       deadWallSize: 14,
       teamAssignmentMode: "pick",
       visibilityMode: "both",
