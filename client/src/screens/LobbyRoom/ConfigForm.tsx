@@ -11,7 +11,14 @@ import {
   lobbyConfigPatchFromDto,
 } from "../../lib/lobbyConfig";
 import { restClient } from "../../transport/restClient";
-import type { LobbyConfigDto, LobbyConfigPatch, MapTemplateSummary } from "../../wire/lobby";
+import type {
+  LobbyConfigDto,
+  LobbyConfigPatch,
+  MapTemplateSummary,
+  VisibilityMode,
+} from "../../wire/lobby";
+
+const VISIBILITY_MODES: readonly VisibilityMode[] = ["both", "phase", "slot", "none"];
 
 export interface ConfigFormHandle {
   savePendingChanges: () => Promise<void>;
@@ -31,6 +38,11 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
   const [draft, setDraft] = useState(config);
   const [saving, setSaving] = useState(false);
   const hasPendingChanges = lobbyConfigHasPendingChanges(draft, config);
+  const phaseLayerActive =
+    draft.visibilityMode === "phase" || draft.visibilityMode === "both";
+  const phaseLockTitle = phaseLayerActive
+    ? undefined
+    : `Disabled while visibility mode = ${draft.visibilityMode}`;
 
   useEffect(() => {
     restClient.listMapTemplates().then(({ templates: list }) => setTemplates(list));
@@ -99,6 +111,8 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
           type="number"
           min={1}
           value={draft.visibilityPhaseCount}
+          disabled={!phaseLayerActive}
+          title={phaseLockTitle}
           onChange={(e) =>
             setDraft({ ...draft, visibilityPhaseCount: Number(e.target.value) })
           }
@@ -110,6 +124,8 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
           type="number"
           min={1}
           value={draft.visibilityPhaseIntervalSeconds}
+          disabled={!phaseLayerActive}
+          title={phaseLockTitle}
           onChange={(e) =>
             setDraft({
               ...draft,
@@ -127,6 +143,21 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
           value={draft.slotsPerNode}
           onChange={(e) => setDraft({ ...draft, slotsPerNode: Number(e.target.value) })}
         />
+      </label>
+      <label className="form__field">
+        <span>Visibility mode</span>
+        <select
+          value={draft.visibilityMode}
+          onChange={(e) =>
+            setDraft({ ...draft, visibilityMode: e.target.value as VisibilityMode })
+          }
+        >
+          {VISIBILITY_MODES.map((mode) => (
+            <option key={mode} value={mode}>
+              {mode}
+            </option>
+          ))}
+        </select>
       </label>
       <label className="form__field">
         <span>Team mode</span>

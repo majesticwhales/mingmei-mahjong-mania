@@ -2,6 +2,7 @@
 
 export type LobbyStatus = "waiting" | "starting" | "closed";
 export type TeamAssignmentMode = "pick" | "random" | "mixed";
+export type VisibilityMode = "none" | "phase" | "slot" | "both";
 
 export interface LobbyMemberDto {
   userId: string;
@@ -30,6 +31,7 @@ export interface LobbyConfigDto {
   slotMapVisible: boolean[];
   deadWallSize: number;
   teamAssignmentMode: TeamAssignmentMode;
+  visibilityMode: VisibilityMode;
   minPlayersToStart: number;
   defaultStartNodeCode: string | null;
   configUpdatedAt: string | null;
@@ -60,6 +62,7 @@ export interface CreateLobbyInput {
   slotsPerNode?: number;
   deadWallSize?: number;
   teamAssignmentMode?: TeamAssignmentMode;
+  visibilityMode?: VisibilityMode;
   minPlayersToStart?: number;
   defaultStartNodeCode?: string | null;
 }

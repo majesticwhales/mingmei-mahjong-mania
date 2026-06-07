@@ -8,6 +8,7 @@ const PATCH_KEYS = [
   "slotsPerNode",
   "deadWallSize",
   "teamAssignmentMode",
+  "visibilityMode",
   "minPlayersToStart",
   "defaultStartNodeCode",
 ] as const satisfies ReadonlyArray<keyof LobbyConfigPatch>;
@@ -21,6 +22,7 @@ export function lobbyConfigPatchFromDto(config: LobbyConfigDto): LobbyConfigPatc
     slotsPerNode: config.slotsPerNode,
     deadWallSize: config.deadWallSize,
     teamAssignmentMode: config.teamAssignmentMode,
+    visibilityMode: config.visibilityMode,
     minPlayersToStart: config.minPlayersToStart,
     defaultStartNodeCode: config.defaultStartNodeCode,
   };
