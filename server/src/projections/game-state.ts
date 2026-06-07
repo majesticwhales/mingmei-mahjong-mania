@@ -1,11 +1,14 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.ts";
 import { HttpError } from "../lib/http-error.ts";
+import { Challenge } from "../models/challenge.ts";
 import { Game, type GameStatus } from "../models/game.ts";
+import { GameChallengeInstance } from "../models/game-challenge-instance.ts";
 import { GameEdge } from "../models/game-edge.ts";
 import { GameLine } from "../models/game-line.ts";
 import { GameLocationTeamVisibility } from "../models/game-location-team-visibility.ts";
 import { GameNode } from "../models/game-node.ts";
+import { GameNodeChallenge } from "../models/game-node-challenge.ts";
 import { GameRuleFlag } from "../models/game-rule-flag.ts";
 import { GameScheduledJob } from "../models/game-scheduled-job.ts";
 import { GameTeam } from "../models/game-team.ts";
@@ -91,6 +94,35 @@ export interface MapEdgeDto {
   toNodeId: string;
 }
 
+/**
+ * The team's relationship with the top challenge at their current station,
+ * if any (TDD §3.8 honor-system flow). Three observable states:
+ *
+ * - `available`: the team can issue `START_CHALLENGE`. Either they have
+ *   never attempted this node challenge or the prior attempt's cooldown
+ *   has elapsed.
+ * - `in_progress`: the team has an open `game_challenge_instances` row
+ *   for this challenge. `instanceId` is the row's id (the client passes
+ *   it back via `CHALLENGE_COMPLETED` / `CHALLENGE_FORFEITED`).
+ * - `cooldown`: the team resolved this challenge recently and must wait.
+ *   `cooldownUntil` is the wall-clock cut-off (ISO 8601).
+ *
+ * MVP exposes only the `sort_order=0` challenge per station; the
+ * multi-challenge queue is forward-compatible.
+ */
+export interface AtStationChallengeDto {
+  /** `challenges.id` of the top challenge at the station. */
+  challengeId: string;
+  title: string;
+  description: string | null;
+  flavorText: string | null;
+  status: "available" | "in_progress" | "cooldown";
+  /** Present when `status === "in_progress"`. */
+  instanceId?: string;
+  /** Present when `status === "cooldown"`. */
+  cooldownUntil?: string;
+}
+
 export interface AtStationDto {
   nodeId: string;
   code: string;
@@ -98,6 +130,27 @@ export interface AtStationDto {
   tile?: TileDto;
   /** Present when `slots_per_node > 1`. */
   tiles?: SlotTileDto[];
+  /**
+   * Phase H: top challenge at the station + the team's current
+   * relationship with it (TDD §3.8). `null` when the station has no
+   * `game_node_challenges` rows (back-compat path).
+   */
+  currentChallenge: AtStationChallengeDto | null;
+  /**
+   * Phase H: true between `CHALLENGE_COMPLETED` and the next `SWAP_TILE`.
+   * Consumed by `SWAP_TILE`; reset to false on every `CHECK_IN` /
+   * `CHECK_OUT`.
+   */
+  pendingSwapCredit: boolean;
+  /**
+   * Phase H: sticky within a single check-in session — flipped true on
+   * `CHALLENGE_COMPLETED`, stays true through the credit-consuming
+   * `SWAP_TILE`, resets on every `CHECK_IN` / `CHECK_OUT`. Used by
+   * `START_CHALLENGE` to enforce "at most one credit per session"; the
+   * client uses it to gray out the "Start challenge" button after the
+   * team has already cashed in.
+   */
+  creditEarnedInSession: boolean;
 }
 
 export interface HandTileDto extends TileDto {
@@ -410,6 +463,21 @@ export async function buildGameStateProjection(
     toNodeId: edge.toGameNodeId,
   }));
 
+  // Phase H: challenge-state lookup. Only meaningful when the team is
+  // checked in; skip the round trip entirely otherwise (the projection
+  // is hot on the broadcaster path). Separate query from the placement
+  // fan-out above because the result depends on the team's position,
+  // which is itself loaded in the `Promise.all` block — chaining keeps
+  // the await graph straightforward.
+  const currentChallenge =
+    teamPosition?.currentGameNodeId != null
+      ? await buildCurrentChallenge({
+          gameNodeId: teamPosition.currentGameNodeId,
+          gameTeamId,
+          nowMs,
+        })
+      : null;
+
   const atStation = buildAtStation({
     game,
     teamPosition,
@@ -417,6 +485,7 @@ export async function buildGameStateProjection(
     tilesByNodeSlot,
     multiSlot,
     nowMs,
+    currentChallenge,
   });
 
   ownHandTiles.sort(handTileSortComparator);
@@ -510,9 +579,17 @@ function buildAtStation(params: {
   tilesByNodeSlot: Map<string, Map<number, TileDto>>;
   multiSlot: boolean;
   nowMs: number;
+  currentChallenge: AtStationChallengeDto | null;
 }): AtStationDto | null {
-  const { game, teamPosition, nodes, tilesByNodeSlot, multiSlot, nowMs } =
-    params;
+  const {
+    game,
+    teamPosition,
+    nodes,
+    tilesByNodeSlot,
+    multiSlot,
+    nowMs,
+    currentChallenge,
+  } = params;
   const nodeId = teamPosition?.currentGameNodeId;
   if (!nodeId) {
     return null;
@@ -522,7 +599,13 @@ function buildAtStation(params: {
     return null;
   }
   const bySlot = tilesByNodeSlot.get(node.id);
-  const dto: AtStationDto = { nodeId: node.id, code: node.code };
+  const dto: AtStationDto = {
+    nodeId: node.id,
+    code: node.code,
+    currentChallenge,
+    pendingSwapCredit: teamPosition.pendingSwapCredit,
+    creditEarnedInSession: teamPosition.creditEarnedInSession,
+  };
 
   if (multiSlot) {
     const unlocked = unlockedSlotIndices(game, game.slotsPerNode, nowMs);
@@ -546,6 +629,72 @@ function buildAtStation(params: {
   }
 
   return dto;
+}
+
+/**
+ * Resolve the top challenge at a station plus the team's relationship
+ * with it (TDD §3.8). Two queries:
+ *
+ *   1. The `sort_order=0` `game_node_challenges` row + its catalog
+ *      `challenges` row (title / description / flavour text).
+ *   2. The team's most recent `game_challenge_instances` row for that
+ *      node-challenge, used to derive the three observable states.
+ *
+ * Returns `null` when the station has no challenges configured (the
+ * back-compat path). Pure read — never mutates state.
+ */
+async function buildCurrentChallenge(params: {
+  gameNodeId: string;
+  gameTeamId: string;
+  nowMs: number;
+}): Promise<AtStationChallengeDto | null> {
+  const { gameNodeId, gameTeamId, nowMs } = params;
+
+  const topRow = await GameNodeChallenge.findOne({
+    where: { gameNodeId },
+    order: [["sortOrder", "ASC"]],
+    include: [
+      {
+        model: Challenge,
+        required: true,
+        attributes: ["id", "title", "description", "flavorText"],
+      },
+    ],
+  });
+  if (!topRow || !topRow.challenge) {
+    return null;
+  }
+
+  const latestInstance = await GameChallengeInstance.findOne({
+    where: { gameTeamId, gameNodeChallengeId: topRow.id },
+    order: [["createdAt", "DESC"]],
+  });
+
+  let status: AtStationChallengeDto["status"] = "available";
+  let instanceId: string | undefined;
+  let cooldownUntil: string | undefined;
+  if (latestInstance) {
+    if (latestInstance.status === "in_progress") {
+      status = "in_progress";
+      instanceId = latestInstance.id;
+    } else if (
+      latestInstance.cooldownUntil != null &&
+      latestInstance.cooldownUntil.getTime() > nowMs
+    ) {
+      status = "cooldown";
+      cooldownUntil = latestInstance.cooldownUntil.toISOString();
+    }
+  }
+
+  return {
+    challengeId: topRow.challenge.id,
+    title: topRow.challenge.title,
+    description: topRow.challenge.description,
+    flavorText: topRow.challenge.flavorText,
+    status,
+    ...(instanceId !== undefined ? { instanceId } : {}),
+    ...(cooldownUntil !== undefined ? { cooldownUntil } : {}),
+  };
 }
 
 function handTileSortComparator(
