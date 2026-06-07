@@ -7,6 +7,7 @@ import {
   Table,
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
+import type { VisibilityMode } from "../game/visibility-mode.ts";
 import { LobbyMember } from "./lobby-member.ts";
 import { LobbyNotification } from "./lobby-notification.ts";
 import { LobbyTeamAssignment } from "./lobby-team-assignment.ts";
@@ -48,6 +49,22 @@ export class Lobby extends BaseModel {
   /** Number of visibility phases / groups for this lobby. Snapshotted to `games.visibility_phase_count` at start. */
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 4 })
   declare visibilityPhaseCount: number;
+
+  /**
+   * Picks which of the two visibility layers the game uses (TDD §3.2 /
+   * §3.3). Sourced from `mapTemplate.defaultVisibilityMode` on lobby
+   * creation, editable by the host, snapshotted to
+   * `games.visibility_mode` at start. The mode also locks the
+   * irrelevant knobs at the service layer: a lobby in `slot` mode
+   * cannot edit `visibility_phase_count`, etc. See
+   * `server/src/game/visibility-mode.ts`.
+   */
+  @Column({
+    type: DataType.STRING(8),
+    allowNull: false,
+    defaultValue: "both",
+  })
+  declare visibilityMode: VisibilityMode;
 
   /**
    * Tile-slot capacity at each node. The dealer fills this many tiles per node at
