@@ -6,16 +6,14 @@ import {
   type ReactZoomPanPinchContentRef,
   type ReactZoomPanPinchRef,
 } from "react-zoom-pan-pinch";
-import type { PlayerViewMode } from "../data/playerViews";
-import type { RiichiTileCopy } from "../data/riichiTiles";
 import type { Network } from "../data/types";
+import type { MapNodeDto } from "../wire/projection";
 import { SubwaySvg } from "./SubwaySvg";
 
 interface Props {
   network: Network;
+  mapNodes?: MapNodeDto[];
   selectedStationId: string | null;
-  tileWall: readonly RiichiTileCopy[];
-  viewMode: PlayerViewMode;
   onSelectStation: (id: string) => void;
 }
 
@@ -32,20 +30,10 @@ function ZoomControls() {
 
   return (
     <div className="map-shell__controls" aria-label="Map zoom controls">
-      <button
-        type="button"
-        className="map-shell__fab"
-        aria-label="Zoom in"
-        onClick={() => zoomIn(0.4)}
-      >
+      <button type="button" className="map-shell__fab" aria-label="Zoom in" onClick={() => zoomIn(0.4)}>
         +
       </button>
-      <button
-        type="button"
-        className="map-shell__fab"
-        aria-label="Zoom out"
-        onClick={() => zoomOut(0.4)}
-      >
+      <button type="button" className="map-shell__fab" aria-label="Zoom out" onClick={() => zoomOut(0.4)}>
         −
       </button>
       <button
@@ -63,21 +51,13 @@ function ZoomControls() {
   );
 }
 
-export function MapShell({
-  network,
-  selectedStationId,
-  tileWall,
-  viewMode,
-  onSelectStation,
-}: Props) {
+export function MapShell({ network, mapNodes, selectedStationId, onSelectStation }: Props) {
   const transformRef = useRef<ReactZoomPanPinchContentRef>(null);
   const [isAtMinZoom, setIsAtMinZoom] = useState(true);
 
   function handleTransform(_ref: ReactZoomPanPinchRef, state: { scale: number }) {
     const nextIsAtMinZoom = isMinScale(state.scale);
-    setIsAtMinZoom((current) =>
-      current === nextIsAtMinZoom ? current : nextIsAtMinZoom,
-    );
+    setIsAtMinZoom((current) => (current === nextIsAtMinZoom ? current : nextIsAtMinZoom));
   }
 
   function recenterAtMinZoom(ref: ReactZoomPanPinchRef) {
@@ -110,15 +90,11 @@ export function MapShell({
         onZoomStop={recenterAtMinZoom}
       >
         <ZoomControls />
-        <TransformComponent
-          wrapperClass="map-shell__viewport"
-          contentClass="map-shell__content"
-        >
+        <TransformComponent wrapperClass="map-shell__viewport" contentClass="map-shell__content">
           <SubwaySvg
             network={network}
+            mapNodes={mapNodes}
             selectedStationId={selectedStationId}
-            tileWall={tileWall}
-            viewMode={viewMode}
             onSelectStation={onSelectStation}
           />
         </TransformComponent>

@@ -1,71 +1,85 @@
-import { useMemo, useState } from "react";
-import {
-  getRemainingTileGroups,
-  getStationTile,
-  TILE_BACK_IMAGE_PATH,
-  type RiichiTileCopy,
-} from "../data/riichiTiles";
-import {
-  getPlayerIndex,
-  isAdminView,
-  isStationVisibleToView,
-  type PlayerViewMode,
-} from "../data/playerViews";
-import type { Network, Station } from "../data/types";
+import type { SubwayLine } from "../data/types";
+import { tileImagePath } from "../lib/tileImages";
+import type { AtStationDto, HandTileDto, MapNodeDto, SlotTileDto, TileDto } from "../wire/projection";
 
 interface Props {
-  network: Network;
-  station: Station | null;
-  tileWall: readonly RiichiTileCopy[];
-  viewMode: PlayerViewMode;
-  onShuffleTiles: () => void;
+  atStation: AtStationDto | null;
+  viewingNode: MapNodeDto | null;
+  checkedInNodeName: string | null;
+  stationLines?: SubwayLine[];
+  handTiles: HandTileDto[];
+  commandsPending?: boolean;
+  commandsDisabled?: boolean;
   onClose: () => void;
+  onCheckIn: (nodeId: string) => void;
+  onCheckOut: () => void;
+  onSwapTile: () => void;
+}
+
+function renderSlotTiles(tiles: SlotTileDto[] | undefined, single?: TileDto) {
+  if (tiles?.length) {
+    return tiles.map((slot) => (
+      <div key={slot.slotIndex} className="station-panel__slot">
+        <span className="station-panel__slot-label">slot {slot.slotIndex}</span>
+        <img
+          src={tileImagePath(slot.tile)}
+          alt={slot.tile.displayName}
+          className="station-panel__tile-image station-panel__tile-image--large"
+        />
+        <p className="station-panel__tile-name">{slot.tile.displayName}</p>
+      </div>
+    ));
+  }
+  if (single) {
+    return (
+      <div className="station-panel__slot">
+        <img
+          src={tileImagePath(single)}
+          alt={single.displayName}
+          className="station-panel__tile-image station-panel__tile-image--large"
+        />
+        <p className="station-panel__tile-name">{single.displayName}</p>
+      </div>
+    );
+  }
+  return null;
+}
+
+function stationTilesForView(
+  viewingNode: MapNodeDto | null,
+  atStation: AtStationDto | null,
+  isViewingCheckedInStation: boolean,
+) {
+  if (!viewingNode) return null;
+  if (isViewingCheckedInStation && atStation) {
+    return renderSlotTiles(atStation.tiles, atStation.tile);
+  }
+  return renderSlotTiles(viewingNode.tiles, viewingNode.tile);
 }
 
 export function StationPanel({
-  network,
-  station,
-  tileWall,
-  viewMode,
-  onShuffleTiles,
+  atStation,
+  viewingNode,
+  checkedInNodeName,
+  stationLines = [],
+  handTiles,
+  commandsPending = false,
+  commandsDisabled = false,
   onClose,
+  onCheckIn,
+  onCheckOut,
+  onSwapTile,
 }: Props) {
-  const [showRemainingTiles, setShowRemainingTiles] = useState(false);
-  const isOpen = Boolean(station) || showRemainingTiles;
-  const isAdmin = isAdminView(viewMode);
-  const playerIndex = getPlayerIndex(viewMode);
-  const linesById = new Map(network.lines.map((l) => [l.id, l]));
-  const stationIndex = station
-    ? network.stations.findIndex((item) => item.id === station.id)
-    : -1;
-  const isStationTileVisible =
-    stationIndex >= 0 && isStationVisibleToView(stationIndex, viewMode);
-  const stationTile = useMemo(
-    () => (station ? getStationTile(network.stations, station.id, tileWall) : null),
-    [network.stations, station, tileWall],
-  );
-  const remainingTileGroups = useMemo(
-    () => getRemainingTileGroups(network.stations.length, tileWall),
-    [network.stations.length, tileWall],
-  );
-  const visibleTileGroups =
-    playerIndex == null
-      ? remainingTileGroups
-      : remainingTileGroups[playerIndex]
-        ? [remainingTileGroups[playerIndex]]
-        : [];
-  const hasRemainingTiles = visibleTileGroups.some((group) => group.length > 0);
-  const canRevealStationTile = isAdmin || isStationTileVisible;
-  const assignedTileImagePath = canRevealStationTile
-    ? stationTile?.imagePath
-    : TILE_BACK_IMAGE_PATH;
-  const assignedTileName = canRevealStationTile ? stationTile?.label : "Hidden tile";
-  const assignedTileCopy = canRevealStationTile ? stationTile?.copy : null;
-
-  const handleClose = () => {
-    setShowRemainingTiles(false);
-    onClose();
-  };
+  const isOpen = Boolean(viewingNode);
+  const checkedInId = atStation?.nodeId ?? null;
+  const viewingId = viewingNode?.id ?? null;
+  const isViewingCheckedInStation =
+    viewingId != null && checkedInId != null && viewingId === checkedInId;
+  const isBrowsingElsewhere =
+    viewingId != null && checkedInId != null && viewingId !== checkedInId;
+  const showCheckIn = viewingId != null && !isViewingCheckedInStation;
+  const stationTiles = stationTilesForView(viewingNode, atStation, isViewingCheckedInStation);
+  const actionsDisabled = commandsPending || commandsDisabled;
 
   return (
     <aside
@@ -74,164 +88,106 @@ export function StationPanel({
       aria-label="Station details"
     >
       <div className="station-panel__handle" aria-hidden="true" />
-
       <header className="station-panel__header">
         <div>
-          <p className="station-panel__eyebrow">Station</p>
+          <p className="station-panel__eyebrow">
+            {isViewingCheckedInStation
+              ? `At: ${atStation!.code}`
+              : isBrowsingElsewhere
+                ? `Checked in at ${checkedInNodeName ?? atStation!.code}`
+                : "Station"}
+          </p>
           <h2 className="station-panel__title">
-            {station ? station.name : "Pick a station"}
+            {viewingNode?.name ?? "Pick a station"}
           </h2>
         </div>
-        {(station || showRemainingTiles) && (
-          <button
-            type="button"
-            className="station-panel__close"
-            aria-label="Close station details"
-            onClick={handleClose}
-          >
+        {isOpen && (
+          <button type="button" className="station-panel__close" aria-label="Close" onClick={onClose}>
             ×
           </button>
         )}
       </header>
-
-      {!station && (
-        <div className="station-panel__body">
+      <div className="station-panel__body">
+        {!viewingNode && (
           <p className="station-panel__empty">
-            Tap any station on the map to see its assigned Riichi tile. Player
-            views only reveal their own station tiles and hand.
+            Tap any station on the map to check in or inspect tiles along your route.
           </p>
-          {hasRemainingTiles && (
-            <div className="station-panel__actions">
-              <button
-                type="button"
-                className="station-panel__tile-toggle"
-                onClick={() => setShowRemainingTiles((current) => !current)}
-              >
-                {showRemainingTiles
-                  ? playerIndex == null
-                    ? "Hide remaining hands"
-                    : "Hide your hand"
-                  : playerIndex == null
-                    ? "Show remaining hands"
-                    : "Show your hand"}
-              </button>
-              {isAdmin && (
-                <button
-                  type="button"
-                  className="station-panel__tile-toggle station-panel__tile-toggle--secondary"
-                  onClick={onShuffleTiles}
-                >
-                  Randomize tiles
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {station && (
-        <div className="station-panel__body">
-          {stationTile && assignedTileImagePath && assignedTileName && (
-            <section>
-              <h3 className="station-panel__section-title">Assigned tile</h3>
-              <div
-                className={`station-panel__assigned-tile${
-                  canRevealStationTile ? "" : " station-panel__assigned-tile--hidden"
-                }`}
-              >
-                <img
-                  src={assignedTileImagePath}
-                  alt={assignedTileName}
-                  className="station-panel__tile-image station-panel__tile-image--large"
-                />
-                <div>
-                  <p className="station-panel__tile-name">{assignedTileName}</p>
-                  <p className="station-panel__tile-copy">
-                    {assignedTileCopy == null
-                      ? "This tile is hidden in this player view."
-                      : `Copy ${assignedTileCopy} of 4`}
-                  </p>
-                </div>
-              </div>
-            </section>
-          )}
-
+        )}
+        {stationLines.length > 0 && (
           <section>
-            <h3 className="station-panel__section-title">Served by</h3>
+            <h3 className="station-panel__section-title">Lines</h3>
             <ul className="station-panel__lines">
-              {station.lineIds
-                .map((id) => linesById.get(id))
-                .filter((l): l is NonNullable<typeof l> => Boolean(l))
-                .map((line) => (
-                  <li key={line.id} className="station-panel__line">
-                    <span
-                      className="station-panel__swatch"
-                      style={{ background: line.color }}
-                      aria-hidden="true"
-                    />
-                    <span>{line.name}</span>
-                  </li>
-                ))}
+              {stationLines.map((line) => (
+                <li key={line.id} className="station-panel__line">
+                  <span className="station-panel__swatch" style={{ background: line.color }} aria-hidden="true" />
+                  <span>{line.name}</span>
+                </li>
+              ))}
             </ul>
           </section>
-
-          {hasRemainingTiles && (
-            <div className="station-panel__actions">
-              <button
-                type="button"
-                className="station-panel__tile-toggle"
-                onClick={() => setShowRemainingTiles((current) => !current)}
-              >
-                {showRemainingTiles
-                  ? playerIndex == null
-                    ? "Hide remaining hands"
-                    : "Hide your hand"
-                  : playerIndex == null
-                    ? "Show remaining hands"
-                    : "Show your hand"}
-              </button>
-              {isAdmin && (
-                <button
-                  type="button"
-                  className="station-panel__tile-toggle station-panel__tile-toggle--secondary"
-                  onClick={onShuffleTiles}
-                >
-                  Randomize tiles
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {showRemainingTiles && (
-        <section className="station-panel__remaining" aria-label="Remaining tiles">
-          <h3 className="station-panel__section-title">
-            {playerIndex == null ? "Remaining 52 tiles: 4 hands of 13" : "Your hand"}
-          </h3>
-          <div className="station-panel__hands">
-            {visibleTileGroups.map((group, groupIndex) => (
-              <div className="station-panel__hand" key={playerIndex ?? groupIndex}>
-                <h4 className="station-panel__hand-title">
-                  {playerIndex == null ? `Hand ${groupIndex + 1}` : `Player ${playerIndex + 1}`}
-                </h4>
-                <ul className="station-panel__tile-grid">
-                  {group.map((tile) => (
-                    <li className="station-panel__tile" key={tile.copyId}>
-                      <img
-                        src={tile.imagePath}
-                        alt={tile.label}
-                        title={`${tile.label} (copy ${tile.copy})`}
-                        className="station-panel__tile-image"
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+        )}
+        {viewingNode && stationTiles && (
+          <section>
+            <h3 className="station-panel__section-title">Station tiles</h3>
+            <div className="station-panel__slots">{stationTiles}</div>
+          </section>
+        )}
+        {showCheckIn && (
+          <button
+            type="button"
+            className="btn btn--primary btn--block"
+            disabled={actionsDisabled}
+            onClick={() => onCheckIn(viewingId!)}
+          >
+            {isBrowsingElsewhere ? "Move here" : "Check in here"}
+          </button>
+        )}
+        {isViewingCheckedInStation && atStation && (
+          <div className="station-panel__actions">
+            <button
+              type="button"
+              className="btn btn--secondary"
+              disabled={actionsDisabled}
+              onClick={onSwapTile}
+            >
+              Swap tile
+            </button>
+            <button
+              type="button"
+              className="btn btn--danger"
+              disabled={actionsDisabled}
+              onClick={onCheckOut}
+            >
+              Check out
+            </button>
           </div>
+        )}
+        {isBrowsingElsewhere && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--block"
+            disabled={actionsDisabled}
+            onClick={onCheckOut}
+          >
+            Check out from {checkedInNodeName ?? atStation!.code}
+          </button>
+        )}
+        <section>
+          <h3 className="station-panel__section-title">Your hand ({handTiles.length})</h3>
+          <ul className="station-panel__tile-grid">
+            {handTiles.map((tile) => (
+              <li className="station-panel__tile" key={tile.instanceId}>
+                <img
+                  src={tileImagePath(tile)}
+                  alt={tile.displayName}
+                  title={tile.displayName}
+                  className="station-panel__tile-image"
+                />
+              </li>
+            ))}
+          </ul>
         </section>
-      )}
+      </div>
     </aside>
   );
 }

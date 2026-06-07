@@ -1,3 +1,4 @@
+import { isDevRelaxLobbyStart } from "../lib/dev-flags.ts";
 import type { Lobby, LobbyStatus, TeamAssignmentMode } from "../models/lobby.ts";
 import type { LobbyMember } from "../models/lobby-member.ts";
 import type { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
@@ -117,11 +118,6 @@ export function computeReadiness(
   if (lobby.status !== "waiting") {
     reasons.push(`Lobby status is "${lobby.status}", not waiting`);
   }
-  if (memberCount < minPlayersToStart) {
-    reasons.push(
-      `Need at least ${minPlayersToStart} players (${memberCount} joined)`,
-    );
-  }
 
   const assignmentByUser = new Map(
     teamAssignments.map((a) => [a.userId, a.teamSlot]),
@@ -131,6 +127,27 @@ export function computeReadiness(
   const missingTeams = GAME_TEAM_SLOTS.filter(
     (team) => playersPerTeam[String(team)] === 0,
   );
+
+  if (isDevRelaxLobbyStart()) {
+    if (memberCount < 1) {
+      reasons.push("Need at least 1 player to start (dev mode)");
+    }
+    return {
+      ready: reasons.length === 0,
+      reasons,
+      memberCount,
+      minPlayersToStart,
+      playersPerTeam,
+      missingTeams: [...missingTeams],
+      unassignedCount,
+    };
+  }
+
+  if (memberCount < minPlayersToStart) {
+    reasons.push(
+      `Need at least ${minPlayersToStart} players (${memberCount} joined)`,
+    );
+  }
 
   if (mode === "pick") {
     if (unassignedCount > 0) {

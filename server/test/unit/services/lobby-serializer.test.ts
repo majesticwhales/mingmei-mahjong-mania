@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Lobby } from "../../../src/models/lobby.ts";
 import type { LobbyMember } from "../../../src/models/lobby-member.ts";
 import type { LobbyTeamAssignment } from "../../../src/models/lobby-team-assignment.ts";
@@ -90,6 +90,21 @@ describe("computeReadiness", () => {
       ],
     );
     expect(readiness.ready).toBe(true);
+  });
+
+  it("is ready with one player in dev relax mode", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("DEV_RELAX_LOBBY_START", "true");
+    try {
+      const readiness = computeReadiness(
+        lobby({ teamAssignmentMode: "pick" }),
+        [member("solo")],
+        [assignment("solo", null)],
+      );
+      expect(readiness.ready).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("is not ready when lobby is not waiting", () => {

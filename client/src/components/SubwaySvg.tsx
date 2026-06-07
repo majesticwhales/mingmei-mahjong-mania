@@ -1,37 +1,41 @@
-import { getStationTile, type RiichiTileCopy } from "../data/riichiTiles";
-import {
-  isStationVisibleToView,
-  type PlayerViewMode,
-} from "../data/playerViews";
+import { TILE_BACK_IMAGE_PATH } from "../data/riichiTiles";
 import type { Network } from "../data/types";
+import { tileImagePath } from "../lib/tileImages";
+import type { MapNodeDto } from "../wire/projection";
 import { LineLayer } from "./LineLayer";
 import { StationMarker } from "./StationMarker";
 
 interface Props {
   network: Network;
+  mapNodes?: MapNodeDto[];
   selectedStationId: string | null;
-  tileWall: readonly RiichiTileCopy[];
-  viewMode: PlayerViewMode;
   onSelectStation: (id: string) => void;
 }
 
-// Station extents in the seeded TTC map are roughly x ∈ [25, 1045] and
-// y ∈ [115, 685]. The viewBox extends 150 units past those extents on every
-// side so the empty padding becomes part of the SVG itself; that means the
-// zoom/pan library's `limitToBounds` clamps panning to the padded edge rather
-// than tightly hugging the outermost stations.
 export const VIEW_BOX_MIN_X = -125;
 export const VIEW_BOX_MIN_Y = -35;
 export const VIEW_BOX_WIDTH = 1320;
 export const VIEW_BOX_HEIGHT = 870;
 
+function nodeTileImage(node: MapNodeDto | undefined) {
+  if (!node) return TILE_BACK_IMAGE_PATH;
+  if (node.tile) return tileImagePath(node.tile);
+  if (node.tiles?.[0]) return tileImagePath(node.tiles[0].tile);
+  return TILE_BACK_IMAGE_PATH;
+}
+
+function nodeTileVisible(node: MapNodeDto | undefined) {
+  return Boolean(node?.tile || node?.tiles?.length);
+}
+
 export function SubwaySvg({
   network,
+  mapNodes,
   selectedStationId,
-  tileWall,
-  viewMode,
   onSelectStation,
 }: Props) {
+  const nodesById = new Map((mapNodes ?? []).map((node) => [node.id, node]));
+
   return (
     <svg
       className="subway-svg"
@@ -39,20 +43,24 @@ export function SubwaySvg({
       preserveAspectRatio="xMidYMid meet"
       xmlns="http://www.w3.org/2000/svg"
       role="img"
-      aria-label="Toronto 2026 TTC subway and LRT map"
+      aria-label="Subway map"
     >
       <LineLayer network={network} />
       <g>
-        {network.stations.map((station, stationIndex) => (
-          <StationMarker
-            key={station.id}
-            station={station}
-            tile={getStationTile(network.stations, station.id, tileWall)}
-            isTileVisible={isStationVisibleToView(stationIndex, viewMode)}
-            isSelected={selectedStationId === station.id}
-            onSelect={onSelectStation}
-          />
-        ))}
+        {network.stations.map((station) => {
+          const node = nodesById.get(station.id);
+          return (
+            <StationMarker
+              key={station.id}
+              station={station}
+              tileImagePath={nodeTileImage(node)}
+              tileLabel={node?.tile?.displayName ?? node?.tiles?.[0]?.tile.displayName}
+              isTileVisible={nodeTileVisible(node)}
+              isSelected={selectedStationId === station.id}
+              onSelect={onSelectStation}
+            />
+          );
+        })}
       </g>
     </svg>
   );

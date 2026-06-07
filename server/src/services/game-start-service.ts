@@ -9,6 +9,7 @@ import { bootstrapGameVisibility } from "./game-visibility-bootstrap.ts";
 import { bootstrapGameChallenges } from "./game-challenge-bootstrap.ts";
 import { scheduleGameJobs } from "./game-schedule-service.ts";
 import { dealTilesForGame } from "./tile-deal-service.ts";
+import { isDevRelaxLobbyStart } from "../lib/dev-flags.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Game } from "../models/game.ts";
 import { GameParticipant } from "../models/game-participant.ts";
@@ -77,15 +78,18 @@ export async function startFromLobby(
     throw new HttpError(409, "lobby_not_ready", readiness.reasons.join("; "));
   }
 
+  const assignmentInputs = members.map((member) => {
+    const row = teamAssignments.find((a) => a.userId === member.userId);
+    const teamSlot =
+      row?.teamSlot ??
+      (isDevRelaxLobbyStart() ? 1 : null);
+    return { userId: member.userId, teamSlot };
+  });
+
   let resolvedTeams: Map<string, GameTeamSlot>;
   try {
-    resolvedTeams = resolveTeamsForGameStart(
-      lobby.teamAssignmentMode,
-      teamAssignments.map((a) => ({
-        userId: a.userId,
-        teamSlot: a.teamSlot,
-      })),
-    );
+    const mode = isDevRelaxLobbyStart() ? "pick" : lobby.teamAssignmentMode;
+    resolvedTeams = resolveTeamsForGameStart(mode, assignmentInputs);
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Team assignment failed";

@@ -14,7 +14,16 @@ import { createSocketServer } from "./socket/server.ts";
 
 const port = Number(process.env.PORT) || 3001;
 
+function requireEnv(name: string): void {
+  if (!process.env[name]?.trim()) {
+    throw new Error(
+      `${name} is not set. Add it to server/.env (see .env.example).`,
+    );
+  }
+}
+
 async function main() {
+  requireEnv("JWT_SECRET");
   await sequelize.authenticate();
   console.log("Database connection established.");
 
