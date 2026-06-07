@@ -1,5 +1,6 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.ts";
+import { visibilityIncludes } from "../game/visibility-mode.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Challenge } from "../models/challenge.ts";
 import { Game, type GameStatus } from "../models/game.ts";
@@ -343,6 +344,19 @@ export async function buildGameStateProjection(
   const slotsPerNode = game.slotsPerNode;
   const multiSlot = slotsPerNode > 1;
 
+  // Per-game visibility-mode flags. The two layers are independently
+  // gated at this projection: phase off means every node is face-up
+  // (visibility groups are skipped); slot off means every slot is
+  // unlocked + map-visible (per-slot tier rules are skipped). The
+  // engine doesn't seed the corresponding bootstrap rows / scheduled
+  // jobs for the off layer, so reading the live game state would
+  // already produce an "always face-up" / "always unlocked" effect
+  // for in-flight games — but we still gate the projection so a
+  // game that started before the migration (back-compat `both`) and
+  // then had its mode patched later still behaves correctly.
+  const phaseLayerActive = visibilityIncludes(game.visibilityMode, "phase");
+  const slotLayerActive = visibilityIncludes(game.visibilityMode, "slot");
+
   const lineIdsByNode = new Map<string, string[]>();
   for (const row of nodeLineRows) {
     const arr = lineIdsByNode.get(row.game_node_id) ?? [];
@@ -400,9 +414,16 @@ export async function buildGameStateProjection(
     }
   }
 
-  const mapVisibleSlots = multiSlot
-    ? mapVisibleSlotIndices(game.slotMapVisible, slotsPerNode)
-    : [0];
+  // When the slot layer is off, treat every slot as map-visible. The
+  // host can't have flipped any `slot_map_visible[k>0]` to false in
+  // that mode (chunk-2 knob lock), but games that switched mode
+  // mid-flight could still have stale `false` entries from the prior
+  // mode — the projection ignores them so the layout is consistent.
+  const mapVisibleSlots = !slotLayerActive
+    ? Array.from({ length: slotsPerNode }, (_v, k) => k)
+    : multiSlot
+      ? mapVisibleSlotIndices(game.slotMapVisible, slotsPerNode)
+      : [0];
 
   const mapNodes: MapNodeDto[] = nodes.map((node) => {
     const dto: MapNodeDto = {
@@ -419,7 +440,11 @@ export async function buildGameStateProjection(
       longitude: node.longitude,
     };
 
-    if (!faceUpNodeIds.has(node.id)) {
+    // When the phase layer is off, every node is treated as face-up
+    // — the team's `game_location_team_visibility` rows are absent
+    // because `bootstrapGameVisibility` was skipped at start, so we
+    // bypass the gate entirely rather than checking the empty set.
+    if (phaseLayerActive && !faceUpNodeIds.has(node.id)) {
       return dto;
     }
 
@@ -486,6 +511,7 @@ export async function buildGameStateProjection(
     multiSlot,
     nowMs,
     currentChallenge,
+    slotLayerActive,
   });
 
   ownHandTiles.sort(handTileSortComparator);

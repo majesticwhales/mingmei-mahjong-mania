@@ -8,7 +8,13 @@ import { ChallengeType } from "../../../src/models/challenge-type.ts";
 import { Game } from "../../../src/models/game.ts";
 import { GameNode } from "../../../src/models/game-node.ts";
 import { GameNodeChallenge } from "../../../src/models/game-node-challenge.ts";
+import { GameNodeVisibilityGroup } from "../../../src/models/game-node-visibility-group.ts";
+import { GameLocationTeamVisibility } from "../../../src/models/game-location-team-visibility.ts";
+import { GameRuleFlag } from "../../../src/models/game-rule-flag.ts";
 import { GameScheduledJob } from "../../../src/models/game-scheduled-job.ts";
+import { GameTeam } from "../../../src/models/game-team.ts";
+import { GameTeamHomeGroup } from "../../../src/models/game-team-home-group.ts";
+import { GameTeamPosition } from "../../../src/models/game-team-position.ts";
 import { GameTile } from "../../../src/models/game-tile.ts";
 import { Lobby } from "../../../src/models/lobby.ts";
 import { MapTemplateNode } from "../../../src/models/map-template-node.ts";
@@ -187,6 +193,90 @@ describe("startFromLobby", () => {
     expect(notifJobs[1]!.payload).toEqual({
       template: "time_warning",
       data: { minutesLeft: 10 },
+    });
+  });
+
+  describe("visibility mode (chunk 3)", () => {
+    it("snapshots lobby.visibilityMode onto games.visibility_mode", async () => {
+      const { lobbyId, hostId } = await createLobbyWithFourPlayers();
+      await lobbyService.updateConfig(lobbyId, hostId, {
+        visibilityMode: "slot",
+      });
+
+      const { gameId } = await startFromLobby(lobbyId, hostId);
+      const game = await Game.findByPk(gameId);
+      expect(game?.visibilityMode).toBe("slot");
+    });
+
+    it("seeds positions + rule flag without phase tables when mode='slot' (phase off)", async () => {
+      const { lobbyId, hostId } = await createLobbyWithFourPlayers();
+      await lobbyService.updateConfig(lobbyId, hostId, {
+        visibilityMode: "slot",
+      });
+
+      const { gameId } = await startFromLobby(lobbyId, hostId);
+
+      const teams = await GameTeam.findAll({ where: { gameId } });
+      expect(teams).toHaveLength(4);
+
+      // Always-needed: positions + red-fives rule flag.
+      const positions = await GameTeamPosition.findAll({
+        where: { gameTeamId: teams.map((t) => t.id) },
+      });
+      expect(positions).toHaveLength(4);
+      const ruleFlags = await GameRuleFlag.findAll({ where: { gameId } });
+      expect(ruleFlags).toHaveLength(1);
+
+      // Phase tables should be empty — bootstrap was gated.
+      const nodes = await GameNode.findAll({
+        where: { gameId },
+        attributes: ["id"],
+      });
+      const visibilityGroups = await GameNodeVisibilityGroup.findAll({
+        where: { gameNodeId: nodes.map((n) => n.id) },
+      });
+      expect(visibilityGroups).toHaveLength(0);
+      const homeGroups = await GameTeamHomeGroup.findAll({
+        where: { gameId },
+      });
+      expect(homeGroups).toHaveLength(0);
+      const phaseFaceUp = await GameLocationTeamVisibility.findAll({
+        where: { gameTeamId: teams.map((t) => t.id) },
+      });
+      expect(phaseFaceUp).toHaveLength(0);
+    });
+
+    it("seeds no jobs except GAME_END when mode='none'", async () => {
+      const { lobbyId, hostId } = await createLobbyWithFourPlayers();
+      await lobbyService.updateConfig(lobbyId, hostId, {
+        visibilityMode: "none",
+      });
+
+      const { gameId } = await startFromLobby(lobbyId, hostId);
+
+      const jobs = await GameScheduledJob.findAll({ where: { gameId } });
+      const types = jobs.map((j) => j.jobType).sort();
+      expect(types).toEqual(["GAME_END"]);
+    });
+
+    it("phase-only games keep the phase tables and skip SLOT_UNLOCKED jobs", async () => {
+      const { lobbyId, hostId } = await createLobbyWithFourPlayers();
+      // Configure a non-trivial slot offset *before* switching modes so
+      // the transition resets it (mode lock); we still expect zero
+      // SLOT_UNLOCKED jobs because the slot layer is off.
+      await lobbyService.updateConfig(lobbyId, hostId, {
+        visibilityMode: "phase",
+      });
+
+      const { gameId } = await startFromLobby(lobbyId, hostId);
+
+      const groups = await GameNodeVisibilityGroup.count();
+      expect(groups).toBeGreaterThan(0);
+
+      const jobs = await GameScheduledJob.findAll({ where: { gameId } });
+      const types = jobs.map((j) => j.jobType);
+      expect(types).toContain("VISIBILITY_PHASE_ADVANCE");
+      expect(types).not.toContain("SLOT_UNLOCKED");
     });
   });
 });
