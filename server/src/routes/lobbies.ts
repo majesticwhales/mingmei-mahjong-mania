@@ -1,4 +1,8 @@
 import { Router } from "express";
+import {
+  isVisibilityMode,
+  type VisibilityMode,
+} from "../game/visibility-mode.ts";
 import type { TeamAssignmentMode } from "../models/lobby.ts";
 import { asyncHandler } from "../middleware/async-handler.ts";
 import { HttpError } from "../lib/http-error.ts";
@@ -63,6 +67,20 @@ function parseTeamAssignmentMode(value: unknown): TeamAssignmentMode | undefined
       400,
       "validation_error",
       "teamAssignmentMode must be pick, random, or mixed",
+    );
+  }
+  return value;
+}
+
+function parseVisibilityMode(value: unknown): VisibilityMode | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isVisibilityMode(value)) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      "visibilityMode must be one of: none, phase, slot, both",
     );
   }
   return value;
@@ -165,6 +183,7 @@ lobbiesRouter.post(
         body.deadWallSize,
         "deadWallSize",
       ),
+      visibilityMode: parseVisibilityMode(body.visibilityMode),
       teamAssignmentMode: parseTeamAssignmentMode(body.teamAssignmentMode),
       minPlayersToStart: parseOptionalPositiveInt(
         body.minPlayersToStart,
@@ -215,6 +234,7 @@ lobbiesRouter.patch(
           body.deadWallSize,
           "deadWallSize",
         ),
+        visibilityMode: parseVisibilityMode(body.visibilityMode),
         teamAssignmentMode: parseTeamAssignmentMode(body.teamAssignmentMode),
         minPlayersToStart: parseOptionalPositiveInt(
           body.minPlayersToStart,
