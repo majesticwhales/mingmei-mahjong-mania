@@ -24,6 +24,8 @@ This document defines **infrastructure and architecture** for *mingmei-mahjong-m
 - **Per-lobby static notification schedule** (`lobby_notifications`)
 - Challenge system **schema + honor-system swap gate** (one challenge per station gates `SWAP_TILE`; product still defines the actual card decks; reviewer-driven resolvers when product asks for them — see [§3.8](#38-challenges-honor-system-swap-gate))
 - **Riichi hand evaluation** module (stub → full scoring; see [§3.9](#39-mahjong-hand-evaluation-riichi))
+- **End-game completion mechanic** — a new `CLAIM_WIN` engine command lets a tenpai team take a station tile as their winning 14th tile; the team is then **hand-completed** and locked from further tile-modifying commands. When every team has hand-completed (or the scheduled `GAME_END` fires), the game ends with a per-team scoring snapshot computed via `analyzeHand`. See [§3.10](#310-game-end-and-hand-completion)
+- **Discord integration (per-lobby opt-in)** — a separate `discord-bot` Node process running alongside the main server provisions a per-game category (private team channels + public general + public notifications), bot-posts on every team-visible engine event, and drives the same scheduled notifications the in-app banner shows. Engine writes to a durable `discord_event_outbox` table + `pg_notify`; the bot consumes via `LISTEN` and `discord.js`. See [§3.11](#311-discord-integration-per-lobby-opt-in)
 
 ### Abstraction layer vs rule layer
 
@@ -93,7 +95,8 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 | Game end | Drain **in-flight** command queue, then `ended` |
 | Realtime | Commands → queue → engine → `game_events` → broadcast |
 | State storage | Relational tables; JSONB only on events/commands/challenge params/notification data |
-| Hand scoring | **Riichi** ruleset; pure `analyzeHand` module in `server/src/scoring/`. **Shipped (Phase I)**: module + `game.state` projection wiring (`handAnalysis`, `roundWind`, `seatWind`, `doraIndicator`). Game summary integration still post-MVP. Tile model treats every hand as fully concealed (no calls / kans). Wins are non-dealer tsumo. Round wind randomized per game (persisted on `games.round_wind`); seat wind per team. Red-fives add `+1 han` per copy in the winning hand. Dora indicator from the dead wall (`game_tile_placements.dead_wall_index = 0`) adds `+1 han per matching tile`; like red fives, dora is not itself a yaku. 28 yaku detectors (1–6 han) + 8 yakuman with **additive stacking** for co-firing yakuman. See §3.9. |
+| Hand scoring | **Riichi** ruleset; pure `analyzeHand` module in `server/src/scoring/`. **Shipped (Phase I)**: module + `game.state` projection wiring (`handAnalysis`, `roundWind`, `seatWind`, `doraIndicator`). End-of-game summary integration lands in **Phase J** ([§3.10](#310-game-end-and-hand-completion)). Tile model treats every hand as fully concealed (no calls / kans). Wins are non-dealer tsumo. Round wind randomized per game (persisted on `games.round_wind`); seat wind per team. Red-fives add `+1 han` per copy in the winning hand. Dora indicator from the dead wall (`game_tile_placements.dead_wall_index = 0`) adds `+1 han per matching tile`; like red fives, dora is not itself a yaku. 28 yaku detectors (1–6 han) + 8 yakuman with **additive stacking** for co-firing yakuman. See §3.9. |
+| Discord integration | **Phase K (post-MVP)**, per-lobby opt-in. A separate `discord-bot` Node process running alongside the main server uses Postgres `LISTEN/NOTIFY` + a durable `discord_event_outbox` table to drive side effects: per-game channel category, private team channels, public general + notifications channels, and bot-posted messages on `CHECK_IN`, `START_CHALLENGE`, `CHALLENGE_COMPLETED/FORFEITED`, `CLAIM_WIN_SUCCEEDED`, `GAME_ENDED`, and scheduled notifications. Failure-isolated from the engine — the bot can crash without blocking gameplay. See [§3.11](#311-discord-integration-per-lobby-opt-in). |
 
 ---
 
@@ -356,7 +359,7 @@ See [§4.8](#48-challenges-schema-honor-system--reserved-resolver-flow). The hon
 
 ### 3.9 Mahjong hand evaluation (Riichi)
 
-A self-contained **scoring module** at `server/src/scoring/` evaluates a mahjong hand and returns structured scoring metadata. The client **never** computes score — only displays server results. The module is **shipped as of Phase I** and is wired into the `game.state` projection (§6.3: `handAnalysis`, `roundWind`, `seatWind`, `doraIndicator`). Integration with `GET /api/games/:id/summary` is a post-MVP follow-up.
+A self-contained **scoring module** at `server/src/scoring/` evaluates a mahjong hand and returns structured scoring metadata. The client **never** computes score — only displays server results. The module is **shipped as of Phase I** and is wired into the `game.state` projection (§6.3: `handAnalysis`, `roundWind`, `seatWind`, `doraIndicator`). End-of-game integration with `GET /api/games/:id/summary` lands with **Phase J** — see [§3.10](#310-game-end-and-hand-completion).
 
 **Ruleset:** [Riichi / modern Japanese](https://riichi.wiki/), adapted to this game's constraints:
 
@@ -471,7 +474,167 @@ Each yaku detector is a pure structural check `(decomposition, context) → han 
 - **Riichi / ippatsu / haitei / houtei** and other special-state yaku that require turn-context the engine doesn't surface to scoring.
 - **Open hands / called melds** — structurally impossible in this game.
 - **Kan / rinshan / chankan** — structurally impossible.
-- **`GET /api/games/:id/summary` wiring** — `game.state` integration is live (§6.3); the summary endpoint is a post-MVP follow-up that will reuse `analyzeHand` to produce per-team end-of-game scores from the final hands.
+- **`GET /api/games/:id/summary` wiring** — `game.state` integration is live (§6.3); the summary endpoint is implemented in **Phase J** (see [§3.10](#310-game-end-and-hand-completion) and [§7](#7-api-surface)).
+
+### 3.10 Game end and hand completion
+
+**Status:** spec'd as **Phase J**; ships after Phase I/H. Builds on the scoring module above and the challenge swap-credit gate from §3.8.
+
+#### Mechanic
+
+Every team holds **13 tiles** throughout the game. A winning mahjong hand is **14 tiles**. When a team is **tenpai** (`analyzeHand.shanten === 0`) and physically checked into a station, the station-panel UI exposes a **"Claim" affordance on every wait tile** in addition to the normal "Swap" button. Picking Claim:
+
+1. Moves the picked station tile into the team's hand (hand goes 13 → 14).
+2. Stamps the team as **hand-completed** (`game_teams.hand_completed_at = now()`).
+3. Snapshots the scoring result (han / fu / points / yaku) onto `game_teams`.
+4. Locks the team out of any further tile-modifying engine command.
+
+When **every** team has hand-completed, the game ends immediately (the scheduled `GAME_END` job is rescheduled to `runAt = now()`). When the scheduled timer fires first, any still-incomplete teams stay incomplete and get a tenpai/shanten summary with `final_points = 0`.
+
+#### `CLAIM_WIN` command
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `gameId` | UUID | path / payload — same as every other command |
+| `gameTeamId` | UUID | the calling team |
+| `stationTileId` | UUID | the `game_tiles.id` the team wants to claim from the station |
+
+**Validation pipeline** (rejects with the first failure):
+
+1. Game is active (`status = "active"`). Else `409 game_not_active`.
+2. Team is not already hand-completed (`hand_completed_at IS NULL`). Else `409 hand_completed`.
+3. Team is checked in at the same station that holds `stationTileId` (read from `game_team_positions`). Else `409 not_at_station`.
+4. The station slot is unlocked at `now()` (`assertSlotUnlocked` from §3.3). Else `409 slot_locked`.
+5. **Challenge credit gate** (same as `SWAP_TILE`): if the station has at least one row in `game_node_challenges`, the team must have `pending_swap_credit = TRUE`. Else `409 swap_credit_required`. (See [§3.8](#38-challenges-honor-system-swap-gate).)
+6. Build the candidate 14-tile hand (`hand13` plus the station tile's `TileIdentity`). Run `analyzeHand({ tiles: hand14, seatWind, roundWind, redFivesEnabled, doraIndicators })`. The result must have `shanten === -1` (a fully formed winning hand). The shorthand: `analyzeHand` over the 13-tile hand returned a wait set, and the station tile is in it. The 14-tile path is the authoritative check. Else `409 not_a_winning_tile`.
+7. Pick the best `waits[]` entry whose `tile.suit + rank + copyIndex` matches the claimed station tile (red-five preferred when both copies are present). The picked entry's `points / han / fu / yaku` are the snapshot.
+
+**Side effects on success** (all in one transaction):
+
+- `UPDATE game_tile_placements SET game_node_id = NULL, slot_index = NULL, game_team_id = <team> WHERE game_tile_id = <stationTileId>` — the tile moves into the team's hand. The vacated `(game_node_id, slot_index)` pair is now empty; the per-slot EXCLUDE constraint added in the Phase D rollout already permits this.
+- `UPDATE game_teams SET hand_completed_at = now(), winning_tile_id = <stationTileId>, winning_node_id = <node>, final_han = <han>, final_fu = <fu>, final_points = <points>, final_yaku_keys = <yaku> WHERE id = <teamId>`.
+- `UPDATE game_team_positions SET pending_swap_credit = FALSE WHERE game_team_id = <teamId>` — credit consumed (`credit_earned_in_session` stays as-is).
+- Emit `CLAIM_WIN_SUCCEEDED` event (see §6.4).
+- Count `game_teams WHERE game_id = ? AND hand_completed_at IS NULL`. If zero, upsert the scheduled `GAME_END` job to `runAt = now()`; the queue worker picks it up in the next tick.
+
+#### Lock semantics
+
+With `hand_completed_at IS NOT NULL`, the team's engine surface narrows. The full disposition table:
+
+| Command | Behavior when team is hand-completed |
+|---------|--------------------------------------|
+| `CHECK_IN` | Still permitted — observers may want to keep traveling |
+| `CHECK_OUT` | Still permitted — same reasoning |
+| `SWAP_TILE` | `409 hand_completed` |
+| `CLAIM_WIN` | `409 hand_completed` |
+| `START_CHALLENGE` | `409 hand_completed` |
+| `CHALLENGE_COMPLETED` | `409 hand_completed` |
+| `CHALLENGE_FORFEITED` | `409 hand_completed` |
+
+Auto-forfeit on `CHECK_IN` / `CHECK_OUT` (§3.8) still runs for completed teams — if they had an in-progress challenge instance when they claimed, it stays in-progress until the next check-in/-out auto-forfeits it. Belt-and-suspenders: `CLAIM_WIN`'s commit path may also auto-forfeit immediately. (Implementation detail — call this out in the handler PR.)
+
+#### Summary snapshotting at `GAME_ENDED`
+
+When the `GAME_END` scheduler job runs (whether on time or via the early-end path), it does two things beyond today's `status = "ended"` flip:
+
+1. For **incomplete teams**, run `analyzeHand` over their 13-tile hand and stamp `final_han / final_fu / final_points = 0`; record the tenpai shape (`waits[]`) into `final_yaku_keys` as a JSON-encoded "tenpai shape" payload, or simply leave `final_yaku_keys = NULL` and let the summary endpoint compute waits on the fly. Decision deferred to implementation; the columns support either path.
+2. Emit `GAME_ENDED` with payload `{ endedAt, endReason: "timer" | "all_teams_completed", winningGameTeamId?: UUID }`. `winningGameTeamId` is set only when exactly one team has the strictly highest `final_points`; ties leave it `NULL` and the summary endpoint exposes the full ordering.
+
+#### Visibility-mode interaction
+
+The `CLAIM_WIN` validation pipeline is identical under every `visibility_mode`. The wait-set check uses the team's own hand, which is always private (§6.3 team-scoped projection); the station tile is in scope only if the team is checked in, which already requires the team to know the station exists. So `mode = none | slot | phase | both` does not change anything in §3.10.
+
+### 3.11 Discord integration (per-lobby opt-in)
+
+**Status:** spec'd as **Phase K**; ships after Phase J. Optional per-lobby — games created from lobbies with `discord_enabled = FALSE` behave exactly as today (no bot, no extra tables touched).
+
+#### Architecture
+
+```mermaid
+flowchart LR
+  subgraph mainServer["mainServer (Express + Socket.IO + scheduler)"]
+    Engine[engine handlers]
+    Outbox[(discord_event_outbox)]
+    Engine -->|INSERT row in same TX| Outbox
+    Engine -->|pg_notify('discord_outbox', rowId)| Outbox
+  end
+
+  subgraph botProcess["discord-bot (sibling Node process)"]
+    Listener[pg LISTEN 'discord_outbox']
+    Drainer[outbox drainer]
+    Listener --> Drainer
+    Drainer -->|read FOR UPDATE SKIP LOCKED| Outbox
+    Drainer -->|REST: createChannel / sendMessage| DiscordAPI[(discord.js → Discord API)]
+    Drainer -->|UPDATE delivered_at| Outbox
+  end
+
+  ScheduledJob[game_scheduled_jobs] -->|GAME_END / NOTIFICATION handlers also INSERT| Outbox
+```
+
+- **Bot is failure-isolated.** Engine handlers commit the event log row + the `discord_event_outbox` row in the **same transaction**. The `pg_notify` is the fast path; the drainer also runs a periodic `SELECT … WHERE delivered_at IS NULL ORDER BY created_at LIMIT N FOR UPDATE SKIP LOCKED` poll (every 30 s) so an outage of either the LISTEN channel or the bot itself just delays the post — it never loses one.
+- **Bot never writes to game state.** Its only write surface is `discord_event_outbox.delivered_at` (and `delivery_attempts` / `last_error`). Engine state is read-only from the bot's perspective. This keeps the engine the single source of truth and lets the bot crash freely.
+- **Bot is single-instance.** v1 ships one process; `FOR UPDATE SKIP LOCKED` already makes multi-instance safe but it's not enabled.
+
+#### Identity linking
+
+Users link their Discord account at registration time or later from the Profile screen. The link is captured by a Discord **username** the user types in plain text. The bot resolves the username against the configured guild's member list **at lobby start time** (not at link time), so a user who later joins the guild from a different username doesn't need to re-link.
+
+- `users.discord_username` (`STRING(64) NULL UNIQUE` — Discord usernames are globally unique per the 2023 rollout).
+- `users.discord_user_id` (`STRING(32) NULL UNIQUE`) — the resolved Discord snowflake, populated by the bot the **first time** it successfully resolves the username for any lobby. Subsequent lookups go through `discord_user_id` directly, which is stable across username changes.
+- `users.discord_link_status` (`STRING(16) NOT NULL DEFAULT 'unlinked'` CHECK in `unlinked | pending | linked | failed`). `pending` is set the moment the user POSTs a username; the bot flips it to `linked` (success) or `failed` (username not found in guild) on the next opt-in lobby start that involves this user. `failed` keeps the username string for the user to fix it.
+
+The link is **not required** to play. A team whose members aren't all linked still gets a private channel — only the linked members are added. The bot uses the public general / notifications channels as the fallback discovery surface for any team-visible event involving an unlinked member.
+
+#### Opt-in semantics
+
+`lobbies.discord_enabled BOOLEAN NOT NULL DEFAULT FALSE`. Host toggles in the lobby room (host-only knob, plain checkbox). The toggle is sticky on the **lobby**; `games.discord_enabled` snapshots the lobby value at `GameStartService` time, so a host can't sneak it on mid-game.
+
+When the host flips `discord_enabled` to true, the lobby room shows a "Discord channels will be created when the game starts" note. No bot calls happen until `GAME_STARTED`.
+
+#### Channel topology
+
+At `GAME_STARTED`, the engine writes a single row to `discord_event_outbox` with `event_type = 'GAME_STARTED'`. The bot consumes the row and provisions **7 Discord resources** for the game in this order (each created via `discord.js` REST and recorded in `game_discord_channels`):
+
+| Resource | Type | Name | Permissions |
+|----------|------|------|-------------|
+| Category | `GUILD_CATEGORY` | `🀄 game-{shortGameId}` | inherits guild defaults |
+| Team channel | `GUILD_TEXT` | `team-east-{shortGameId}` (4 of these, per team) | private — only `discord_user_id` of team members + bot |
+| General | `GUILD_TEXT` | `general-{shortGameId}` | public to everyone in the guild |
+| Notifications | `GUILD_TEXT` | `notifications-{shortGameId}` | public to everyone in the guild; **read-only** for non-bot members |
+
+`shortGameId = games.id.slice(0, 8)`. The category is the parent of all six text channels (4 team + 1 general + 1 notifications).
+
+On `GAME_ENDED`, the bot posts the per-team summary to general + notifications, then **archives** the entire category (moves it to the `archive` parent category — name configurable via env var `DISCORD_ARCHIVE_CATEGORY_ID`). Channels are **not deleted** — game history stays in Discord for as long as the guild retains it.
+
+#### Event → Discord post mapping
+
+| Engine event | Channel target | Post content |
+|--------------|----------------|--------------|
+| `GAME_STARTED` | notifications + every team channel | "Game has started — N stations, M minutes duration. Round wind: East." |
+| `CHECK_IN_SUCCEEDED` | the calling team's channel | "✅ {user} checked in at **{station name}**. Take your check-in proof photo here." (photo is honor-system — no upload validation; the channel is the audit trail.) |
+| `START_CHALLENGE` | the calling team's channel | "🧩 Challenge: **{title}**. {description} _Document your proof in this channel._" If the catalog row has a `discord_attachment_url` (e.g. a Sporcle link), it's appended. |
+| `CHALLENGE_COMPLETED` | the calling team's channel | "✅ Challenge complete — credit ready." (other teams don't see this) |
+| `CHALLENGE_FORFEITED` | the calling team's channel | "❌ Challenge forfeited ({reason: explicit / checkout})." |
+| `SWAP_TILE_SUCCEEDED` | the calling team's channel | "🀄 Swapped a tile at {station name}." (deliberately vague — no tile identity to keep team channels match the in-app projection) |
+| `CLAIM_WIN_SUCCEEDED` | the calling team's channel **and** notifications | Team channel: full breakdown (yaku list, han, fu, points, winning tile image). Notifications: "🎉 {teamCode} completed their hand at {station}!" (no scoring breakdown — preserves the §6.4 fan-out redaction so other teams only see the public roster fact). |
+| `VISIBILITY_PHASE_REVEALED` | notifications | "🔓 Visibility phase {n} revealed." |
+| `SLOT_UNLOCKED` | notifications | "🔓 Slot {n} unlocked at all stations." |
+| `GAME_ENDED` | notifications + every team channel | Final scoreboard from `GET /api/games/:id/summary` (re-uses the same DTO). Followed immediately by the category archive. |
+| Scheduled `NOTIFICATION` | notifications | The same opaque `template` key the in-app banner uses; the bot resolves it via a copy of the lobby's `lobby_notifications.data` JSONB. |
+
+The mapping is **fixed** in v1 — there's no per-lobby override. Future versions can expose it as a host-editable matrix.
+
+#### Failure isolation + rate limits
+
+- Every outbox row is processed at-least-once. The bot is **idempotent** per row: after a successful Discord REST call, it updates `delivered_at = now()`. If the call fails, it increments `delivery_attempts`, stores `last_error`, and lets the next poll cycle pick it up.
+- After 10 failed attempts the row is marked `dead_letter` (no further processing); an operator can investigate via the outbox table. Engine continues without the post.
+- Discord's REST rate limits are absorbed by `discord.js`'s built-in queue. The drainer fetches up to 25 rows per poll cycle; in practice the steady-state is ~1 row/sec per active game.
+- If the **guild** is unreachable (Discord outage), the outbox grows. Engine doesn't care. Once Discord recovers, the drainer catches up at the limited rate.
+- If the **bot process** crashes / restarts, the LISTEN channel reconnects; the next poll picks up everything that came in during the downtime.
+
+#### Cross-section forward references
+
+§3.4 (CHECK_IN / CHECK_OUT), §3.5 (check-in photo flow), §3.6 (tile identity), §3.8 (challenges), §3.10 (CLAIM_WIN), and §6.3 (projection) each have side effects that flow through the outbox per the mapping table above. No engine-side change is needed in those sections — the engine just adds an `insertIntoDiscordOutbox(...)` call inside the same transaction whenever `games.discord_enabled = TRUE`. The helper lives in `server/src/discord/outbox.ts` and is the **only** Discord-aware code reachable from the engine; everything else lives in the sibling bot process.
 
 ---
 
@@ -489,10 +652,13 @@ JSONB is avoided for authoritative **state**. Allowed on: `game_events.payload`,
 | `email` | STRING | NOT NULL, UNIQUE |
 | `password_hash` | STRING | NOT NULL |
 | `username` | STRING | NOT NULL, UNIQUE |
+| `discord_username` | STRING(64) | NULL, UNIQUE (Phase K) — Discord username; user-provided plain text. Globally unique per Discord's 2023 unique-handle rollout. |
+| `discord_user_id` | STRING(32) | NULL, UNIQUE (Phase K) — Discord snowflake; populated by the bot the first time it successfully resolves `discord_username` against the configured guild. Survives the user changing their Discord username. |
+| `discord_link_status` | STRING(16) | NOT NULL DEFAULT `'unlinked'` CHECK in (`unlinked`, `pending`, `linked`, `failed`) (Phase K) — `pending` between `POST /api/users/me/discord-link` and the next lobby-start resolution attempt. `failed` keeps the username for the user to fix; the row stays usable. |
 | `created_at` | DATE | NOT NULL |
 | `updated_at` | DATE | NOT NULL |
 
-Indexes: `email`, `username`.
+Indexes: `email`, `username`, `discord_username`, `discord_user_id`.
 
 Sequelize model: `User` (`server/src/models/user.ts`).
 
@@ -513,6 +679,7 @@ Sequelize model: `User` (`server/src/models/user.ts`).
 | `visibility_mode` | VARCHAR(8) NOT NULL DEFAULT `'both'` CHECK in (`none`, `phase`, `slot`, `both`). Picks which of the two visibility layers (§3.2 phase reveal / §3.3 per-slot tier) are active for the resulting game. Sourced from `map_template.default_visibility_mode`; host-editable. Snapshotted to `games.visibility_mode` at start. Picking a mode that excludes a layer **locks** the corresponding knobs at the service layer: phase-off rejects any patch that sets `visibility_phase_count` / `visibility_phase_interval_seconds`; slot-off rejects non-zero `slot_unlock_offsets_seconds[k>0]` and `false` entries in `slot_map_visible[k>0]`. On mode transition the locked knobs are reset to safe defaults. |
 | `team_assignment_mode` | `pick` \| `random` \| `mixed` |
 | `min_players_to_start` | default **4** |
+| `discord_enabled` | BOOLEAN NOT NULL DEFAULT FALSE (Phase K). When `TRUE`, `GameStartService` snapshots the value into `games.discord_enabled` and the engine writes side-effect rows into `discord_event_outbox` on every team-visible event. Host-editable while the lobby is `waiting`; locked after `GAME_STARTED`. Independent of `visibility_mode`. |
 | `config_updated_at` | |
 
 **Config:** only `host_user_id` may `PATCH /api/lobbies/:id/config`.
@@ -570,6 +737,7 @@ Index: `(lobby_id, at_seconds)`. Same `at_seconds` may repeat (two distinct temp
 | `visibility_mode` | VARCHAR(8) NOT NULL DEFAULT `'both'` CHECK in (`none`, `phase`, `slot`, `both`); snapshot from `lobby.visibility_mode` at start. Gates the two visibility layers via `visibilityIncludes()`: `game-start-service` skips `bootstrapGameVisibilityGroups` when phase is off; `game-schedule-service` skips `VISIBILITY_PHASE_ADVANCE` / `SLOT_UNLOCKED` job loops per layer; the projection short-circuits phase fog and slot-tier filters per layer. See §3.2, §3.3, §6.3. |
 | `started_at`, `ends_at`, `duration_seconds` | |
 | `visibility_phase_interval_seconds` | snapshot from lobby |
+| `discord_enabled` | BOOLEAN NOT NULL DEFAULT FALSE (Phase K). Snapshot from `lobby.discord_enabled` at `GameStartService`. The engine reads this on every event-emitting handler to decide whether to write a `discord_event_outbox` row in the same transaction. |
 | `config_version` | |
 
 #### `game_participants`
@@ -586,7 +754,21 @@ Seeded: `east`, `south`, `west`, `north` (`20260517180000-seed-team-definitions.
 
 #### `game_teams`
 
-`id`, `game_id`, `team_definition_id`, `display_name` (optional).
+`id`, `game_id`, `team_definition_id`, `display_name` (optional), plus the **Phase J** hand-completion snapshot columns:
+
+| Column | Notes |
+|--------|-------|
+| `hand_completed_at` | `TIMESTAMPTZ NULL`. Set when the team successfully runs `CLAIM_WIN`; null otherwise (including for tenpai/noten teams when `GAME_ENDED` fires the timer path). |
+| `winning_tile_id` | `UUID NULL` FK → `game_tiles.id`. The station tile claimed as the 14th tile. Null until `CLAIM_WIN`. |
+| `winning_node_id` | `UUID NULL` FK → `game_nodes.id`. Cached for the summary endpoint so we don't have to walk placements. Null until `CLAIM_WIN`. |
+| `final_han` | `INTEGER NULL CHECK (final_han IS NULL OR final_han >= 0)`. Total han incl. red-five + dora bonuses (or `13 × yakumanCount` on the yakuman path). Null until `GAME_ENDED` (incomplete teams snapshot 0). |
+| `final_fu` | `INTEGER NULL CHECK (final_fu IS NULL OR final_fu >= 0)`. Rounded fu (0 for yakuman). |
+| `final_points` | `INTEGER NULL CHECK (final_points IS NULL OR final_points >= 0)`. Non-dealer tsumo total. 0 for noten / incomplete teams. |
+| `final_yaku_keys` | `JSONB NULL`. Compact `{ name: string; han: number }[]` snapshot from `analyzeHand.waits[i].yaku` for the winning team, or the tenpai wait shape for incomplete teams. Schema is loosely typed because v1 only renders it; future revisions may swap to a normalized table. |
+
+`CHECK (hand_completed_at IS NULL) OR (winning_tile_id IS NOT NULL AND winning_node_id IS NOT NULL AND final_han IS NOT NULL AND final_fu IS NOT NULL AND final_points IS NOT NULL)` — once a team is marked complete, the snapshot columns are all present. (Use a single multi-column `CHECK` rather than four mutually-redundant constraints.)
+
+`final_*` may be filled in for **incomplete** teams too — the `GAME_END` job stamps `0` so the summary endpoint can read the row directly without recomputing.
 
 ### 4.3 Map catalog and instances
 
@@ -835,9 +1017,58 @@ Seeder: `challenge_types` only (`travel`, `photo`, `tile_swap`); decks/cards/que
 
 #### `game_scheduled_jobs`
 
-`game_id`, `job_type` (`VISIBILITY_PHASE_ADVANCE` \| `GAME_END` \| `NOTIFICATION`), `run_at`, `status`, optional `payload` (JSONB), `completed_at`, `error_message`.
+`game_id`, `job_type` (`VISIBILITY_PHASE_ADVANCE` \| `GAME_END` \| `NOTIFICATION` \| `SLOT_UNLOCKED`), `run_at`, `status`, optional `payload` (JSONB), `completed_at`, `error_message`.
 
 Optional (later): `game_event_media` (`event_id`, `media_asset_id`) for multiple attachments.
+
+### 4.10 Discord side-channel (Phase K)
+
+These tables only have rows for games where `games.discord_enabled = TRUE`. Engine-side writes happen inside the same transaction as the matching `game_events` row; the bot process is the only consumer.
+
+#### `game_discord_channels`
+
+One row per provisioned Discord resource per game (1 category + 4 team channels + 1 general + 1 notifications = 7 rows per opt-in game).
+
+| Column | Notes |
+|--------|-------|
+| `id` | UUID PK |
+| `game_id` | FK → `games` (ON DELETE CASCADE) |
+| `kind` | VARCHAR(16) NOT NULL CHECK in (`category`, `team`, `general`, `notifications`). |
+| `game_team_id` | UUID NULL FK → `game_teams` (ON DELETE RESTRICT). Required iff `kind = 'team'`; null for the other three kinds. Enforced by partial unique index `(game_id, kind, game_team_id) WHERE kind = 'team'` + CHECK `(kind = 'team') = (game_team_id IS NOT NULL)`. |
+| `discord_channel_id` | STRING(32) NOT NULL UNIQUE — Discord snowflake. |
+| `discord_parent_id` | STRING(32) NULL — set on text channels to the category's snowflake. NULL on the category row. |
+| `archived_at` | TIMESTAMPTZ NULL — set by the bot at `GAME_ENDED` after it moves the channel under the archive category. |
+| `created_at`, `updated_at` | |
+
+Unique index `(game_id, kind) WHERE kind <> 'team'` ensures exactly one category / general / notifications per game.
+
+#### `discord_event_outbox`
+
+The durable hand-off between engine and bot. The engine writes here; the bot is the only consumer.
+
+| Column | Notes |
+|--------|-------|
+| `id` | UUID PK |
+| `game_id` | FK → `games` (ON DELETE CASCADE) |
+| `game_event_id` | UUID NULL FK → `game_events.id` ON DELETE SET NULL — the source-of-truth event, when there is one. Scheduled `NOTIFICATION` rows that fire without a corresponding engine event leave this NULL. |
+| `event_type` | VARCHAR(48) NOT NULL — denormalized copy of `game_events.event_type` so the bot doesn't have to join, **plus** the synthetic types the bot fans out (e.g. `GAME_STARTED_PROVISION` which kicks off channel creation, distinct from the engine's `GAME_STARTED`). |
+| `payload` | JSONB NOT NULL — the bot's input shape. Engine handlers build this on the way out so the bot doesn't need to re-derive (e.g. team channel id resolution happens in `server/src/discord/outbox.ts` before INSERT). |
+| `delivered_at` | TIMESTAMPTZ NULL — set by the bot after a successful Discord REST call. |
+| `delivery_attempts` | INT NOT NULL DEFAULT 0. |
+| `last_error` | TEXT NULL — the most recent failed-attempt error message. |
+| `status` | VARCHAR(16) NOT NULL DEFAULT `'pending'` CHECK in (`pending`, `dead_letter`). Bot flips to `dead_letter` after `delivery_attempts >= 10`. |
+| `created_at`, `updated_at` | |
+
+Indexes:
+
+- `(status, created_at)` partial `WHERE delivered_at IS NULL` — the bot's drain query (`SELECT … FOR UPDATE SKIP LOCKED LIMIT 25`).
+- `(game_id, created_at)` for operator queries.
+
+Insert path always wraps the engine's existing transaction. Engine handlers call `await discordOutbox.insert(tx, { gameId, eventType, payload, gameEventId })`; the helper short-circuits to a no-op when `games.discord_enabled = FALSE`.
+
+After insert, the helper issues `pg_notify('discord_outbox', rowId)` outside the transaction (on `tx.afterCommit`). The bot's LISTEN channel is purely a wake-up signal — the bot's correctness depends on the periodic drain poll, not on the notification.
+
+Truncated by the integration-test harness (`MUTABLE_TABLES`) so per-test cleanup is automatic.
 
 ---
 
@@ -848,7 +1079,8 @@ stateDiagram-v2
   [*] --> LobbyWaiting: create_lobby
   LobbyWaiting --> LobbyReady: min_players_and_all_teams_staffed
   LobbyReady --> GameActive: host_starts
-  GameActive --> GameEnding: GAME_END_job
+  GameActive --> GameEnding: GAME_END_job (timer)
+  GameActive --> GameEnding: all_teams_hand_completed
   GameEnding --> GameEnded: queue_drained
   GameEnded --> [*]
 ```
@@ -856,7 +1088,10 @@ stateDiagram-v2
 1. Host creates lobby; members join and pick teams.
 2. Host starts → validate deal-time invariant (`slots_per_node × node_count + hand_size × team_count == catalog_size`) → clone map → deal tiles → partition visibility into `visibility_phase_count` groups → schedule phase + notification jobs.
 3. Active play via command queue + scheduler.
-4. End → summary with photo URLs for participants.
+4. **End path A** (timer): the originally scheduled `GAME_END` job fires at `started_at + duration_seconds`.
+5. **End path B** (all teams completed, **Phase J**): every team has run `CLAIM_WIN` → engine upserts the `GAME_END` job to `runAt = now()` → next queue tick transitions the game.
+6. The `GAME_END` worker runs the per-team summary snapshot (§3.10) before emitting `GAME_ENDED`, ensuring the realtime broadcast and the eventual `GET /api/games/:id/summary` agree.
+7. **Phase K side channel:** whenever `games.discord_enabled = TRUE`, every team-visible engine event (and every scheduled `NOTIFICATION` fire) also writes one `discord_event_outbox` row in the same transaction. The sibling `discord-bot` process drains these rows asynchronously and posts to Discord per §3.11. Engine never blocks on Discord — the bot's progress is fully decoupled from the gameplay tick.
 
 ---
 
@@ -884,6 +1119,13 @@ sequenceDiagram
 - `game:{gameId}`
 
 Auth required; verify membership/participation.
+
+**Phase K dual broadcast.** For games with `discord_enabled = TRUE`, every team-visible engine action triggers **two** broadcasts from a single transaction:
+
+1. The Socket.IO fan-out described above — instant, in-process, no durability guarantee beyond the next reconnect.
+2. A `discord_event_outbox` row insert (same transaction as `game_events`) + a post-commit `pg_notify('discord_outbox', rowId)`. The sibling bot process LISTENs on the channel and drains the outbox via Discord REST. The two paths are independent: a bot crash never blocks the Socket fan-out, and a Socket disconnect never delays the Discord post.
+
+The bot is the only consumer of `discord_event_outbox` and never reads `game_events` directly — the engine produces a tailored `payload` shape per row so the bot doesn't need to re-derive any game state. Bot-side correctness depends on the outbox poll loop (every 30 s), not on the notification.
 
 ### Command authorization
 
@@ -1011,7 +1253,7 @@ Both `mapVisibleSlotIndices` and the unlock helpers live in `server/src/services
 { "fromNodeId": "uuid", "toNodeId": "uuid" }
 ```
 
-**`atStation`** — `null` when checked out; otherwise:
+**`atStation`** — `null` when checked out **or when the team is hand-completed** (`game_teams.hand_completed_at IS NOT NULL`, Phase J); otherwise:
 
 ```json
 {
@@ -1103,10 +1345,95 @@ Exposing every location’s tile in `game.state` would leak map state via devtoo
 
 The wiring is enabled for every team's projection — no opt-in flag. Clients ignore the field if they don't render scoring hints.
 
+**Phase J hand-completion fields** — every projection also surfaces:
+
+```json
+{
+  "handCompleted": {
+    "completedAt": "2026-06-07T20:14:33.000Z",
+    "winningTile": { "instanceId": "...", "suit": "pin", "rank": 5, "copyIndex": 0, "displayName": "5 Pin", "isRedFive": true },
+    "winningNodeCode": "STN_42",
+    "finalHan": 5,
+    "finalFu": 30,
+    "finalPoints": 8000,
+    "finalYaku": [
+      { "name": "Riichi", "han": 0 },
+      { "name": "Three Colour Straight", "han": 2 },
+      { "name": "All Simples", "han": 1 },
+      { "name": "Red Five", "han": 1 },
+      { "name": "Dora", "han": 1 }
+    ]
+  },
+  "teamsCompleted": [
+    { "gameTeamId": "uuid-1", "teamCode": "east", "completedAt": "2026-06-07T20:14:33.000Z" },
+    { "gameTeamId": "uuid-2", "teamCode": "south", "completedAt": "2026-06-07T20:15:01.000Z" }
+  ]
+}
+```
+
+- `handCompleted` — `null` until **this team** has successfully claimed. Once non-null, scoped to the team's own row in `game_teams` (`hand_completed_at`, `winning_tile_id`, `winning_node_id`, `final_han`, `final_fu`, `final_points`, `final_yaku_keys`). Same for every team's view of itself; **not** included in cross-team views.
+- `teamsCompleted` — public list of every team currently hand-completed, scoped to identity only (`gameTeamId`, `teamCode`, `completedAt`). Lets the client render "X / 4 teams finished" without leaking which tile they won on or what their score is. The detailed scoring breakdown for **other** teams is only visible via `GET /api/games/:id/summary` once the game ends.
+- Both fields are present (possibly empty / null) on every projection from Phase J onward; older clients ignore them.
+
 ### Scheduler
 
 `SchedulerWorker` polls `game_scheduled_jobs` (`FOR UPDATE SKIP LOCKED`).  
 v1: in-process on single node. System handlers update state → `game_events` → broadcast (may bypass player queue; document ordering if unified later).
+
+### 6.4 Event types
+
+The engine appends one row to `game_events` per state-changing action; the realtime layer fans the row out to subscribers. This is the canonical list of event types as of **Phase J**; the table is informative, not authoritative — the implementation is the source of truth.
+
+| Event type | Origin | Notable payload fields |
+|------------|--------|------------------------|
+| `GAME_STARTED` | system | `startedAt`, `roundWind`, `seatWinds`, `doraIndicator` |
+| `CHECK_IN_SUCCEEDED` | player | `gameTeamId`, `nodeId`, `geo?`, `geofenceValidated`, `geolocationWarning` |
+| `CHECK_OUT_SUCCEEDED` | player | `gameTeamId`, `nodeId` |
+| `SWAP_TILE_SUCCEEDED` | player | `gameTeamId`, `nodeId`, `handTileId`, `stationTileId`, `slotIndex` |
+| `START_CHALLENGE` | player | `gameTeamId`, `instanceId`, `challengeId`, `nodeId` |
+| `CHALLENGE_COMPLETED` | player | `gameTeamId`, `instanceId`, `creditEarnedInSession` |
+| `CHALLENGE_FORFEITED` | player / system | `gameTeamId`, `instanceId`, `reason` (`explicit` / `checkout`) |
+| `VISIBILITY_PHASE_REVEALED` | system | `phaseIndex`, `revealedAt` |
+| `SLOT_UNLOCKED` | system | `slotIndex`, `unlockedAt` |
+| `CLAIM_WIN_SUCCEEDED` | player | (new in Phase J) — `gameTeamId`, `stationTileId`, `nodeId`, `finalHan`, `finalFu`, `finalPoints`, `finalYaku[]`, `isYakuman` |
+| `GAME_ENDED` | system | `endedAt`, `endReason` (`timer` / `all_teams_completed`), `winningGameTeamId?` |
+
+**`CLAIM_WIN_SUCCEEDED` payload** (Phase J):
+
+```json
+{
+  "gameTeamId": "uuid",
+  "stationTileId": "uuid",
+  "nodeId": "uuid",
+  "winningTile": { "instanceId": "...", "suit": "pin", "rank": 5, "copyIndex": 0, "displayName": "5 Pin", "isRedFive": true },
+  "finalHan": 5,
+  "finalFu": 30,
+  "finalPoints": 8000,
+  "finalYaku": [
+    { "name": "All Simples", "han": 1 },
+    { "name": "Three Colour Straight", "han": 2 },
+    { "name": "Red Five", "han": 1 },
+    { "name": "Dora", "han": 1 }
+  ],
+  "isYakuman": false
+}
+```
+
+- The event is broadcast on the **public** room (every team sees that team X claimed) but the **detailed scoring breakdown** (`finalHan / finalFu / finalPoints / finalYaku`) is **stripped to null** when fanned out to teams that aren't the claimer. Other teams only see "team X claimed at node Y with their hand" — the full scoring breakdown waits for `GET /api/games/:id/summary` after game end.
+- The team's own projection (`game.state.handCompleted`) is updated atomically in the same transaction so the next state push reflects the lock.
+
+**`GAME_ENDED` payload** (Phase J update):
+
+```json
+{
+  "endedAt": "2026-06-07T22:00:00.000Z",
+  "endReason": "all_teams_completed",
+  "winningGameTeamId": "uuid-1"
+}
+```
+
+- `endReason: "all_teams_completed"` is new in Phase J; the legacy timer path emits `endReason: "timer"`.
+- `winningGameTeamId` is non-null only when exactly one team has the strictly highest `final_points`; ties leave it `null` and the summary endpoint exposes the full ordering.
 
 ---
 
@@ -1117,8 +1444,9 @@ v1: in-process on single node. System handlers update state → `game_events` �
 | Area | Endpoints |
 |------|-----------|
 | Auth | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` |
-| Lobbies | `POST /api/lobbies`, `GET /api/lobbies/:id`, `PATCH /api/lobbies/:id/config` (host), `POST …/join`, `POST …/team`, `POST …/start` |
-| Games | `GET /api/games/:id`, `GET /api/games/:id/summary` (ended only; will include per-team `handAnalysis` once the scoring module is wired into the summary — see §3.9 follow-ups) |
+| Users | `POST /api/users/me/discord-link`, `DELETE /api/users/me/discord-link`, `GET /api/users/me/discord-status` (Phase K) |
+| Lobbies | `POST /api/lobbies`, `GET /api/lobbies/:id`, `PATCH /api/lobbies/:id/config` (host, accepts `discordEnabled` from Phase K), `POST …/join`, `POST …/team`, `POST …/start` |
+| Games | `GET /api/games/:id`, `GET /api/games/:id/summary` (ended only; full per-team hand-analysis snapshot from Phase J — see [§3.10](#310-game-end-and-hand-completion) and the contract below) |
 | Media | `POST /api/games/:id/media/upload-url`, optional `POST …/media/:id/confirm` |
 | Catalog | `GET /api/map-templates`, `GET /api/tile-types`, `GET /api/challenge-decks` |
 | Scoring | (no HTTP surface in v1; `analyzeHand` is consumed in-process. An optional dev endpoint can wrap it later if useful for tooling.) |
@@ -1130,6 +1458,66 @@ v1: in-process on single node. System handlers update state → `game_events` �
 | C→S | `lobby.join`, `game.command` |
 | S→C | `lobby.config`, `game.command.acked`, `game.command.rejected`, `game.event`, `game.state`, `game.notification` |
 
+### Discord link endpoints (Phase K)
+
+```http
+POST /api/users/me/discord-link
+Body: { discord_username: string }
+200 { user: { discord_username, discord_link_status: "pending" } }
+400 validation_error           (empty / malformed username)
+409 discord_username_taken     (another user already claims this username; UNIQUE on users.discord_username)
+```
+
+```http
+DELETE /api/users/me/discord-link
+204
+```
+
+Clears `discord_username`, `discord_user_id`, and resets `discord_link_status = 'unlinked'`. Does **not** remove the user from any provisioned team channels of in-progress games — those stay as a record. The bot has no callback to delete from past channels even if we wanted it to (the channel `archived_at` is the visibility gate).
+
+```http
+GET /api/users/me/discord-status
+200 { user: { discord_username | null, discord_user_id | null, discord_link_status, last_error: string | null } }
+```
+
+`last_error` is non-null only when `discord_link_status = 'failed'`; surfaced verbatim to the user (e.g. "User 'foobar' not found in the configured guild — make sure you've joined the server.").
+
+### `GET /api/games/:id/summary` (Phase J)
+
+Available only when `games.status = 'ended'`; returns `409 game_not_ended` otherwise. The contract:
+
+```ts
+type GameSummaryDto = {
+  gameId: string;
+  endedAt: string;                      // ISO 8601
+  endReason: "timer" | "all_teams_completed";
+  winningGameTeamId: string | null;     // null on tie or no winner
+  teams: Array<{
+    gameTeamId: string;
+    teamCode: "east" | "south" | "west" | "north";
+    displayName: string | null;
+    handCompletedAt: string | null;     // ISO 8601, null for noten / incomplete
+    winningTile: TileDto | null;
+    winningNodeCode: string | null;
+    finalHand: TileDto[];               // 14 tiles for completed teams, 13 otherwise
+    finalHan: number;
+    finalFu: number;
+    finalPoints: number;
+    finalYaku: Array<{ name: string; han: number }>;
+    isYakuman: boolean;
+    waits: AnalyzedWaitDto[] | null;    // for tenpai / noten teams: server may
+                                        //   include the wait set (analyzeHand
+                                        //   over the 13-tile hand); null
+                                        //   otherwise
+  }>;
+};
+```
+
+- Per-team final hands are read from `game_tile_placements` joined to `tile_types`, sorted with the same `sortKey` used in §3.7.
+- `finalHan / finalFu / finalPoints / finalYaku` come straight off the `game_teams` snapshot columns; the endpoint is read-only and never re-runs `analyzeHand` on completed teams (the snapshot at `CLAIM_WIN` time is authoritative).
+- For **incomplete teams**, `analyzeHand` may be invoked once at request time to populate `waits[]`. The result is cached for the lifetime of the endpoint response and not persisted.
+- The endpoint is intended for both **post-game scoreboard rendering** and the eventual Discord bot's end-of-game summary post (see §3.11).
+
 ---
 
 ## 8. Server module layout
@@ -1139,7 +1527,7 @@ server/src/
   auth/           JWT, bcrypt, middleware
   socket/         Socket.IO, rooms
   queue/          per-game processor
-  engine/         handlers, TileSwapService, invariants
+  engine/         handlers (CHECK_IN, CHECK_OUT, SWAP_TILE, CLAIM_WIN, START_CHALLENGE, CHALLENGE_COMPLETED, CHALLENGE_FORFEITED), TileSwapService, invariants
   projections/    GameStateProjection (hand sort via sortKey)
   scheduler/      game_scheduled_jobs worker
   media/          R2/MinIO presign, retention sweeper
@@ -1148,9 +1536,18 @@ server/src/
   tiles/          red-five identity helpers (isRedFiveForGame)
   services/       LobbyService, GameStartService, GameSummaryService
   models/         Sequelize models
+  discord/        Phase K — outbox.ts (engine-side insert helper),
+                  types.ts (outbox payload shapes), formatters.ts
+                  (event → markdown). The engine only ever imports
+                  outbox.ts; the rest is bot-only.
+server/bin/
+  discord-bot.ts  Phase K — sibling Node entrypoint. Boots Sequelize +
+                  discord.js, runs the LISTEN listener + 30s drain
+                  poll, calls into server/src/discord/formatters.ts
+                  and the Discord REST API. Never imports engine code.
 ```
 
-Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
+Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`. The Discord bot has its own entry (`node --import tsx/esm server/bin/discord-bot.ts`); deployment runs both as sibling processes (see §9 Phase K notes).
 
 ---
 
@@ -1166,7 +1563,9 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`.
 | **F** | **Complete** — Geolocation warn/allow. `services/geolocation.ts` (pure haversine + payload parser + evaluator) feeds the `CHECK_IN` handler; results persist to `game_team_positions.{lastCheckInLatitude,lastCheckInLongitude,geofenceValidated,geolocationWarning}` and are lifted onto the `CHECK_IN` event payload (`geolocationWarning`, `geofenceValidated`, `distanceMeters`) and the `RecentEventDto` (`geolocationWarning` only). `SWAP_TILE` inherits the most-recent-check-in coordinates from the position row. See [§3.4 Travel](#34-station-commands-and-travel). |
 | **G** | **Deferred (post-MVP)** — R2/MinIO, check-in photo, game summary URLs, retention. v1 MVP CHECK_IN is photo-less; schema is already migrated so the re-enable path is purely additive (UX + upload pipeline + presigned-URL plumbing). See [§1](#1-purpose-and-scope) "Out of scope". |
 | **H** | **Honor-system swap gate — Shipped.** Three new commands + events (`START_CHALLENGE` / `CHALLENGE_COMPLETED` / `CHALLENGE_FORFEITED`) wire challenges to `SWAP_TILE` via a per-team swap credit. New tables `map_template_node_challenges` / `game_node_challenges` snapshot a per-station queue at game start (`bootstrapGameChallenges`). `game_challenge_instances` gains `game_node_challenge_id` + `cooldown_until` + extended `status` enum; `game_team_positions` gains `pending_swap_credit` + `credit_earned_in_session`. `CHECK_IN` / `CHECK_OUT` auto-forfeit any in-progress instance and reset both credit flags. `SWAP_TILE` rejects with `409 swap_credit_required` when the station has challenges and the team lacks a credit; back-compat path (no challenges configured) stays free-swap. `buildGameStateProjection` exposes `atStation.currentChallenge` + the two credit flags. **Deferred follow-ups:** resolver-driven workflow (`ChallengeResolutionService` + `purpose = challenge_submission` media + reviewer queue) — the schema is migrated, just no v1 write path; the multi-challenge "discard the top card" mechanic for stations carrying `sort_order > 0` rows. See [§3.8](#38-challenges-honor-system-swap-gate). |
-| **I** | **Scoring — Shipped.** Pure `analyzeHand` module under `server/src/scoring/`: shanten (standard / chiitoitsu / kokushi), wait enumeration, 28-detector yaku catalog (1–6 han + 8 yakuman with additive stacking), fu + non-dealer tsumo points, red-five bonus, **dora indicator** bonus (`scoring/dora.ts`, `+1 han per matching tile`, gated by the same "needs a yaku" rule as red fives, ignored by yakuman). `games.round_wind` + `games.dead_wall_size` migrations; `GameStartService` randomizes the round wind and snapshots `dead_wall_size`; the dealer parks the trailing tiles in the dead wall as `dead_wall_index = 0..n-1` placements (index 0 = dora indicator). `buildGameStateProjection` wires `analyzeHand` into every team's `game.state` (new fields: `roundWind`, `seatWind`, `doraIndicator`, `handAnalysis?`). **Follow-ups (post-MVP):** wire `analyzeHand` into `GET /api/games/:id/summary` for per-team end-of-game scores. Uradora + kan-dora (the multi-indicator path is already in the API) when kan / riichi land. Challenge resolvers (Phase H) reuse the same module when a card requires proving a scoring hand. |
+| **I** | **Scoring — Shipped.** Pure `analyzeHand` module under `server/src/scoring/`: shanten (standard / chiitoitsu / kokushi), wait enumeration, 28-detector yaku catalog (1–6 han + 8 yakuman with additive stacking), fu + non-dealer tsumo points, red-five bonus, **dora indicator** bonus (`scoring/dora.ts`, `+1 han per matching tile`, gated by the same "needs a yaku" rule as red fives, ignored by yakuman). `games.round_wind` + `games.dead_wall_size` migrations; `GameStartService` randomizes the round wind and snapshots `dead_wall_size`; the dealer parks the trailing tiles in the dead wall as `dead_wall_index = 0..n-1` placements (index 0 = dora indicator). `buildGameStateProjection` wires `analyzeHand` into every team's `game.state` (new fields: `roundWind`, `seatWind`, `doraIndicator`, `handAnalysis?`). **Follow-ups (post-MVP):** Uradora + kan-dora (the multi-indicator path is already in the API) when kan / riichi land. Challenge resolvers (Phase H) reuse the same module when a card requires proving a scoring hand. |
+| **J** | **End-game mechanics + summary.** New `CLAIM_WIN` engine command (`{ stationTileId }`) routes through the same validation pipeline as `SWAP_TILE` plus a `shanten === -1` check on the candidate 14-tile hand. On success, the station tile moves into the team's hand, `game_teams.{hand_completed_at, winning_tile_id, winning_node_id, final_han, final_fu, final_points, final_yaku_keys}` are snapshotted, and a `CLAIM_WIN_SUCCEEDED` event is broadcast. Engine refuses any further tile-modifying command from a hand-completed team (`SWAP_TILE`, `CLAIM_WIN`, `START_CHALLENGE`, etc. → `409 hand_completed`). When all teams are hand-completed, the `GAME_END` job is upserted to `runAt = now()` so the existing scheduler path drives termination — no new "end the game now" code path. The `GAME_END` worker stamps `final_*` columns on incomplete teams (`final_points = 0`) and emits `GAME_ENDED` with `endReason ∈ {"timer", "all_teams_completed"}` + optional `winningGameTeamId`. `buildGameStateProjection` gains `handCompleted` (team-private) + `teamsCompleted[]` (public roster); `atStation` becomes `null` for completed teams. `GET /api/games/:id/summary` is implemented against the snapshot columns. See [§3.10](#310-game-end-and-hand-completion). |
+| **K** | **Discord integration (per-lobby opt-in).** New `users.discord_*` columns + Discord-link API (`POST/DELETE /api/users/me/discord-link`, `GET /api/users/me/discord-status`). `lobbies.discord_enabled` (host knob) + `games.discord_enabled` (snapshot). New `server/src/discord/` module + sibling `server/bin/discord-bot.ts` process. New tables `game_discord_channels` + `discord_event_outbox`; engine handlers wrap an `await discordOutbox.insert(tx, ...)` inside the same transaction as `game_events` (no-op when `discord_enabled = FALSE`). Bot uses `pg LISTEN 'discord_outbox'` + a 30s drain poll + `discord.js` REST to provision channels, post messages, and archive the category at `GAME_ENDED`. Failure-isolated: bot can crash without blocking the engine; engine never reads bot status. See [§3.11](#311-discord-integration-per-lobby-opt-in). |
 
 ---
 
@@ -1185,7 +1584,14 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
 | Challenge photo visibility during game | Deferred with the resolver workflow above (no photos in the honor-system flow). |
 | Riichi: dora / red dora / full yaku list | Resolved — red-fives ship as `+1 han` per copy; **dora indicator** ships as `+1 han per matching tile` (single indicator parked at `dead_wall_index = 0`); uradora and kan-dora are deferred (the multi-indicator path already exists in the API, see §3.9 "Out of scope"). v1 yaku catalog is the 28 detectors in §3.9. |
 | 13 vs 14 tiles for evaluation API | Resolved — `analyzeHand` accepts both: 13 tiles ⇒ shanten + waits; 14 tiles ⇒ scored directly (last tile = winning tile). |
-| Scoring affects game winner | Rule layer — summary ranking only vs mechanical win condition; decided post-MVP once scoring is wired into the summary. |
+| Scoring affects game winner | Resolved in **Phase J** ([§3.10](#310-game-end-and-hand-completion)) — `CLAIM_WIN` makes scoring directly mechanical: the team that claims a winning 14th tile completes their hand and locks out of further actions; when every team has claimed (or the timer fires), the game ends with a per-team scoring snapshot. `GAME_ENDED.winningGameTeamId` flags the strict points leader (null on tie). |
+| Tenpai wait set surfaced on incomplete-team summary | Phase J open — the `GET /api/games/:id/summary` contract reserves a `waits[]` slot for noten/tenpai teams but the spec leaves the exact representation (server-computed at request time vs persisted onto `final_yaku_keys` JSONB at `GAME_ENDED`) to the implementing PR. |
+| `CLAIM_WIN` honor-system gate vs reviewer workflow | The Phase J spec routes `CLAIM_WIN` through the same swap-credit gate as `SWAP_TILE` (one challenge per claim attempt). Whether a reviewer-driven challenge workflow should additionally require a final claim-time approval is a rule-layer follow-up — schema is unchanged either way. |
+| Multi-guild Discord support | Deferred (Phase K). v1 ships single-guild — `DISCORD_GUILD_ID` is an env var on the bot, every game's channels land in the same guild's archive category. Multi-guild means moving the guild id to `lobbies.discord_guild_id` (host picks at lobby create), per-guild bot tokens via OAuth, and changes to the channel-name uniqueness story. Re-evaluate once a second deploy needs it. |
+| Discord OAuth flow | Deferred (Phase K). v1 uses plain text Discord-username entry; the bot resolves to a snowflake at lobby start. OAuth would replace the resolution path entirely (the user authorises the bot to read their Discord identity, no manual entry), and would let us link accounts pre-emptively without joining a specific guild. Schema is forward-compatible — `users.discord_user_id` is the canonical identifier, the username is just bootstrap. |
+| Discord notifications channel as primary surface | Deferred (Phase K). The notifications channel is currently a duplicate of the in-app banner. If we ever want Discord-only notifications (e.g. for spectators outside the game), the lobby toggle expands to a tri-state (`off / discord-only / both`) and `game_scheduled_jobs` gains a `targets` JSONB column. v1 keeps it simple: bot mirrors every banner. |
+| Discord check-in photo validation | Deferred (Phase K + post-Phase G). Even when Phase G ships R2-backed check-in photos, the bot's check-in prompt stays honor-system — no OCR, no manual review queue. The bot channel is the audit trail; nothing more. |
+| Bot opt-in for the general channel | Deferred (Phase K). The bot owns the notifications channel (it's read-only for humans) but humans freely post in the general channel. v1 doesn't bot-moderate general; future versions may add a `!summary` slash command that re-prints the latest state. |
 | Per-template notification defaults | Future — `map_templates` could seed a default notification set; not in v1 |
 | Phase G timing | Deferred to post-MVP (decision 2026-06-01); re-prioritize after MVP launches. Schema is already in place, so the un-defer is purely UX + upload pipeline + storage credentials. |
 
@@ -1261,6 +1667,38 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
   - Adds `map_templates.default_dead_wall_size`, `lobbies.dead_wall_size`, `games.dead_wall_size` (all `INTEGER NOT NULL DEFAULT 0`) with a `>= 0` CHECK per table. The upper bound (the closed-set tile-deal invariant `slotsPerNode * nodeCount + handSize * teamCount + deadWallSize === catalogSize`) is intentionally not in the DB — it's enforced by `dealTilesForGame`.
   - Pre-existing rows backfill safely: every existing placement gets `dead_wall_index = NULL` (tri-state CHECK reduces to the old XOR), every existing map template / lobby / game gets `dead_wall_size = 0` (no dead-wall placements expected for already-dealt games).
   - Producer updates landed alongside the migration: `dealTilesForGame` accepts `{ deadWallSize }`, parks the remaining tiles after node + hand placements with sequential `dead_wall_index = 0..n-1`, and folds `deadWallSize` into the catalog-mismatch error message; `GameStartService` snapshots `lobby.deadWallSize` into `games.deadWallSize` and threads it into the dealer; `lobby-service` defaults `deadWallSize` from the template (or 0), validates as a non-negative integer on create + update, and the lobby config DTO exposes the field; `lobbies` POST / PATCH `:id/config` accept `deadWallSize`; `swapPlacements` extends the row mutation to the quadruple (`game_node_id`, `game_team_id`, `slot_index`, `dead_wall_index`) so dead-wall tiles can never end up half-migrated by a stray swap. Tests: dealer non-zero / negative / catalog-mismatch coverage, lobby create + update accept / reject / default coverage, swap regression that `dead_wall_index` round-trips as `NULL` on a hand↔node swap.
+- [ ] Phase J end-game snapshot columns (new migration): adds the hand-completion + final-scoring snapshot to `game_teams`. Wrapped in a single transaction.
+  - `game_teams`: add `hand_completed_at TIMESTAMPTZ NULL`, `winning_tile_id UUID NULL FK → game_tiles(id) ON DELETE RESTRICT`, `winning_node_id UUID NULL FK → game_nodes(id) ON DELETE RESTRICT`, `final_han INTEGER NULL CHECK (final_han IS NULL OR final_han >= 0)`, `final_fu INTEGER NULL CHECK (final_fu IS NULL OR final_fu >= 0)`, `final_points INTEGER NULL CHECK (final_points IS NULL OR final_points >= 0)`, `final_yaku_keys JSONB NULL`.
+  - Single multi-column CHECK: `(hand_completed_at IS NULL) OR (winning_tile_id IS NOT NULL AND winning_node_id IS NOT NULL AND final_han IS NOT NULL AND final_fu IS NOT NULL AND final_points IS NOT NULL)`.
+  - Pre-existing rows backfill safely: every existing `game_teams` row gets `hand_completed_at = NULL` (and all snapshot columns `NULL`), which satisfies the new CHECK.
+  - Producer updates (Phase J): new `CLAIM_WIN` handler stamps the snapshot in a single transaction with the placement update; the `GAME_END` scheduler handler fills in `final_*` columns on incomplete teams (`final_points = 0`) right before emitting `GAME_ENDED`.
+- [ ] Phase K Discord integration (two migrations, applied in order):
+  - Migration 1 — identity + opt-in columns. Wrapped in a single transaction.
+    - `users`: add `discord_username VARCHAR(64) NULL UNIQUE`, `discord_user_id VARCHAR(32) NULL UNIQUE`, `discord_link_status VARCHAR(16) NOT NULL DEFAULT 'unlinked'` with CHECK in `unlinked | pending | linked | failed`. Indexed.
+    - `lobbies`: add `discord_enabled BOOLEAN NOT NULL DEFAULT FALSE`.
+    - `games`: add `discord_enabled BOOLEAN NOT NULL DEFAULT FALSE`.
+    - Pre-existing rows backfill safely: every existing user is `unlinked`, every existing lobby/game is `discord_enabled = FALSE` (so no bot side effects materialize for in-progress games at deploy time).
+  - Migration 2 — bot-side tables. Wrapped in a single transaction.
+    - Create `game_discord_channels` per §4.10 with `(game_id, kind)` partial unique index `WHERE kind <> 'team'` and `(game_id, kind, game_team_id)` partial unique index `WHERE kind = 'team'`, plus CHECK `(kind = 'team') = (game_team_id IS NOT NULL)`.
+    - Create `discord_event_outbox` per §4.10 with `(status, created_at)` partial index `WHERE delivered_at IS NULL` (drain query) and `(game_id, created_at)` index (operator queries).
+    - Both tables added to `MUTABLE_TABLES` so integration tests truncate automatically. Catalog tests that need to seed Discord channels clean up explicitly.
+    - No data backfill — both tables start empty and only fill for opt-in games.
+  - Producer / consumer updates (Phase K):
+    - `server/src/discord/outbox.ts::insert(tx, { gameId, eventType, payload, gameEventId })` — engine-side helper, no-op when `games.discord_enabled = FALSE`, otherwise inserts a row + queues a post-commit `pg_notify('discord_outbox', rowId)`.
+    - Every engine handler that writes `game_events` (CHECK_IN, CHECK_OUT, SWAP_TILE, CLAIM_WIN, START_CHALLENGE, CHALLENGE_COMPLETED, CHALLENGE_FORFEITED) adds the `discordOutbox.insert(...)` call inside its existing transaction.
+    - Scheduler handlers (`GAME_END`, `NOTIFICATION`, `VISIBILITY_PHASE_ADVANCE`, `SLOT_UNLOCKED`) get the same treatment.
+    - `GAME_START` writes a single bootstrap row with `event_type = 'GAME_STARTED_PROVISION'` so the bot knows to create channels.
+    - `server/bin/discord-bot.ts` is the consumer.
+
+### Deployment / resourcing (Phase K)
+
+- **Process model:** main server (`http.createServer(app)` + Socket.IO + scheduler worker) and Discord bot (`server/bin/discord-bot.ts`) run as **sibling processes**. v1 ships in the same container via a process manager (`pm2` or just `concurrently` in development). Shared `DATABASE_URL`; the bot opens its own Sequelize pool (5 connections by default — plenty for the LISTEN + drain loop).
+- **Required env vars on the bot process:** `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_ARCHIVE_CATEGORY_ID`, plus the shared `DATABASE_URL`. The main server doesn't read any of these — Discord credentials never live on the request path.
+- **Discord bot permissions:** `Manage Channels` (provision + archive), `View Channels` (read its own channels), `Send Messages`, `Embed Links`, `Read Message History` (for context). No moderation permissions in v1.
+- **Rate limits:** `discord.js` handles per-route backoff automatically. Steady-state load is ~1 outbox row/sec per active game; the bot processes up to 25 rows per poll cycle, which is far below Discord's per-bot global rate limit (50 req/sec). Bursty `GAME_STARTED_PROVISION` events (7 REST calls per game) are smoothed by the same queue.
+- **Graceful restart:** SIGTERM → stop accepting new LISTEN notifications → drain in-flight Discord REST calls → close DB pool → exit. In-flight outbox rows that fail mid-restart get picked up by the next drain poll cycle.
+- **Failure mode under guild outage:** outbox grows; engine continues unaffected. Operator alert when `delivery_attempts > 5` for any row over 10 minutes old (Phase K observability item).
+- **Local development:** `DISCORD_ENABLED_FOR_DEV=false` short-circuits `discordOutbox.insert` regardless of the game flag, so localhost runs without ever touching Discord. The bot process is just not started in `dev`.
 - [x] Per-slot rules chunk 5 of the rollout (`20260530190000-add-config-array-checks.cjs`): lobby config flow + array-length / slot-0 invariants. Wrapped in a single transaction.
   - Migration adds five CHECK constraints to each of `map_templates`, `lobbies`, `games`: `cardinality(<offsets>) = <slots_per_node>`, `<offsets>[1] = 0`, `0 <= ALL(<offsets>)`, `cardinality(<map_visible>) = <slots_per_node>`, `<map_visible>[1] = TRUE`. Postgres arrays are 1-indexed, so `[1]` is our 0-indexed slot 0. Pre-existing rows satisfy all five (slots_per_node=1, defaults `[0]`/`[true]`).
   - `lobby-service.createLobby`: `slotUnlockOffsetsSeconds` and `slotMapVisible` default to the map template's `defaultSlotUnlockOffsetsSeconds` / `defaultSlotMapVisible`; host can override either independently; explicit values must match `slotsPerNode` exactly (no silent resize on create).
