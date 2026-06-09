@@ -839,6 +839,12 @@ export async function updateConfig(
 }
 
 export async function getStartReadiness(lobbyId: string) {
-  const { lobby, members, teamAssignments } = await loadLobbyBundle(lobbyId);
-  return computeReadiness(lobby, members, teamAssignments);
+  const { lobby, members, teamAssignments, usersById } =
+    await loadLobbyBundle(lobbyId);
+  return computeReadiness(
+    lobby,
+    members,
+    teamAssignments,
+    usersById.get(lobby.hostUserId)?.username,
+  );
 }
