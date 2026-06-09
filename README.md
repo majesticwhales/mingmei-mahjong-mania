@@ -184,3 +184,128 @@ Another dev server may still be running. Stop it with `Ctrl+C` in that terminal,
 **API not reachable from the client**
 
 Make sure both the client and server are running. Use `npm run dev` from the project root, or start each app separately with `npm run dev:server` and `npm run dev:client`.
+
+## Deploy to Fly.io
+
+The repo includes a multi-stage `Dockerfile` (builds the React client, runs the Express + Socket.IO server) and `fly.toml` tuned for **24/7 uptime** (`auto_stop_machines = "off"`, health checks on `/api/health`).
+
+### Prerequisites
+
+- [Fly.io account](https://fly.io/app/sign-up) and [flyctl](https://fly.io/docs/hands-on/install-flyctl/) installed
+- Log in: `fly auth login`
+
+### First-time setup
+
+From the **project root**:
+
+1. **Create the Fly app** (pick a region near your players; `fly.toml` defaults to `yyz` — Toronto):
+
+   ```bash
+   fly launch --no-deploy
+   ```
+
+   Accept or adjust the app name when prompted. If you already have `fly.toml`, you can skip this and use the existing config.
+
+2. **Create and attach Postgres**:
+
+   ```bash
+   fly postgres create --name mingmei-db --region yyz --initial-cluster-size 1 --vm-size shared-cpu-1x --volume-size 1
+   fly postgres attach mingmei-db --app mingmei-mahjong-mania
+   ```
+
+   `attach` sets `DATABASE_URL` on your app automatically (internal Fly network).
+
+3. **Set secrets** (generate a long random JWT secret):
+
+   ```bash
+   fly secrets set JWT_SECRET="$(openssl rand -base64 32)"
+   ```
+
+4. **Deploy**:
+
+   ```bash
+   fly deploy
+   ```
+
+   Migrations run automatically via `release_command` in `fly.toml` before each deploy.
+
+5. **Seed the database once** (map template, teams, tiles, etc.):
+
+   ```bash
+   fly ssh console -C "npm run db:seed"
+   ```
+
+6. **Open the app**:
+
+   ```bash
+   fly open
+   ```
+
+   Players can use that HTTPS URL on their phones. The same origin serves the React UI, `/api/*`, and `/socket.io`.
+
+### Subsequent deploys
+
+**Automatic (recommended):** merge to `main`. GitHub Actions runs CI, then deploys to Fly if checks pass (see [Continuous deployment](#continuous-deployment) below).
+
+**Manual:**
+
+```bash
+fly deploy
+```
+
+### Continuous deployment
+
+Pushes to `main` can deploy automatically via `.github/workflows/fly-deploy.yml`:
+
+1. **Merge deploy files to `main`** — `fly.toml`, `Dockerfile`, `.dockerignore`, and the workflow file must be in the repo (they live on the `deploy` branch today).
+2. **Create a Fly deploy token** (one-time, from your machine):
+
+   ```bash
+   fly tokens create deploy -a mingmei-mahjong-mania
+   ```
+
+3. **Add it as a GitHub secret** — repo **Settings → Secrets and variables → Actions → New repository secret**:
+   - Name: `FLY_API_TOKEN`
+   - Value: the token from step 2
+
+After that, every merge to `main` runs CI first; on success, Fly builds the Docker image remotely and deploys. Migrations run via `release_command` in `fly.toml`.
+
+Monitor deploys under the repo **Actions** tab (`CI` then `Fly Deploy`).
+
+### Useful commands
+
+| Command | Description |
+|---------|-------------|
+| `fly logs` | Stream app logs |
+| `fly status` | Machine and health-check status |
+| `fly ssh console` | Shell into the running VM |
+| `fly secrets list` | Show configured secrets |
+| `fly postgres connect -a mingmei-db` | psql into the database |
+
+### Production database access (collaborators)
+
+To browse production data in Postico (or another SQL client), see **[docs/fly-production-db-access.md](docs/fly-production-db-access.md)**. Summary:
+
+1. Get invited to the Fly org
+2. Run `fly proxy 15432:5432 -a mingmei-db` (keep that terminal open)
+3. Connect to `localhost:15432` with user/database `mingmei_mahjong_mania`
+
+### Cost notes
+
+- One **512MB** shared-cpu machine (~$5/mo) + **Fly Postgres** starter (~$7/mo for 1GB volume) is a typical starting point.
+- `min_machines_running = 1` and `auto_stop_machines = "off"` keep the game reachable around the clock.
+- Change `primary_region` in `fly.toml` to deploy closer to your players (e.g. `iad`, `lax`, `ams`).
+
+### Troubleshooting
+
+**Release command / migration fails**
+
+Check logs: `fly logs`. Ensure Postgres is attached and `DATABASE_URL` is set (`fly secrets list` won't show it, but `fly postgres attach` sets it).
+
+**Health check failing**
+
+The app must connect to Postgres on startup. Verify the DB is running: `fly status -a mingmei-db`.
+
+**Empty map / no templates**
+
+Run the one-time seed: `fly ssh console -C "npm run db:seed"`.
