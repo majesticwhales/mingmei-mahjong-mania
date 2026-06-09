@@ -9,6 +9,7 @@ import { GameChallengeInstance } from "../../models/game-challenge-instance.ts";
 import { GameNode } from "../../models/game-node.ts";
 import { GameNodeChallenge } from "../../models/game-node-challenge.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
+import { assertNotHandCompleted } from "../hand-completed-lock.ts";
 
 interface StartChallengePayload {
   /** Game node the team is starting the challenge at. Must match the team's current station. */
@@ -54,6 +55,11 @@ function parsePayload(payload: Record<string, unknown>): StartChallengePayload {
 export const startChallengeHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
     const { nodeId } = parsePayload(ctx.payload);
+
+    await assertNotHandCompleted({
+      gameTeamId: ctx.gameTeamId,
+      transaction: ctx.transaction,
+    });
 
     const position = await GameTeamPosition.findOne({
       where: { gameTeamId: ctx.gameTeamId },

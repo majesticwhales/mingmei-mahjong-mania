@@ -290,4 +290,26 @@ describe("START_CHALLENGE handler", () => {
       }),
     ).rejects.toMatchObject({ status: 409, code: "wrong_node" });
   });
+
+  it("rejects with hand_completed when the team has already claimed a winning tile (Phase J lock)", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      markTeamHandCompleted: 1,
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    await attachChallengeToGameNode({ gameNodeId: bayId });
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "START_CHALLENGE",
+        payload: { nodeId: bayId },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "hand_completed" });
+  });
 });

@@ -169,4 +169,36 @@ describe("CHALLENGE_FORFEITED handler", () => {
       }),
     ).rejects.toMatchObject({ status: 400, code: "invalid_payload" });
   });
+
+  it("rejects with hand_completed when the team has already claimed a winning tile (Phase J lock)", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      markTeamHandCompleted: 1,
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    // Plant a stale in_progress row so the handler would otherwise have
+    // work to do — the hand-completed lock must reject first.
+    const instance = await GameChallengeInstance.create({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+      status: "in_progress",
+      assignedAt: new Date(),
+    });
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "CHALLENGE_FORFEITED",
+        payload: { instanceId: instance.id },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "hand_completed" });
+  });
 });

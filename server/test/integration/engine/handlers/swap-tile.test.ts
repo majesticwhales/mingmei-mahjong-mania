@@ -359,6 +359,30 @@ describe("SWAP_TILE handler", () => {
     expect(position?.creditEarnedInSession).toBe(true);
   });
 
+  it("rejects with hand_completed when the team has already claimed a winning tile (Phase J lock)", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      nodeTilesByCode: { bay: 1 },
+      markTeamHandCompleted: 1,
+    });
+    const participant = fixture.participants[0]!;
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "SWAP_TILE",
+        payload: {
+          handTileId: fixture.handTiles[0]!.gameTileId,
+          stationTileId: fixture.nodeTiles[0]!.gameTileId,
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "hand_completed" });
+  });
+
   it("permits a swap without a credit when the station has no challenges configured (back-compat)", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["bay"],

@@ -9,6 +9,7 @@ import { GameNode } from "../../models/game-node.ts";
 import { GameNodeChallenge } from "../../models/game-node-challenge.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { CHALLENGE_COOLDOWN_MS } from "../challenge-lifecycle.ts";
+import { assertNotHandCompleted } from "../hand-completed-lock.ts";
 
 interface CompleteChallengePayload {
   /** `game_challenge_instances.id` of the team's currently in-progress challenge. */
@@ -50,6 +51,11 @@ function parsePayload(payload: Record<string, unknown>): CompleteChallengePayloa
 export const completeChallengeHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
     const { instanceId } = parsePayload(ctx.payload);
+
+    await assertNotHandCompleted({
+      gameTeamId: ctx.gameTeamId,
+      transaction: ctx.transaction,
+    });
 
     const instance = await GameChallengeInstance.findOne({
       where: { id: instanceId, gameId: ctx.gameId },

@@ -21,6 +21,7 @@ import {
   type DoraIndicator,
   type WindRank,
 } from "../scoring/index.ts";
+import { teamCodeToWindRank } from "../scoring/seat-wind.ts";
 import {
   mapVisibleSlotIndices,
   unlockedSlotIndices,
@@ -585,25 +586,6 @@ function indicatorToScoringInput(
   return [
     { suit: indicator.suit as DoraIndicator["suit"], rank: indicator.rank },
   ];
-}
-
-/** Map a `team_definitions.code` to the scoring module's wind rank. The
- *  canonical seed uses `east / south / west / north`; anything else returns
- *  `null` so callers can surface a clear error rather than silently
- *  computing wrong scores. */
-function teamCodeToWindRank(code: string | undefined): WindRank | null {
-  switch (code) {
-    case "east":
-      return 1;
-    case "south":
-      return 2;
-    case "west":
-      return 3;
-    case "north":
-      return 4;
-    default:
-      return null;
-  }
 }
 
 function buildAtStation(params: {

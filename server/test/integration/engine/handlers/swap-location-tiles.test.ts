@@ -22,4 +22,25 @@ describe("SWAP_LOCATION_TILES handler (stub)", () => {
       }),
     ).rejects.toMatchObject({ status: 501, code: "not_implemented" });
   });
+
+  it("rejects with hand_completed when the team's hand is already locked (Phase J)", async () => {
+    // Hand-completed lock runs before the not_implemented stub, so a
+    // sealed team sees the more specific rejection code.
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      handTilesBySlot: { 1: 1 },
+      markTeamHandCompleted: 1,
+    });
+    const participant = fixture.participants[0]!;
+
+    await expect(
+      processCommand({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        userId: participant.userId,
+        commandType: "SWAP_LOCATION_TILES",
+        payload: {},
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "hand_completed" });
+  });
 });
