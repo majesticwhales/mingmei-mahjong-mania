@@ -68,6 +68,44 @@ export interface RecentEventDto {
   geolocationWarning?: boolean;
   phase?: number;
   template?: string;
+  challengeId?: string;
+  instanceId?: string;
+  /**
+   * Phase J: present on `CLAIM_WIN` rows only, and only on the claiming
+   * team's projection. Other teams see the row without a score; the full
+   * per-team breakdown lands at game end via the summary endpoint.
+   */
+  finalPoints?: number;
+}
+
+export interface FinalYakuDto {
+  name: string;
+  han: number;
+}
+
+/**
+ * Phase J: snapshot of the requesting team's completed hand. Populated
+ * only on the projection of the team that successfully `CLAIM_WIN`-ed;
+ * remains `null` for other teams' projections.
+ */
+export interface HandCompletedDto {
+  completedAt: string;
+  winningTile: TileDto;
+  winningNodeCode: string;
+  finalHan: number;
+  finalFu: number;
+  finalPoints: number;
+  finalYaku: FinalYakuDto[];
+}
+
+/**
+ * Phase J: completion-order entry advertising which teams have claimed
+ * a winning hand. Public — every projection carries the full list.
+ */
+export interface TeamsCompletedEntryDto {
+  gameTeamId: string;
+  teamCode: string;
+  completedAt: string;
 }
 
 export interface GameStateProjection {
@@ -85,4 +123,8 @@ export interface GameStateProjection {
   seatWind: number;
   doraIndicator: TileDto | null;
   handAnalysis?: Record<string, unknown>;
+  /** Phase J: requesting team's hand-completed snapshot, or `null` if not completed. */
+  handCompleted: HandCompletedDto | null;
+  /** Phase J: completion-order roster across every team in the game. */
+  teamsCompleted: TeamsCompletedEntryDto[];
 }

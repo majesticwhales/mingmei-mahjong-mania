@@ -160,6 +160,50 @@ export interface HandTileDto extends TileDto {
   slotIndex: number;
 }
 
+/**
+ * Phase J: a single yaku contributing han to a winning hand. Mirrors
+ * the per-yaku entries the scoring module emits on `AnalyzedWait.yaku`.
+ * Surfaced to the requesting team so the client can render the score
+ * breakdown without re-running `analyzeHand`.
+ */
+export interface FinalYakuDto {
+  name: string;
+  han: number;
+}
+
+/**
+ * Phase J: snapshot of the requesting team's completed hand. Populated
+ * only when **the requesting team's** `game_teams.hand_completed_at` is
+ * non-null — other teams' completion details are exposed at game end
+ * via `GET /api/games/:id/summary` (chunk 5), never on the live
+ * projection.
+ */
+export interface HandCompletedDto {
+  /** ISO timestamp of the `CLAIM_WIN` that snapshotted the team. */
+  completedAt: string;
+  /** The station tile the team claimed as their winning 14th tile. */
+  winningTile: TileDto;
+  /** `game_nodes.code` of the station where the win was claimed. */
+  winningNodeCode: string;
+  finalHan: number;
+  finalFu: number;
+  finalPoints: number;
+  finalYaku: FinalYakuDto[];
+}
+
+/**
+ * Phase J: per-team entry advertising which teams have completed their
+ * hand and when. Visible to every projection (no per-team redaction)
+ * because completion order is public information used by the client to
+ * render the in-game "X teams done" banner and to short-circuit the
+ * claim-win UI on subsequent renders.
+ */
+export interface TeamsCompletedEntryDto {
+  gameTeamId: string;
+  teamCode: string;
+  completedAt: string;
+}
+
 export interface GameStateProjection {
   gameId: string;
   status: GameStatus;
@@ -201,6 +245,21 @@ export interface GameStateProjection {
    * `games.hand_size`). See §3.9 for the shape.
    */
   handAnalysis?: AnalyzeHandResult;
+  /**
+   * Phase J: snapshot of the requesting team's completed hand. `null`
+   * until the team submits a successful `CLAIM_WIN`; from then on, the
+   * field is populated for every projection until game end. Other
+   * teams' completion details never appear here.
+   */
+  handCompleted: HandCompletedDto | null;
+  /**
+   * Phase J: completion-order roster across every team in the game.
+   * Present on every projection (no per-team redaction); a non-empty
+   * list signals that some team has claimed a winning hand and the
+   * client can render the "teams completed" banner. Sorted by
+   * `completedAt ASC`.
+   */
+  teamsCompleted: TeamsCompletedEntryDto[];
 }
 
 export interface BuildGameStateProjectionOptions {
@@ -287,6 +346,7 @@ export async function buildGameStateProjection(
     placementRows,
     nextVisibilityJob,
     recentEvents,
+    allTeams,
   ] = await Promise.all([
     GameRuleFlag.findOne({
       where: { gameId, ruleKey: RED_FIVES_RULE_KEY },
@@ -338,7 +398,18 @@ export async function buildGameStateProjection(
       },
       order: [["runAt", "ASC"]],
     }),
-    selectRecentEvents(gameId),
+    selectRecentEvents(gameId, { requestingGameTeamId: gameTeamId }),
+    // Phase J: every game team + their team definition, used for the
+    // `teamsCompleted` roster and (when the requesting team is the
+    // completing one) the `handCompleted` snapshot. We include the
+    // requesting team here too so the single `findAll` covers both the
+    // earlier solo lookup and the roster; the dedicated `team` query
+    // above stays in place because it needs the same row but eagerly
+    // resolved (the `Promise.all` runs concurrently with it).
+    GameTeam.findAll({
+      where: { gameId },
+      include: [TeamDefinition],
+    }),
   ]);
 
   const redFivesEnabled = redFivesFlag?.enabled ?? false;
@@ -378,6 +449,13 @@ export async function buildGameStateProjection(
   }
   const tilesByNodeSlot = new Map<string, Map<number, TileDto>>();
   const ownHandTiles: TileWithSort[] = [];
+  // Phase J: side index of `game_tile.id → TileDto`, built during the
+  // single placement scan so the `handCompleted` snapshot can resolve
+  // the team's `winning_tile_id` without re-querying. After CLAIM_WIN
+  // the winning tile's placement is `(game_team_id = thisTeam,
+  // slot_index = null)`, so it lands here through the `ownHandTiles`
+  // branch — exactly the placement the lookup needs.
+  const tileById = new Map<string, TileDto>();
   // The dora indicator is the dead-wall tile at index 0. It's public —
   // identical for every team's projection — so we capture it during the
   // single placement scan rather than reissuing the query per team.
@@ -395,6 +473,7 @@ export async function buildGameStateProjection(
         redFivesEnabled,
       ),
     };
+    tileById.set(row.game_tile_id, tile);
 
     if (row.game_node_id != null && row.slot_index != null) {
       let bySlot = tilesByNodeSlot.get(row.game_node_id);
@@ -489,14 +568,23 @@ export async function buildGameStateProjection(
     toNodeId: edge.toGameNodeId,
   }));
 
+  // Phase J: hand-completed teams are locked out of every tile mutation.
+  // The projection short-circuits `atStation` (and its `currentChallenge`
+  // sub-fetch) to `null` so the client UI flips from swap controls /
+  // challenge prompts to the read-only "hand completed" branch. The
+  // team's `current_game_node_id` is intentionally NOT cleared by
+  // `CLAIM_WIN` (mirroring the post-game audit trail), so this gating
+  // lives at the projection layer rather than the position table.
+  const handCompletedFlag = team.handCompletedAt != null;
+
   // Phase H: challenge-state lookup. Only meaningful when the team is
-  // checked in; skip the round trip entirely otherwise (the projection
-  // is hot on the broadcaster path). Separate query from the placement
-  // fan-out above because the result depends on the team's position,
-  // which is itself loaded in the `Promise.all` block — chaining keeps
-  // the await graph straightforward.
+  // checked in and not yet hand-completed; skip the round trip entirely
+  // otherwise (the projection is hot on the broadcaster path). Separate
+  // query from the placement fan-out above because the result depends
+  // on the team's position, which is itself loaded in the `Promise.all`
+  // block — chaining keeps the await graph straightforward.
   const currentChallenge =
-    teamPosition?.currentGameNodeId != null
+    !handCompletedFlag && teamPosition?.currentGameNodeId != null
       ? await buildCurrentChallenge({
           gameNodeId: teamPosition.currentGameNodeId,
           gameTeamId,
@@ -504,22 +592,102 @@ export async function buildGameStateProjection(
         })
       : null;
 
-  const atStation = buildAtStation({
-    game,
-    teamPosition,
-    nodes,
-    tilesByNodeSlot,
-    multiSlot,
-    nowMs,
-    currentChallenge,
-    slotLayerActive,
-  });
+  const atStation = handCompletedFlag
+    ? null
+    : buildAtStation({
+        game,
+        teamPosition,
+        nodes,
+        tilesByNodeSlot,
+        multiSlot,
+        nowMs,
+        currentChallenge,
+        slotLayerActive,
+      });
 
   ownHandTiles.sort(handTileSortComparator);
   const handTiles: HandTileDto[] = ownHandTiles.map((entry, index) => ({
     slotIndex: index,
     ...entry.tile,
   }));
+
+  // Phase J: teamsCompleted roster (every team), sorted by completion
+  // order. Public information — no per-team redaction — so the client
+  // can render a "N teams done" banner during play. Other teams' final
+  // scores / yaku land at game end via `GET /api/games/:id/summary`
+  // (chunk 5), never on the live projection.
+  const teamsCompleted: TeamsCompletedEntryDto[] = allTeams
+    .filter((t) => t.handCompletedAt != null)
+    .sort((a, b) => a.handCompletedAt!.getTime() - b.handCompletedAt!.getTime())
+    .map((t) => {
+      const code = t.teamDefinition?.code;
+      if (code == null) {
+        // Every game team is created with a `team_definition_id` FK, so
+        // an absent code points to a query bug rather than data drift —
+        // fail loud rather than emit an entry with a synthetic id.
+        throw new HttpError(
+          500,
+          "internal_error",
+          `Game team ${t.id} missing team_definition.code in projection`,
+        );
+      }
+      return {
+        gameTeamId: t.id,
+        teamCode: code,
+        completedAt: t.handCompletedAt!.toISOString(),
+      };
+    });
+
+  // Phase J: per-team `handCompleted` snapshot, populated only when the
+  // **requesting team** is the completing one. The placement scan above
+  // already produced a `TileDto` for the winning tile (now a hand
+  // placement on the requesting team), and the `nodes` array carries
+  // the station the win was claimed at.
+  let handCompleted: HandCompletedDto | null = null;
+  if (handCompletedFlag) {
+    if (
+      team.winningTileId == null ||
+      team.winningNodeId == null ||
+      team.finalHan == null ||
+      team.finalFu == null ||
+      team.finalPoints == null ||
+      team.finalYakuKeys == null
+    ) {
+      // The multi-column CHECK on `game_teams` enforces consistency at
+      // write time, so an inconsistent snapshot here is a bug worth
+      // surfacing rather than silently dropping the DTO.
+      throw new HttpError(
+        500,
+        "internal_error",
+        `Game team ${gameTeamId} has hand_completed_at but missing snapshot columns`,
+      );
+    }
+    const winningTile = tileById.get(team.winningTileId);
+    if (!winningTile) {
+      throw new HttpError(
+        500,
+        "internal_error",
+        `Winning tile ${team.winningTileId} for team ${gameTeamId} not found in placements`,
+      );
+    }
+    const winningNode = nodes.find((n) => n.id === team.winningNodeId);
+    if (!winningNode) {
+      throw new HttpError(
+        500,
+        "internal_error",
+        `Winning node ${team.winningNodeId} for team ${gameTeamId} not found in game nodes`,
+      );
+    }
+    handCompleted = {
+      completedAt: team.handCompletedAt!.toISOString(),
+      winningTile,
+      winningNodeCode: winningNode.code,
+      finalHan: team.finalHan,
+      finalFu: team.finalFu,
+      finalPoints: team.finalPoints,
+      finalYaku: team.finalYakuKeys.map((y) => ({ name: y.name, han: y.han })),
+    };
+  }
 
   // Scoring analysis is only meaningful at the canonical 13 / 14-tile shape.
   // Other sizes (configurable `games.hand_size`, mid-swap transients) skip
@@ -566,6 +734,8 @@ export async function buildGameStateProjection(
     seatWind,
     doraIndicator,
     handAnalysis,
+    handCompleted,
+    teamsCompleted,
   };
 }
 
