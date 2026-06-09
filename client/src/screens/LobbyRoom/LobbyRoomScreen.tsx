@@ -137,9 +137,13 @@ export function LobbyRoomScreen() {
       {!lobby.readiness.ready && (
         <p className="form__error">{lobby.readiness.reasons.join(" · ")}</p>
       )}
-      {import.meta.env.DEV && lobby.readiness.ready && lobby.readiness.memberCount < 4 && (
-        <p className="screen__subtitle">Dev mode: solo start enabled (server DEV_RELAX_LOBBY_START).</p>
-      )}
+      {lobby.readiness.soloStartAllowed &&
+        lobby.readiness.ready &&
+        lobby.readiness.memberCount < 4 && (
+          <p className="screen__subtitle">
+            Test mode: you can start with fewer than four players.
+          </p>
+        )}
       {error && <p className="form__error">{error}</p>}
     </main>
   );
