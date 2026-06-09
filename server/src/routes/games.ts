@@ -1,8 +1,10 @@
 import { Router } from "express";
 import { HttpError } from "../lib/http-error.ts";
 import { asyncHandler } from "../middleware/async-handler.ts";
+import { GameParticipant } from "../models/game-participant.ts";
 import { enqueueCommand } from "../queue/enqueue-command.ts";
 import { triggerGameQueue } from "../queue/worker.ts";
+import { buildGameSummary } from "../services/game-summary-service.ts";
 
 export const gamesRouter = Router();
 
@@ -80,5 +82,41 @@ gamesRouter.post(
       clientCommandId: result.item.clientCommandId,
       queueItemId: result.item.id,
     });
+  }),
+);
+
+/**
+ * Phase J — end-of-game scoreboard (TDD §3.10, §7).
+ *
+ * Returns the full per-team summary DTO after `games.status = 'ended'`:
+ * 14-tile hands for teams that ran `CLAIM_WIN`, 13-tile hands +
+ * `analyzeHand` wait sets for tenpai noten teams, plus the `endReason`
+ * / `winningGameTeamId` snapshot taken at `GAME_ENDED` time. Authz:
+ * the user must be a `game_participants` row for this game; otherwise
+ * `403 forbidden` — same shape as `enqueueCommand`'s authz check so
+ * "game does not exist" and "you aren't a participant" return
+ * identical responses (no enumeration channel).
+ *
+ * Game-not-ended is a separate `409 game_not_ended` so the client can
+ * distinguish "wait, the game is still in progress" from a permanent
+ * 404. The endpoint never re-runs scoring for completed teams — the
+ * snapshot stamped at `CLAIM_WIN` time is authoritative.
+ */
+gamesRouter.get(
+  "/:id/summary",
+  asyncHandler(async (req, res) => {
+    const gameId = req.params.id;
+    const participant = await GameParticipant.findOne({
+      where: { gameId, userId: req.user!.id },
+    });
+    if (!participant) {
+      throw new HttpError(
+        403,
+        "forbidden",
+        "Not a participant of this game",
+      );
+    }
+    const summary = await buildGameSummary(gameId);
+    res.status(200).json(summary);
   }),
 );
