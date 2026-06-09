@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { processCommand } from "../../../../src/engine/process-command.ts";
 import { GameChallengeInstance } from "../../../../src/models/game-challenge-instance.ts";
+import { GameScheduledJob } from "../../../../src/models/game-scheduled-job.ts";
 import { GameTeam } from "../../../../src/models/game-team.ts";
 import { GameTeamPosition } from "../../../../src/models/game-team-position.ts";
 import { GameTile } from "../../../../src/models/game-tile.ts";
@@ -465,6 +466,162 @@ describe("CLAIM_WIN handler", () => {
         payload: {},
       }),
     ).rejects.toMatchObject({ status: 400, code: "invalid_payload" });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase J chunk 3 — auto-GAME_END upsert from CLAIM_WIN. The handler bumps
+  // the existing `GAME_END` scheduled job's `runAt` to `now()` when the
+  // claiming team was the last incomplete one. (The scheduler tick itself
+  // is exercised by `system-handlers.test.ts`.)
+  // -------------------------------------------------------------------------
+
+  it("does NOT advance GAME_END when other teams are still incomplete (3 of 4 left)", async () => {
+    const fixture = await setupLightweightGame({
+      participantCount: 4,
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+
+    // Seed a GAME_END job in the far future so we can assert non-mutation.
+    const futureRunAt = new Date(Date.now() + 60 * 60 * 1000);
+    const job = await GameScheduledJob.create({
+      gameId: fixture.gameId,
+      jobType: "GAME_END",
+      runAt: futureRunAt,
+      status: "pending",
+      payload: null,
+    });
+
+    await seedShanponTenpai(fixture.gameId, participant.gameTeamId);
+    const stationTileId = await placeStationTile({
+      gameId: fixture.gameId,
+      gameNodeId: bayId,
+      slotIndex: 0,
+      tile: ["pin", 8, 2],
+    });
+
+    await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CLAIM_WIN",
+      payload: { stationTileId },
+    });
+
+    const refreshed = await GameScheduledJob.findByPk(job.id);
+    expect(refreshed?.status).toBe("pending");
+    expect(refreshed?.runAt.toISOString()).toBe(futureRunAt.toISOString());
+
+    // The other three teams are still hand_completed_at = NULL.
+    const remaining = await GameTeam.count({
+      where: { gameId: fixture.gameId, handCompletedAt: null },
+    });
+    expect(remaining).toBe(3);
+  });
+
+  it("advances GAME_END runAt to ~now when the claiming team is the last incomplete one", async () => {
+    // Three teams pre-marked as completed via the lightweight knob; the
+    // fourth team carries the tenpai hand and claims via the handler.
+    const fixture = await setupLightweightGame({
+      participantCount: 4,
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 4: "bay" },
+      handTilesBySlot: { 1: 1, 2: 1, 3: 1 },
+      markTeamHandCompleted: [
+        { slot: 1, finalPoints: 1000 },
+        { slot: 2, finalPoints: 2000 },
+        { slot: 3, finalPoints: 3000 },
+      ],
+    });
+    const claimant = fixture.participants.find((p) => p.teamSlot === 4)!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+
+    const futureRunAt = new Date(Date.now() + 60 * 60 * 1000);
+    const job = await GameScheduledJob.create({
+      gameId: fixture.gameId,
+      jobType: "GAME_END",
+      runAt: futureRunAt,
+      status: "pending",
+      payload: null,
+    });
+
+    await seedShanponTenpai(fixture.gameId, claimant.gameTeamId);
+    const stationTileId = await placeStationTile({
+      gameId: fixture.gameId,
+      gameNodeId: bayId,
+      slotIndex: 0,
+      tile: ["pin", 8, 2],
+    });
+
+    const beforeMs = Date.now();
+    await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: claimant.gameTeamId,
+      userId: claimant.userId,
+      commandType: "CLAIM_WIN",
+      payload: { stationTileId },
+    });
+    const afterMs = Date.now();
+
+    const refreshed = await GameScheduledJob.findByPk(job.id);
+    expect(refreshed?.status).toBe("pending");
+    // `runAt` was bumped into the [before, after] window (not the
+    // pre-seeded future).
+    const runAtMs = refreshed!.runAt.getTime();
+    expect(runAtMs).toBeGreaterThanOrEqual(beforeMs);
+    expect(runAtMs).toBeLessThanOrEqual(afterMs);
+
+    // Every team is now completed.
+    const incomplete = await GameTeam.count({
+      where: { gameId: fixture.gameId, handCompletedAt: null },
+    });
+    expect(incomplete).toBe(0);
+  });
+
+  it("does not upsert GAME_END when no row exists (no-op update is safe)", async () => {
+    // Lightweight fixture omits the GAME_END seed (it's only seeded by
+    // `startFromLobby`). The handler's update affects 0 rows; the test
+    // asserts the handler still succeeds end-to-end.
+    const fixture = await setupLightweightGame({
+      participantCount: 4,
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 4: "bay" },
+      handTilesBySlot: { 1: 1, 2: 1, 3: 1 },
+      markTeamHandCompleted: [
+        { slot: 1, finalPoints: 1000 },
+        { slot: 2, finalPoints: 2000 },
+        { slot: 3, finalPoints: 3000 },
+      ],
+    });
+    const claimant = fixture.participants.find((p) => p.teamSlot === 4)!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+
+    await seedShanponTenpai(fixture.gameId, claimant.gameTeamId);
+    const stationTileId = await placeStationTile({
+      gameId: fixture.gameId,
+      gameNodeId: bayId,
+      slotIndex: 0,
+      tile: ["pin", 8, 2],
+    });
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: claimant.gameTeamId,
+      userId: claimant.userId,
+      commandType: "CLAIM_WIN",
+      payload: { stationTileId },
+    });
+    expect(result.events[0]!.eventType).toBe("CLAIM_WIN");
+
+    // No job was created by the handler — the upsert filters by
+    // `(gameId, jobType=GAME_END)` and the lightweight fixture didn't
+    // seed one.
+    const jobs = await GameScheduledJob.findAll({
+      where: { gameId: fixture.gameId, jobType: "GAME_END" },
+    });
+    expect(jobs).toHaveLength(0);
   });
 
   it("auto-forfeits an in-progress challenge instance on a successful claim", async () => {

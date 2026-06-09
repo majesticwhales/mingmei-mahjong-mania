@@ -1,4 +1,4 @@
-import { QueryTypes } from "sequelize";
+import { Op, QueryTypes } from "sequelize";
 import type {
   CommandContext,
   CommandHandler,
@@ -11,6 +11,7 @@ import { Game } from "../../models/game.ts";
 import { GameNode } from "../../models/game-node.ts";
 import { GameNodeChallenge } from "../../models/game-node-challenge.ts";
 import { GameRuleFlag } from "../../models/game-rule-flag.ts";
+import { GameScheduledJob } from "../../models/game-scheduled-job.ts";
 import { GameTeam } from "../../models/game-team.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { GameTilePlacement } from "../../models/game-tile-placement.ts";
@@ -23,6 +24,7 @@ import {
   type WindRank,
 } from "../../scoring/index.ts";
 import { teamCodeToWindRank } from "../../scoring/seat-wind.ts";
+import { triggerSchedulerNow } from "../../scheduler/worker.ts";
 import { assertSlotUnlocked } from "../../services/slot-visibility.ts";
 import { RED_FIVES_RULE_KEY } from "../../tiles/red-five.ts";
 import { autoForfeitActiveChallenge } from "../challenge-lifecycle.ts";
@@ -378,6 +380,34 @@ export const claimWinHandler: CommandHandler = {
         gameId: ctx.gameId,
         gameTeamId: ctx.gameTeamId,
       });
+
+    // Phase J early-end (chunk 3): if this was the last incomplete
+    // team, fast-forward the `GAME_END` scheduled job so the next
+    // scheduler tick flips the game to `ended` and emits `GAME_ENDED`.
+    // The `Op.is: null` filter only counts genuinely incomplete teams;
+    // the team we just stamped above is committed-in-tx, so the count
+    // returns 0 exactly when every team is done.
+    const remainingIncomplete = await GameTeam.count({
+      where: { gameId: ctx.gameId, handCompletedAt: { [Op.is]: null } },
+      transaction: ctx.transaction,
+    });
+    if (remainingIncomplete === 0) {
+      await GameScheduledJob.update(
+        { runAt: new Date(), status: "pending" },
+        {
+          where: { gameId: ctx.gameId, jobType: "GAME_END" },
+          transaction: ctx.transaction,
+        },
+      );
+      // Best-effort kick: ask the scheduler worker (if registered) to
+      // run a tick the moment our transaction commits. The periodic
+      // poll picks it up on the next tick anyway — the trigger just
+      // tightens the latency window. `triggerSchedulerNow` is a no-op
+      // when no worker is registered (e.g. unit-test contexts).
+      ctx.transaction.afterCommit(() => {
+        triggerSchedulerNow();
+      });
+    }
 
     const events: EmittedEvent[] = [
       {
