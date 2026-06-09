@@ -309,6 +309,30 @@ describe("buildGameStateProjection - atStation challenge", () => {
     expect(projection.atStation!.currentChallenge!.title).toBe("First");
   });
 
+  it("short-circuits atStation to null once the team is hand-completed (Phase J)", async () => {
+    // Phase J: even when the position row still points at a real station
+    // with an in-progress challenge, a hand-completed team's projection
+    // must hide the swap controls. The projection short-circuits both
+    // `atStation` and the `currentChallenge` sub-fetch so the client
+    // flips to the read-only post-claim banner.
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      markTeamHandCompleted: 1,
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    await attachChallengeToGameNode({ gameNodeId: bayId });
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.atStation).toBeNull();
+    expect(projection.handCompleted).not.toBeNull();
+  });
+
   it("scopes challenge state per team — team A's in_progress is invisible to team B", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["bay"],
