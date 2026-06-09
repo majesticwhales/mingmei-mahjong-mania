@@ -1,11 +1,16 @@
 import { sequelize } from "../config/database.ts";
+import { visibilityIncludes } from "../game/visibility-mode.ts";
 import {
   type GameTeamSlot,
   resolveTeamsForGameStart,
 } from "./even-team-assignment.ts";
 import { cloneMapTemplateToGame } from "./map-clone-service.ts";
 import { computeReadiness } from "./lobby-serializer.ts";
-import { bootstrapGameVisibility } from "./game-visibility-bootstrap.ts";
+import {
+  bootstrapGameTeamPositionsAndRules,
+  bootstrapGameVisibilityGroups,
+} from "./game-visibility-bootstrap.ts";
+import { bootstrapGameChallenges } from "./game-challenge-bootstrap.ts";
 import { scheduleGameJobs } from "./game-schedule-service.ts";
 import { dealTilesForGame } from "./tile-deal-service.ts";
 import { isDevRelaxLobbyStart } from "../lib/dev-flags.ts";
@@ -136,14 +141,25 @@ export async function startFromLobby(
         slotMapVisible: lobby.slotMapVisible,
         roundWind,
         deadWallSize: lobby.deadWallSize,
+        visibilityMode: lobby.visibilityMode,
         configVersion: 1,
       },
       { transaction },
     );
 
-    await cloneMapTemplateToGame(
+    const clonedMap = await cloneMapTemplateToGame(
       game.id,
       lobby.mapTemplateId,
+      transaction,
+    );
+
+    // Per-node challenge queue: snapshot from the template. Honors a
+    // node's ordered list; a node with zero challenges leaves
+    // `game_node_challenges` empty and bypasses the swap-credit gate
+    // in `swap-tile.ts`.
+    await bootstrapGameChallenges(
+      [...clonedMap.gameNodeIdByTemplateNodeId.keys()],
+      clonedMap.gameNodeIdByTemplateNodeId,
       transaction,
     );
 
@@ -193,12 +209,22 @@ export async function startFromLobby(
       { deadWallSize: game.deadWallSize },
     );
 
-    await bootstrapGameVisibility(
+    // Phase-only setup runs only when the snapshotted mode includes the
+    // phase layer. Position rows + red-five rule flag always run (the
+    // engine reads them in every mode).
+    if (visibilityIncludes(game.visibilityMode, "phase")) {
+      await bootstrapGameVisibilityGroups(
+        game.id,
+        gameTeamIdBySlot,
+        startedAt,
+        game.visibilityPhaseCount,
+        transaction,
+      );
+    }
+    await bootstrapGameTeamPositionsAndRules(
       game.id,
       gameTeamIdBySlot,
-      startedAt,
       lobby.defaultStartNodeCode,
-      game.visibilityPhaseCount,
       transaction,
     );
 
@@ -221,6 +247,7 @@ export async function startFromLobby(
           template: n.template,
           data: n.data,
         })),
+        visibilityMode: game.visibilityMode,
       },
       transaction,
     );

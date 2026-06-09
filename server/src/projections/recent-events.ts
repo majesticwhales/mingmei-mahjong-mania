@@ -35,6 +35,16 @@ export interface RecentEventDto {
   geolocationWarning?: boolean;
   phase?: number;
   template?: string;
+  /**
+   * Phase H: lifted on START_CHALLENGE / CHALLENGE_COMPLETED /
+   * CHALLENGE_FORFEITED events. `challengeId` is the catalog id
+   * (stable across games), `instanceId` is the per-team
+   * `game_challenge_instances.id` (stable within a game). The client
+   * needs both to render activity items and to reference the right
+   * row in follow-up commands.
+   */
+  challengeId?: string;
+  instanceId?: string;
 }
 
 const DEFAULT_LIMIT = 50;
@@ -155,6 +165,14 @@ function rowToDto(row: Row): RecentEventDto {
   const template = payload.template;
   if (typeof template === "string") {
     dto.template = template;
+  }
+  const challengeId = payload.challengeId;
+  if (typeof challengeId === "string") {
+    dto.challengeId = challengeId;
+  }
+  const instanceId = payload.instanceId;
+  if (typeof instanceId === "string") {
+    dto.instanceId = instanceId;
   }
   return dto;
 }

@@ -166,9 +166,11 @@ The server is the source of truth for every type the client renders. This sectio
 
 For v1 we duplicate wire types under `client/src/wire/`. The mirrored files are:
 
-- `client/src/wire/auth.ts` — `RegisterRequest`, `LoginRequest`, `AuthResponse`, `User`.
-- `client/src/wire/lobby.ts` — `LobbyDetailDto`, `LobbyConfigDto`, `LobbyMemberDto`, `LobbyReadinessDto`, `LobbyNotificationDto`, `LobbyConfigPatch`, `CreateLobbyInput`.
-- `client/src/wire/projection.ts` — `GameStateProjection`, `TileDto`, `SlotTileDto`, `MapNodeDto`, `MapLineDto`, `MapEdgeDto`, `AtStationDto`, `HandTileDto`, `RecentEventDto`.
+- `client/src/wire/auth.ts` — `RegisterRequest` (Phase K: optional `discordUsername`), `LoginRequest`, `AuthResponse`, `User` (Phase K: gains `discordUsername`, `discordUserId`, `discordLinkStatus`).
+- `client/src/wire/lobby.ts` — `LobbyDetailDto`, `LobbyConfigDto` (Phase K: gains `discordEnabled`), `LobbyMemberDto`, `LobbyReadinessDto`, `LobbyNotificationDto`, `LobbyConfigPatch`, `CreateLobbyInput`, `VisibilityMode` (`"none" | "phase" | "slot" | "both"`), `TeamAssignmentMode`.
+- `client/src/wire/discord.ts` — **new in Phase K.** `DiscordLinkStatus` (`"unlinked" | "pending" | "linked" | "failed"`), `DiscordLinkRequest`, `DiscordLinkStatusResponse`. Consumed exclusively by `AuthContext` + Profile screen + Lobby room.
+- `client/src/wire/projection.ts` — `GameStateProjection`, `TileDto`, `SlotTileDto`, `MapNodeDto`, `MapLineDto`, `MapEdgeDto`, `AtStationDto`, `HandTileDto`, `RecentEventDto`, plus the **Phase J** additions `HandCompletedDto` (the team-private snapshot, fields per server §6.3) and `TeamsCompletedEntryDto` (the public roster entry).
+- `client/src/wire/summary.ts` — **new in Phase J.** `GameSummaryDto`, `GameSummaryTeamDto`, `AnalyzedWaitDto` (mirrors `server/src/scoring/index.ts` shape); consumed exclusively by the post-game `SummaryScreen`.
 - `client/src/wire/command.ts` — `GameCommandPayload`, `GameCommandAcked`, `GameCommandRejected`, `GameJoinPayload`, `GameJoinResponse`, `Ack<T>` envelope, `CommandType` literal union, per-command-type payload narrowings.
 - `client/src/wire/error.ts` — `HttpErrorBody` (`{ error: { code: string; message: string; details?: unknown } }`).
 
@@ -197,6 +199,10 @@ All endpoints below already exist on the server; the client just needs to call t
 | `PATCH /api/lobbies/:id/notifications/:notifId` | partial of above | `200 { notification }` | `restClient.updateNotification()` (host only) | [server/src/routes/lobbies.ts](../server/src/routes/lobbies.ts) |
 | `DELETE /api/lobbies/:id/notifications/:notifId` | — | `204` | `restClient.deleteNotification()` (host only) | [server/src/routes/lobbies.ts](../server/src/routes/lobbies.ts) |
 | `POST /api/games/:id/commands` | `{ gameTeamId, commandType, payload?, clientCommandId }` | `202 { clientCommandId, queueItemId }` | `restClient.submitCommand()` — **HTTP fallback path** for the outbox when the socket is down. Same idempotency contract as `game.command`. | [server/src/routes/games.ts](../server/src/routes/games.ts) |
+| `GET /api/games/:id/summary` | — | `200 { summary: GameSummaryDto }` or `409 game_not_ended` | `restClient.getGameSummary()` — **Phase J.** Called by `SummaryScreen` after `GAME_ENDED` is observed on `game.event`. Read-only; the response shape is `wire/summary.ts::GameSummaryDto`. | [server/src/routes/games.ts](../server/src/routes/games.ts) |
+| `POST /api/users/me/discord-link` | `{ discordUsername: string }` | `200 { user: User }` or `409 discord_username_taken` | `restClient.linkDiscord()` — **Phase K.** Called from the Profile screen or Register form. Server flips `user.discordLinkStatus` to `"pending"` immediately; the bot resolves at the next lobby start. | [server/src/routes/users.ts](../server/src/routes/users.ts) |
+| `DELETE /api/users/me/discord-link` | — | `204` | `restClient.unlinkDiscord()` — **Phase K.** Clears the username/snowflake and resets `discordLinkStatus = "unlinked"`. | [server/src/routes/users.ts](../server/src/routes/users.ts) |
+| `GET /api/users/me/discord-status` | — | `200 { user: { discordUsername, discordUserId, discordLinkStatus, lastError } }` | `restClient.getDiscordStatus()` — **Phase K.** Polled by the Profile screen while status is `"pending"`. | [server/src/routes/users.ts](../server/src/routes/users.ts) |
 
 ### 4.3 Socket events
 
@@ -247,6 +253,13 @@ The `restClient` parses non-2xx responses into a typed `HttpError(code, message,
 | `duplicate` | `enqueueCommand` (same id + same payload) | Treat as success — the outbox row transitions to `acked`. |
 | `game_not_active` | command auth | Toast "Game already ended"; remove the outbox row; resync via `GET /api/games/:id` if we add it later, otherwise drop the row silently. |
 | `slot_locked` | engine validation (swap pre-unlock) | Toast "Tile not yet available"; remove the outbox row. |
+| `visibility_knob_locked` | lobby config validation (`PATCH /api/lobbies/:id/config`) when a host tries to set a knob the chosen `visibilityMode` excludes (phase off → phase knobs; slot off → non-trivial slot arrays) | Surface the `message` via the existing inline form error. Do not retry. The host config form (`ConfigForm`) already prevents this in normal use by disabling the offending inputs (see §7.3); the error path catches malicious or out-of-date clients. Rely on the next `lobby.config` push to re-sync the draft to the server's reset values. |
+| `not_at_station` | engine validation (`CLAIM_WIN` when team isn't checked into the station that holds the tile) | Toast "Not at this station"; remove the outbox row. The station panel hides the Claim affordance whenever the team isn't at the right station, so this only fires on stale/forged commands. |
+| `not_a_winning_tile` | engine validation (`CLAIM_WIN`) when `analyzeHand` over the candidate 14-tile hand returns `shanten !== -1`, or the station tile isn't in the current wait set | Toast "Not a winning tile"; remove the outbox row. The station panel only renders Claim on tiles in `handAnalysis.waits[]`, so this only fires when the wait set has shifted between render and submit (e.g. a swap landed first). |
+| `hand_completed` | engine validation (any tile-modifying command from a team whose `game_teams.hand_completed_at IS NOT NULL`) | Toast "Hand already complete"; remove the outbox row. The Game / Station / Hand panels disable all action affordances when `state.handCompleted !== null`, so this only fires on stale clients. |
+| `game_not_ended` | `GET /api/games/:id/summary` called before the engine has run `GAME_ENDED` | Stay on the in-game screen; SummaryScreen retries on the next `game.event` matching `GAME_ENDED`. Never toast — this is normal during the race window. |
+| `discord_username_taken` | `POST /api/users/me/discord-link` when another user already claims the username (`users.discord_username` is UNIQUE) | Surface the message inline next to the Discord username input. Do not retry. |
+| `discord_unavailable` | bot-side resolution failed (guild outage or transient Discord 5xx) — bubbled back via `GET /api/users/me/discord-status` `lastError` | Profile screen shows the `lastError` text under the username; offers a "Retry" button that POSTs the same username again to flip the status back to `pending`. |
 | `command_queue_full` (future) | rate limit | Toast "Slow down"; retry with backoff. |
 
 For any error code not in this list the client falls back to a generic toast carrying `message`, and the row is marked `rejected` in the outbox so it never retries.
@@ -281,15 +294,17 @@ type AuthState =
 
 **Hooks:**
 
-- `useAuth()` — returns the full state plus `login`, `register`, `logout` callbacks.
+- `useAuth()` — returns the full state plus `login`, `register`, `logout`, **`linkDiscord(username)`**, **`unlinkDiscord()`**, **`refreshDiscordStatus()`** callbacks (Phase K).
 - `useAuthToken()` — selector returning the token string or `null`; used by transport layer.
 - `useRequireAuth()` — throws (caught by router guard) if `status !== "authenticated"`; used inside protected routes.
+- `useDiscordStatus()` — **Phase K.** Selector returning `{ username, userId, status: DiscordLinkStatus, lastError }` derived from the authenticated user. Returns null when unauthenticated. Used by the Profile screen and the lobby room's Discord toggle to label its tooltip.
 
 **Side effects in `AuthProvider`:**
 
 1. On mount, read `localStorage["mmm.auth.v1"]`; if present, dispatch `auth/restore` and call `restClient.getMe()`.
 2. On `auth/login/success`, write to localStorage.
 3. On `auth/logout`, remove from localStorage and call `socketClient.disconnect()` (via injected callback) so we drop the underlying connection.
+4. **Phase K.** `linkDiscord(username)` calls `POST /api/users/me/discord-link`, dispatches `auth/discord/pending` on success, and starts a polling effect that calls `GET /api/users/me/discord-status` every 5s until status leaves `"pending"`. The polling stops automatically on `unlinkDiscord()`, `logout`, or when status becomes `"linked"` / `"failed"`. `unlinkDiscord()` calls `DELETE /api/users/me/discord-link` and dispatches `auth/discord/unlinked`.
 
 ### 5.2 `ConnectionContext`
 
@@ -381,6 +396,8 @@ The client tracks **at most one active lobby at a time**. Switching lobbies disp
 
 **Side effects in `LobbyProvider`:** on entering `loading`, emit `lobby.join` (if socket connected) plus `GET /api/lobbies/:id` (always; gives us a fast path that doesn't depend on socket). On `lobby.config` push, dispatch `lobby/updated`.
 
+**Visibility-mode error path:** `updateConfig` may reject with `visibility_knob_locked` if the host's patch sets a knob the chosen `visibilityMode` excludes (phase knobs while mode is `slot`/`none`; non-trivial slot arrays while mode is `phase`/`none`). The host form prevents this in normal use by disabling the offending inputs (see §7.3 wireframes and `client/src/screens/LobbyRoom/ConfigForm.tsx`), so the error path catches stale clients and adversarial requests only. The error surfaces inline via the existing `LobbyRoomScreen` error state; the next `lobby.config` push resyncs the draft to the server's reset values. See §4.4 for the error-code row.
+
 ### 5.4 `GameContext`
 
 **Shape:**
@@ -415,14 +432,16 @@ On every `game.state` push we merge `state.recentEvents` into `eventLog` (skip d
 
 **Hooks:**
 
-- `useGame()` — full state plus `joinGame`, `submitCommand`, `dismissNotification`, `leaveGame`.
+- `useGame()` — full state plus `joinGame`, `submitCommand`, `dismissNotification`, `leaveGame`, and convenience wrappers `checkIn(nodeId, geo?)`, `checkOut()`, `swapTile(handTileId, stationTileId)`, **`claimWin(stationTileId)`** (Phase J), `startChallenge()`, `completeChallenge(instanceId)`, `forfeitChallenge(instanceId)`. Each wrapper builds a `GameCommandPayload` and delegates to `submitCommand`.
 - `useGameProjection()` — selector returning the projection or null. The map, hand panel, and station panel use this.
 - `useGameTeamSlot()` — selector returning the user's `gameTeamId` (read from the projection / lobby state).
 - `useEventLog()` — selector returning the deduped event log.
 - `useAtStation()` — selector returning `projection.atStation` or null; drives the station panel.
 - `useNextVisibilityChange()` — selector returning the visibility countdown target; drives the timer banner.
+- `useHandCompleted()` — **Phase J.** Selector returning `projection.handCompleted` or null. Truthy means the team has claimed and the entire in-game action surface (`CHECK_IN`/`CHECK_OUT` exempted, see §3.10 server) is locked. The Game / Hand / Station panels read this to flip disabled / readonly / "you won!" modes.
+- `useTeamsCompleted()` — **Phase J.** Selector returning `projection.teamsCompleted` (sorted by `completedAt`). Drives the "X / 4 teams finished" badge that the lobby timer banner gains in Phase J.
 
-**Side effects in `GameProvider`:** on `game/load`, emit `game.join` and await ack. Subscribes to `game.state`, `game.event`, `game.notification`. On reconnect (`useConnection().status === "connected"` after a prior `disconnected`), re-emit `game.join` to resync. Outbox interactions are delegated to `OutboxContext` — `submitCommand` calls `outbox.enqueue(...)`.
+**Side effects in `GameProvider`:** on `game/load`, emit `game.join` and await ack. Subscribes to `game.state`, `game.event`, `game.notification`. On reconnect (`useConnection().status === "connected"` after a prior `disconnected`), re-emit `game.join` to resync. Outbox interactions are delegated to `OutboxContext` — `submitCommand` calls `outbox.enqueue(...)`. **Phase J:** on the first inbound `game.event` whose `type === "GAME_ENDED"`, the provider navigates the user to `/games/:id/summary` (replace, not push, so the back button returns to the lobby list). SummaryScreen lazy-loads via `restClient.getGameSummary()`.
 
 ### 5.5 `OutboxContext`
 
@@ -617,7 +636,7 @@ The sticky banner case is intentionally noisy: it's a client bug, not a transien
 
 ## 7. Screens and navigation
 
-The MVP has **eight routes**. Mobile-first design — all screens render in a 360 px viewport without horizontal scroll.
+The MVP has **eight routes** (nine when Phase K's Profile screen ships). Mobile-first design — all screens render in a 360 px viewport without horizontal scroll.
 
 ### 7.1 Route table
 
@@ -625,11 +644,12 @@ The MVP has **eight routes**. Mobile-first design — all screens render in a 36
 |-------|------|-----------|------------------|-------|
 | `/` | any | `<RootRedirect />` | `AuthContext` | Redirects to `/lobbies` if authed, `/login` otherwise. |
 | `/login` | anon | `<LoginScreen />` | `AuthContext` | Email + password, link to register. |
-| `/register` | anon | `<RegisterScreen />` | `AuthContext` | Email + username + password. |
+| `/register` | anon | `<RegisterScreen />` | `AuthContext` | Email + username + password (Phase K: optional Discord username). |
 | `/lobbies` | auth | `<LobbiesScreen />` | `AuthContext` | Action hub: "Create lobby" + "Join by code". No active-lobby list in v1 (server doesn't expose one); future expansion is straightforward. |
-| `/lobbies/:id` | auth | `<LobbyRoomScreen />` | `LobbyContext` | Member list, team picker, host config form, notifications editor (host only), Start. |
-| `/games/:id` | auth | `<GameScreen />` | `GameContext` | Map + hand + station + event log + timer + command buttons. The main game UI. |
-| `/games/:id/summary` | auth | `<GameSummaryScreen />` | `GameContext` | Final scores (stubbed), full event log, post-game hand. |
+| `/lobbies/:id` | auth | `<LobbyRoomScreen />` | `LobbyContext` | Member list, team picker, host config form, notifications editor (host only), Start. Phase K adds the Discord channels checkbox. |
+| `/games/:id` | auth | `<GameScreen />` | `GameContext` | Map + hand + station + event log + timer + command buttons. The main game UI. Phase J adds the Claim affordance + hand-completed lock. |
+| `/games/:id/summary` | auth | `<GameSummaryScreen />` | `GameContext` | Phase J: per-team scoreboard backed by `GET /api/games/:id/summary`. |
+| `/profile` | auth | `<ProfileScreen />` | `AuthContext` | **Phase K.** Discord link management — view current status, link / unlink / retry. |
 | `*` | any | `<NotFoundScreen />` | — | Fallback. |
 
 ### 7.2 Navigation map
@@ -670,20 +690,75 @@ States: idle, submitting (button spinner), error (red text above button: "Invali
 #### Register (`/register`)
 
 ```
-+--------------------------------------+
-|  mingmei's mahjong mania             |
-|                                       |
-|  email    [_______________________]   |
-|  username [_______________________]   |
-|  password [_______________________]   |
-|                                       |
-|  [ Create account ]                   |
-|                                       |
-|  Have an account? Log in              |
-+--------------------------------------+
++----------------------------------------------+
+|  mingmei's mahjong mania                     |
+|                                              |
+|  email     [____________________________]    |
+|  username  [____________________________]    |
+|  password  [____________________________]    |
+|  ───────────────────────────────────────     |
+|  Discord (optional)                          |  <- Phase K
+|  discord username [_______________________]  |
+|  We'll create a private team channel for     |
+|  your team when the game starts. You can     |
+|  always add this later from Profile.         |
+|                                              |
+|  [ Create account ]                          |
+|                                              |
+|  Have an account? Log in                     |
++----------------------------------------------+
 ```
 
-States: idle, submitting, validation errors (per-field red text), conflict ("Email already in use" / "Username taken").
+States: idle, submitting, validation errors (per-field red text), conflict ("Email already in use" / "Username taken" / "Discord username already linked to another account").
+
+**Phase K notes.** The Discord username field is **always optional** — leaving it blank registers the user with `discordLinkStatus = "unlinked"`. When supplied, the client calls `restClient.register()` followed by `restClient.linkDiscord()` (two calls; the register endpoint stays unchanged from Phase B). On a registration success + link failure, the user is still logged in; the Profile screen surfaces the error so they can retry.
+
+#### Profile (`/profile`)
+
+Phase K — new screen for managing the Discord link after registration.
+
+```
++----------------------------------------------+
+| < Back                          [Connection] |
+|                                              |
+|  Profile                                     |
+|                                              |
+|  Account                                     |
+|    email    alice@example.com                |
+|    username @alice                           |
+|                                              |
+|  Discord link                                |
+|    Status: [linked]                          |  <- ★ status pill
+|    Username: alice#1234                      |
+|    Discord ID: 1234567890123456789           |
+|    [ Unlink Discord account ]                |
+|                                              |
+|  (or, if status === "pending")               |
+|    Status: [pending verification]            |
+|    Username: alice#1234                      |
+|    Verifying with Discord… (polling)         |
+|    [ Cancel ]                                |
+|                                              |
+|  (or, if status === "failed")                |
+|    Status: [verification failed]             |
+|    Username: alice#1234                      |
+|    Error: User 'alice#1234' not found in     |
+|    the configured guild. Make sure you've    |
+|    joined the server.                        |
+|    [ Retry ] [ Edit username ] [ Unlink ]    |
+|                                              |
+|  (or, if status === "unlinked")              |
+|    Discord lets you receive game notifs in   |
+|    a private team channel.                   |
+|    discord username [________________]       |
+|    [ Link Discord account ]                  |
++----------------------------------------------+
+```
+
+- The status pill is colour-coded — green (`linked`), amber (`pending`), red (`failed`), grey (`unlinked`).
+- "Edit username" reopens the input field with the current username pre-filled.
+- Polling cadence: 5 s on `pending`, no polling otherwise (`useDiscordStatus()` hook handles teardown).
+- `Unlink` shows a confirm dialog ("This removes you from any current team channels next time you join a game. Continue?").
 
 #### Lobbies hub (`/lobbies`)
 
@@ -706,36 +781,56 @@ The lobby list is omitted because the server doesn't expose "lobbies I'm in". On
 Host view:
 
 ```
-+--------------------------------------+
-| < Back                  [Connection] |
-|                                       |
-|  Lobby ABC123                  HOST   |
-|                                       |
-|  Members (3 / min 4)                  |
-|    @alice    Team 1                   |
-|    @bob      Team 2                   |
-|    @carol    —                        |
-|                                       |
-|  Your team:                           |
-|  [Team 1] [Team 2] [Team 3] [Team 4]  |
-|                                       |
-|  > Config                             |
-|    map      [TYO_BASE     v]         |
-|    duration [ 7200  ] sec             |
-|    phases   [ 4 ] x [ 1200 ] sec      |
-|    slots    [ 2 ]                     |
-|    team mode[ host    v]              |
-|    start at [—————        v]         |
-|                                       |
-|  > Notifications  [+]                 |
-|    @ 0:30:00  "halfway"   [edit][x]   |
-|    @ 1:30:00  "30 min left"  [...]    |
-|                                       |
-|  [ Start game ]   (disabled if not ready) |
-|                                       |
-|  Readiness: 1 player missing on Team 3 |
-+--------------------------------------+
++----------------------------------------------+
+| < Back                          [Connection] |
+|                                              |
+|  Lobby ABC123                          HOST  |
+|                                              |
+|  Members (3 / min 4)                         |
+|    @alice    Team 1                          |
+|    @bob      Team 2                          |
+|    @carol    -                               |
+|                                              |
+|  Your team:                                  |
+|  [Team 1] [Team 2] [Team 3] [Team 4]         |
+|                                              |
+|  > Config                                    |
+|    map         [TYO_BASE     v]              |
+|    duration    [ 7200 ] sec                  |
+|    phases      [ 4 ] x [ 1200 ] sec          |  <- greys out under mode = slot|none
+|    > Slot tier                               |
+|      slots/node [ 4 ]                        |
+|      [x] auto-distribute unlock times        |
+|      slot 0:    0s   map visible: (on)       |  <- slot 0 always locked
+|      slot 1: 1800s   map visible: [x]        |  <- offset disabled while auto on
+|      slot 2: 3600s   map visible: [x]        |
+|      slot 3: 5400s   map visible: [x]        |
+|    visibility  [ both    v]                  |
+|    team mode   [ pick    v]                  |
+|    start at    [-----    v]                  |
+|    [x] Discord channels                      |  <- Phase K
+|        Creates a per-game Discord category   |
+|        with private team channels + public   |
+|        general + notifications channels.     |
+|                                              |
+|  > Notifications  [+]                        |
+|    @ 0:30:00  "halfway"     [edit][x]        |
+|    @ 1:30:00  "30 min left" [...]            |
+|                                              |
+|  [ Start game ]   (disabled if not ready)    |
+|                                              |
+|  Readiness: 1 player missing on Team 3       |
++----------------------------------------------+
 ```
+
+The **visibility** dropdown picks one of `both | phase | slot | none`. The lock UX mirrors the server's chunk-2 enforcement:
+
+- `none` / `slot` → `phases` row greys out (server rejects patches that set `visibilityPhaseCount` / `visibilityPhaseIntervalSeconds`).
+- `none` / `phase` → the whole `Slot tier` sub-block (auto-distribute toggle + per-slot rows) greys out. `slots/node` stays editable because it's the count, not a slot-layer config.
+
+The **Auto-distribute** checkbox is a pure UI affordance — there's no persisted "auto-distribute" field on the server. On form mount the toggle reads `true` when the saved `slotUnlockOffsetsSeconds` equal `round(gameDurationSeconds * k / slotsPerNode)` for every `k` (±1s tolerance to absorb rounding), and `false` otherwise. While on, the form recomputes the offsets array on every change to `slots/node` or `duration`. Toggling it back on from a custom array snaps the offsets to the formula. See `client/src/lib/slotTier.ts` for the helper module.
+
+**Phase K — Discord channels checkbox.** Toggles `LobbyConfigPatch.discordEnabled`. Sub-text under the checkbox renders the readiness state for the host: if any current lobby member has `discordLinkStatus !== "linked"`, the form shows "Some members aren't linked yet (@bob, @carol). Their team channels will skip them until they link." The toggle is independently editable from every other knob — it's not visibility-gated and is never reset on `visibilityMode` changes.
 
 Non-host view: same layout minus the config form and notifications editor (read-only listings instead); the start button is replaced with "Waiting for host…".
 
@@ -746,6 +841,7 @@ Portrait phone:
 ```
 +--------------------------------------+
 | < End game     Timer 0:47:13  [Conn] |
+|                Teams done: 1 / 4      |  <- Phase J
 |                                       |
 |  +------------------------------+    |
 |  |                              |    |
@@ -755,11 +851,13 @@ Portrait phone:
 |  +------------------------------+    |
 |                                       |
 |  At: SHINJUKU                         |
-|   slot 0: [tile]   slot 1: [tile]     |
-|   [ Swap tile ]   [ Check out ]       |
+|   slot 0: 5-pin [ Swap ] [ Claim! ]   |  <- Claim on wait-set tiles only
+|   slot 1: 4-sou [ Swap ]              |
+|   [ Check out ]                       |
 |                                       |
 |  Your hand (13)                       |
 |   [tile][tile][tile][tile][tile][...] |
+|   Wait: 5-pin (5 han, 8000 pts)       |  <- handAnalysis.waits[0]
 |                                       |
 |  Next visibility: 0:04:32             |
 |                                       |
@@ -768,6 +866,38 @@ Portrait phone:
 ```
 
 When not at a station, the "At" section is replaced with "[ Check in here ]" surfaced after the user taps a station node on the map.
+
+**Phase J — Claim affordance.** The Station panel renders an additional `[ Claim! ]` button next to the existing Swap button on **every** station tile whose `(suit, rank, copyIndex)` matches a `handAnalysis.waits[]` entry. Tiles that aren't in the wait set show Swap only. When the team's `handAnalysis.shanten > 0`, no Claim buttons render at all. The button submits a `CLAIM_WIN` command via `useGame().claimWin(stationTileId)`. The swap-credit gate from Phase H applies identically — the button is greyed out when `pendingSwapCredit === false` and the station has any configured challenge, with the same tooltip the existing Swap button shows ("Complete the challenge first").
+
+**Phase J — completed state.** When `state.handCompleted !== null`, the entire game screen flips into a read-only celebration mode:
+
+```
++--------------------------------------+
+| < End game     Timer 0:47:13  [Conn] |
+|                Teams done: 2 / 4      |
+|                                       |
+|  You won!                             |
+|   5-pin · 5 han · 30 fu · 8000 pts    |
+|    All Simples · Three Colour ·       |
+|    Red Five · Dora                    |
+|                                       |
+|  +------------------------------+    |
+|  |   MapShell (read-only)        |   |
+|  +------------------------------+    |
+|                                       |
+|  Your hand (14)                       |
+|   [tile][tile]…[5-pin (winner)]      |
+|                                       |
+|  Waiting for other teams…             |
+|                                       |
+|  [ Event log ▴ ]                      |
++--------------------------------------+
+```
+
+- All action buttons (Swap, Claim, Check in / out, Start challenge) are hidden — the team can no longer mutate state.
+- The station panel stays mounted as a read-only "you are at X" footer so the user can keep watching the station, but its action row is empty.
+- "Teams done" badge in the header is sourced from `state.teamsCompleted.length`.
+- When the engine emits `GAME_ENDED` (timer or all-teams-completed), `GameProvider` replace-navigates to `/games/:id/summary` automatically.
 
 Event log drawer (slides up):
 
@@ -785,23 +915,47 @@ Event log drawer (slides up):
 
 #### Game summary (`/games/:id/summary`)
 
+**Phase J wireframe** (full scoreboard backed by `GET /api/games/:id/summary`):
+
 ```
-+--------------------------------------+
-|  Game over                            |
-|                                       |
-|  Final hand                           |
-|   [tile][tile][tile][tile][tile][...] |
-|                                       |
-|  Stub score: 42 (riichi: TBD)         |
-|                                       |
-|  Event log (full)                     |
-|   [scrollable timeline]               |
-|                                       |
-|  [ Back to lobbies ]                  |
-+--------------------------------------+
++----------------------------------------------+
+|  Game over                                   |
+|   ended 2026-06-07 22:00 · all teams done    |
+|                                              |
+|  Scoreboard                                  |
+|  --------------------------------------------|
+|  1. Team South  8000 pts   5 han · 30 fu  ★  |  <- ★ = winningGameTeamId
+|       5-pin · All Simples · Three Colour ·   |
+|       Red Five · Dora                        |
+|       [tile][tile]…[5-pin]                   |
+|                                              |
+|  2. Team East   3900 pts   3 han · 40 fu     |
+|       3-sou · Pure Straight                  |
+|       [tile][tile]…[3-sou]                   |
+|                                              |
+|  3. Team West      0 pts   tenpai            |  <- noten/tenpai
+|       Waiting on: 2-man, 5-man               |
+|       [tile][tile]…(13 tiles)                |
+|                                              |
+|  4. Team North     0 pts   noten             |
+|       Shanten: 2                             |
+|       [tile][tile]…(13 tiles)                |
+|                                              |
+|  Event log (full)                            |
+|   [scrollable timeline]                      |
+|                                              |
+|  [ Back to lobbies ]                         |
++----------------------------------------------+
 ```
 
-Scoring is intentionally stubbed: the server's `HandEvaluationService` returns placeholder values per [docs/TDD_server.md §9 Phase I](TDD_server.md#9-implementation-phases). We render whatever the server gives us.
+- Per-team rows sorted by `finalPoints` desc, then `finalHan` desc, then `gameTeamId` for stable ordering.
+- The ★ badge appears next to the row whose `gameTeamId` matches `summary.winningGameTeamId`. When `winningGameTeamId === null` (tie or no claims), the badge is omitted entirely.
+- Each row shows the team's final hand sorted server-side (no client-side resorting). Completed teams show 14 tiles with the winning tile highlighted; noten/tenpai teams show 13.
+- The scoring breakdown (han, fu, yaku list) is read from the `GameSummaryTeamDto.finalYaku[]` snapshot — the client never re-runs `analyzeHand`.
+- Tenpai teams render their `waits[]` as "Waiting on: tile1, tile2, …" pulled from `GameSummaryTeamDto.waits`. Noten teams just show "noten" + their shanten count if the server includes it; the wait row is omitted.
+- Loading state: while `restClient.getGameSummary()` is in flight, the screen renders a spinner under "Game over". Errors fall back to the generic `HttpError` toast surface from §4.4, with `game_not_ended` specifically handled by retrying the GET on the next inbound `game.event`.
+
+The legacy "Stub score" wireframe is replaced wholesale by Phase J; the scoring module is shipped in Phase I and wired end-to-end here.
 
 ### 7.4 Connection badge
 
@@ -930,9 +1084,14 @@ The work is sliced into **7 chunks**, each independently reviewable and testable
 
 - `lobby/reducer.test.ts` — all transitions including optimistic team pick + rollback.
 - `LobbyRoomScreen.test.tsx` — host vs non-host conditional rendering.
-- `ConfigForm.test.tsx` — form → restClient call mapping; validation surface.
+- `ConfigForm.test.tsx` — form → restClient call mapping; validation surface; visibility-mode dropdown + phase-knob lock (chunk 6); slot-tier section + auto-distribute toggle + slot-knob lock (chunk 7). See §10.
+- `slotTier.test.ts` — pure helpers for the auto-distribute formula + tolerant matcher (chunk 7).
 - `NotificationsEditor.test.tsx` — add / edit / delete flows.
 - `lobbyContextSocket.test.tsx` — mock socket → `lobby.config` push → reducer dispatched → screen re-renders.
+
+The visibility-mode dropdown, phase-knob lock, slot-tier editor, and auto-distribute toggle shipped under the per-lobby visibility mode plan (chunks 6 and 7). The server-side surface lives in `lobby-service.ts` (chunk 2) and rejects locked-knob patches with `visibility_knob_locked` — see §4.4.
+
+**Phase K — Discord toggle.** The Discord channels checkbox in `ConfigForm` is wired in a follow-up slice once Phase K lands on the server. It's a plain `LobbyConfigPatch.discordEnabled` boolean — no validation, no lock UX, no interaction with visibility mode. The sub-text reads from `LobbyDetailDto.members[].discordLinkStatus` (server includes this in the lobby projection) to warn about unlinked members. Test coverage for this slice lives in `ConfigForm.test.tsx` — new test cases assert the checkbox toggles `discordEnabled` and the warning sub-text renders correctly when at least one member is `unlinked` / `pending` / `failed`. The host-only Profile-link affordance (a small "Set up Discord in Profile" link below the checkbox, shown only to hosts whose own status isn't `linked`) lives here too.
 
 **Manual smoke:** Open two browser tabs (different users). Tab A creates a lobby; tab B joins via id. Tab A changes config; tab B's form fields update. Tab A starts; both navigate to `/games/:id` (which is a placeholder screen until chunk 5).
 
@@ -1046,16 +1205,27 @@ The work is sliced into **7 chunks**, each independently reviewable and testable
 
 ### Chunk 7 — Game summary + final polish
 
-**Goal:** when a game ends, users land on the summary screen showing final hand, full event log, and stub scores. Plus any cleanup needed before MVP launch.
+**Goal:** when a game ends, users land on the summary screen showing per-team scoreboard, final hands, full event log, and the polished post-game UX. This chunk is the client side of **server Phase J** ([docs/TDD_server.md §3.10](TDD_server.md#310-game-end-and-hand-completion)) — the `CLAIM_WIN` command, hand-completed lock state, and `GET /api/games/:id/summary` consumption.
 
 **Files added:**
 
-- `client/src/screens/GameSummary/{GameSummaryScreen.tsx,FinalHand.tsx,FullEventLog.tsx,StubScore.tsx}`.
+- `client/src/wire/summary.ts` — `GameSummaryDto`, `GameSummaryTeamDto`, `AnalyzedWaitDto` (mirrors server scoring shape).
+- `client/src/screens/GameSummary/{GameSummaryScreen.tsx,Scoreboard.tsx,TeamScoreRow.tsx,FullEventLog.tsx}`.
+- `client/src/screens/Game/{ClaimWinButton.tsx,HandCompletedBanner.tsx}` — the wait-set Claim affordance + the post-claim celebration banner.
 - `client/src/components/RetryBanner.tsx` — the `giving_up` retry prompt.
+- `client/src/lib/waitSet.ts` — pure helper `isClaimableTile(stationTile, waits)` so the StationPanel rendering test stays unit-only.
 
 **Files modified:**
 
-- `client/src/state/game/reducer.ts` — handle `status === "ended"` from the projection (auto-redirect via `useNavigate` inside the GameScreen effect).
+- `client/src/wire/projection.ts` — adds `HandCompletedDto`, `TeamsCompletedEntryDto`; `GameStateProjection` gains `handCompleted` (nullable) + `teamsCompleted[]`.
+- `client/src/wire/command.ts` — adds `"CLAIM_WIN"` to the `CommandType` union plus its `{ stationTileId: string }` payload narrowing.
+- `client/src/wire/error.ts` (or the inline error code catalog) — `not_at_station`, `not_a_winning_tile`, `hand_completed`, `game_not_ended` codes per §4.4.
+- `client/src/services/restClient.ts` — `getGameSummary(gameId)` → `GameSummaryDto`.
+- `client/src/state/game/Context.tsx` / `hooks.ts` — `useGame().claimWin(stationTileId)`, `useHandCompleted()`, `useTeamsCompleted()` selectors per §5.4.
+- `client/src/state/game/reducer.ts` — handle `GAME_ENDED` event observation (set a flag the provider effect navigates on); handle `state.handCompleted` flipping to flip every disabled state.
+- `client/src/screens/Game/StationPanel.tsx` — renders Claim alongside Swap on wait-set tiles; both buttons disabled together when `handCompleted !== null` or the swap-credit gate is unmet.
+- `client/src/screens/Game/HandPanel.tsx` — when `handCompleted !== null`, renders 14 tiles with the winning tile highlighted (no action affordances).
+- `client/src/screens/Game/GameScreen.tsx` — top-bar gains the "Teams done: X / N" badge; on `handCompleted` transitions to the read-only celebration layout (HandCompletedBanner above MapShell).
 - `client/src/router/routes.tsx` — wires `/games/:id/summary`.
 - `client/index.html` — adds PWA manifest reference + icons.
 - `client/public/manifest.webmanifest` — minimal manifest (name, short_name, icons, theme_color, start_url).
@@ -1063,17 +1233,33 @@ The work is sliced into **7 chunks**, each independently reviewable and testable
 
 **Key decisions locked in:**
 
-- Auto-navigate from `/games/:id` to `/games/:id/summary` when `projection.status === "ended"`.
-- "Back to lobbies" button as the only exit point from the summary; clears `GameContext` state on click.
+- The Claim button is gated on `(suit, rank, copyIndex)` match against `handAnalysis.waits[]`; the client never re-runs `analyzeHand` (the projection is the source of truth).
+- `useGame().claimWin(stationTileId)` reuses the existing outbox — `CLAIM_WIN` is just another `GameCommandPayload`. The new error codes flow through the existing reject path.
+- Auto-navigate from `/games/:id` to `/games/:id/summary` when **either** the team observes a `GAME_ENDED` event on `game.event` **or** the inbound projection has `status === "ended"` (covers the resume-after-end edge case).
+- `SummaryScreen` calls `restClient.getGameSummary()` on mount. If it returns `game_not_ended`, the screen subscribes to `game.event` and retries on the next `GAME_ENDED` (race window with the auto-navigate path).
+- "Back to lobbies" button is the only exit; clears `GameContext` + the summary cache.
 - No replay / share buttons in v1.
+- Sorting in the scoreboard is server-stable (`finalPoints` desc, `finalHan` desc, `gameTeamId` asc); the client never re-sorts.
 
 **Test coverage:**
 
-- `GameSummaryScreen.test.tsx` — fixture-driven render.
-- `gameEndAutoNavigate.test.tsx` — projection transitions to `ended` → navigation fires.
+- `GameSummaryScreen.test.tsx` — fixture-driven render: 1 winner + 1 second place + 2 noten teams; verifies the ★ badge, scoreboard order, and wait-set rendering for tenpai rows.
+- `gameEndAutoNavigate.test.tsx` — incoming `game.event` with `type === "GAME_ENDED"` → navigation fires once; second observation is a no-op.
+- `Scoreboard.test.tsx` — pure render test driven by a `GameSummaryDto` fixture; covers `winningGameTeamId === null` (tie) → no badge.
+- `ClaimWinButton.test.tsx` — renders only when station tile is in the wait set; outbox enqueues the right payload on click; hidden entirely when `handCompleted !== null`.
+- `waitSet.test.ts` — `isClaimableTile` matrix.
+- `HandCompletedBanner.test.tsx` — fixture rendering + correct yaku-list order.
+- `game/reducer.test.ts` extension — `game/state` with non-null `handCompleted` flips every action-button selector to disabled.
+- `errorCatalog.test.ts` extension — `not_at_station`, `not_a_winning_tile`, `hand_completed` paths surface the toast strings; `game_not_ended` from `getGameSummary` does **not** toast.
 - Smoke verification of the manifest via Lighthouse (manual).
 
-**Manual smoke:** Full game from start to scheduler-driven end (use a 60-second `gameDurationSeconds` lobby for fast iteration). Verify auto-redirect, verify event log scrolls cleanly, verify "Back to lobbies" returns to a fresh state.
+**Manual smoke:** Full game from start to either:
+
+1. **Timer end** — set `gameDurationSeconds = 60`, do nothing, verify auto-redirect to summary with all four teams noten (`finalPoints = 0`, shanten + waits rendered).
+2. **All teams claim** — script four teams to swap into tenpai then claim a wait-set tile each; verify the game ends instantly (no 60s wait), summary shows correct ordering, the ★ badge marks the leader.
+3. **One team claims, others noten** — one team claims, the others sit; verify the timer still fires on schedule and the summary mixes one completed row + three noten rows.
+
+Verify auto-redirect, verify event log scrolls cleanly, verify "Back to lobbies" returns to a fresh state.
 
 ---
 
@@ -1105,10 +1291,12 @@ Tracked here so we don't lose them, but explicitly out of scope for v1 MVP:
 
 ### 10.1 Levels
 
-- **Unit tests** — pure reducers, pure helpers, `restClient` parsers, `commandOutbox` storage primitive. Vitest, no DOM, no mocks beyond the system under test.
-- **Component tests** — RTL with `jsdom`. Each screen has a "happy path" test plus error-state coverage. Mocks: `restClient` (vi.mock at module boundary), `socketClient` (a small in-memory `EventEmitter` stub), `commandOutbox` (a `Map` in memory).
+- **Unit tests** — pure reducers, pure helpers (`lib/lobbyConfig.ts`, `lib/slotTier.ts`, etc.), `restClient` parsers, `commandOutbox` storage primitive. Vitest, no DOM, no mocks beyond the system under test.
+- **Component tests** — RTL with `jsdom`. Each screen has a "happy path" test plus error-state coverage. Mocks: `restClient` (vi.mock at module boundary), `socketClient` (a small in-memory `EventEmitter` stub), `commandOutbox` (a `Map` in memory). `ConfigForm.test.tsx` (chunks 6-7) covers the host config form including the visibility-mode dropdown, the phase-knob lock, the slot-tier section, and the auto-distribute toggle.
 - **Provider integration tests** — wire `<AuthProvider><ConnectionProvider>...` together with mock transports; verify the cross-context behavior (e.g., disconnect → outbox switches to HTTP). One test file per provider-pair that interacts.
 - **Manual smoke** — per-chunk checklist documented in each chunk's section in §8. Includes airplane-mode toggle and dual-tab tests.
+
+**CI:** `.github/workflows/ci.yml` runs four jobs per push/PR: `server-checks` (lint + typecheck), `client-checks` (lint + typecheck), `server-tests` (Postgres-backed Vitest), and `client-tests` (`npm test` → `vitest run`, no service dependencies). The client test job was added with the visibility-mode rollout.
 
 ### 10.2 Mock strategy
 
@@ -1122,8 +1310,8 @@ Three transport stubs live under `client/src/test/`:
 
 ### 10.3 Coverage targets
 
-- **Unit + component tests:** reducers should be at 100 %; transports should be at ≥ 90 %; screens at ≥ 70 % (focus on logic-heavy screens — `LobbyRoomScreen`, `GameScreen` — over thin ones).
-- **No coverage gating in CI** for v1. The number is informational only.
+- **Unit + component tests:** reducers should be at 100 %; transports should be at ≥ 90 %; screens at ≥ 70 % (focus on logic-heavy screens — `LobbyRoomScreen`, `GameScreen` — over thin ones). Pure-helper modules under `client/src/lib/` (e.g., `lobbyConfig.ts`, `slotTier.ts`) should be at 100 %.
+- **No coverage gating in CI** for v1. The number is informational only, but the `client-tests` job blocks merges on failing tests.
 
 ### 10.4 Test data
 

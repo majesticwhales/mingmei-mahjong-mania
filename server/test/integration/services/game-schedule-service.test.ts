@@ -23,6 +23,7 @@ describe("scheduleGameJobs", () => {
           visibilityPhaseCount: 4,
           slotUnlockOffsetsSeconds: [0],
           notifications: [],
+          visibilityMode: "both",
         },
         transaction,
       );
@@ -66,6 +67,7 @@ describe("scheduleGameJobs", () => {
           visibilityPhaseCount: 1,
           slotUnlockOffsetsSeconds: [0],
           notifications: [],
+          visibilityMode: "both",
         },
         transaction,
       );
@@ -95,6 +97,7 @@ describe("scheduleGameJobs", () => {
           visibilityPhaseCount: 6,
           slotUnlockOffsetsSeconds: [0],
           notifications: [],
+          visibilityMode: "both",
         },
         transaction,
       );
@@ -134,6 +137,7 @@ describe("scheduleGameJobs", () => {
             visibilityPhaseCount: 0,
             slotUnlockOffsetsSeconds: [0],
             notifications: [],
+            visibilityMode: "both",
           },
           transaction,
         ),
@@ -161,6 +165,7 @@ describe("scheduleGameJobs", () => {
               data: { minutesLeft: 10 },
             },
           ],
+          visibilityMode: "both",
         },
         transaction,
       );
@@ -202,6 +207,7 @@ describe("scheduleGameJobs", () => {
             visibilityPhaseCount: 1,
             slotUnlockOffsetsSeconds: [0],
             notifications: [{ atSeconds: -1, template: "bad", data: null }],
+            visibilityMode: "both",
           },
           transaction,
         ),
@@ -228,6 +234,7 @@ describe("scheduleGameJobs", () => {
             visibilityPhaseCount: 1,
             slotUnlockOffsetsSeconds: [0, 300, 900],
             notifications: [],
+            visibilityMode: "both",
           },
           transaction,
         );
@@ -266,6 +273,7 @@ describe("scheduleGameJobs", () => {
             visibilityPhaseCount: 1,
             slotUnlockOffsetsSeconds: [0, 0, 120],
             notifications: [],
+            visibilityMode: "both",
           },
           transaction,
         );
@@ -296,6 +304,7 @@ describe("scheduleGameJobs", () => {
               visibilityPhaseCount: 1,
               slotUnlockOffsetsSeconds: [60, 0],
               notifications: [],
+              visibilityMode: "both",
             },
             transaction,
           ),
@@ -320,10 +329,112 @@ describe("scheduleGameJobs", () => {
               visibilityPhaseCount: 1,
               slotUnlockOffsetsSeconds: [0, -10],
               notifications: [],
+              visibilityMode: "both",
             },
             transaction,
           ),
         ).rejects.toThrow(/slotUnlockOffsetsSeconds\[1\]/);
+      });
+    });
+  });
+
+  describe("visibility mode gating (chunk 3)", () => {
+    it("skips VISIBILITY_PHASE_ADVANCE jobs when mode is 'slot' (phase off)", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        await scheduleGameJobs(
+          {
+            gameId: shell.gameId,
+            startedAt: shell.startedAt,
+            endsAt: shell.endsAt,
+            visibilityPhaseIntervalSeconds:
+              shell.visibilityPhaseIntervalSeconds,
+            visibilityPhaseCount: 4,
+            slotUnlockOffsetsSeconds: [0, 60],
+            notifications: [],
+            visibilityMode: "slot",
+          },
+          transaction,
+        );
+
+        const byType = await GameScheduledJob.findAll({
+          where: { gameId: shell.gameId },
+          transaction,
+        });
+        const types = byType.map((j) => j.jobType).sort();
+        expect(types).toEqual(["GAME_END", "SLOT_UNLOCKED"]);
+      });
+    });
+
+    it("skips SLOT_UNLOCKED jobs when mode is 'phase' (slot off)", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        await scheduleGameJobs(
+          {
+            gameId: shell.gameId,
+            startedAt: shell.startedAt,
+            endsAt: shell.endsAt,
+            visibilityPhaseIntervalSeconds:
+              shell.visibilityPhaseIntervalSeconds,
+            visibilityPhaseCount: 3,
+            // Non-zero offsets at k>0 would normally each emit a job;
+            // the slot gate skips them entirely.
+            slotUnlockOffsetsSeconds: [0, 30, 90],
+            notifications: [],
+            visibilityMode: "phase",
+          },
+          transaction,
+        );
+
+        const byType = await GameScheduledJob.findAll({
+          where: { gameId: shell.gameId },
+          transaction,
+        });
+        const counts = new Map<string, number>();
+        for (const j of byType) {
+          counts.set(j.jobType, (counts.get(j.jobType) ?? 0) + 1);
+        }
+        expect(counts.get("SLOT_UNLOCKED") ?? 0).toBe(0);
+        expect(counts.get("VISIBILITY_PHASE_ADVANCE") ?? 0).toBe(2);
+        expect(counts.get("GAME_END") ?? 0).toBe(1);
+      });
+    });
+
+    it("seeds only GAME_END (and notifications) when mode is 'none'", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        await scheduleGameJobs(
+          {
+            gameId: shell.gameId,
+            startedAt: shell.startedAt,
+            endsAt: shell.endsAt,
+            visibilityPhaseIntervalSeconds:
+              shell.visibilityPhaseIntervalSeconds,
+            visibilityPhaseCount: 4,
+            slotUnlockOffsetsSeconds: [0, 30],
+            notifications: [
+              { atSeconds: 60, template: "tick", data: null },
+            ],
+            visibilityMode: "none",
+          },
+          transaction,
+        );
+
+        const byType = await GameScheduledJob.findAll({
+          where: { gameId: shell.gameId },
+          transaction,
+        });
+        const types = byType.map((j) => j.jobType).sort();
+        expect(types).toEqual(["GAME_END", "NOTIFICATION"]);
       });
     });
   });

@@ -18,21 +18,10 @@ import {
   type GameTeamSlot,
 } from "./even-team-assignment.ts";
 
-/**
- * Bootstrap visibility state for a freshly cloned game map. Caller passes
- * `visibilityPhaseCount` (= number of visibility groups). Edge case
- * `visibilityPhaseCount === 1` is supported: every node lands in the single
- * group 0, every team's home is group 0, and phase 0 reveals everything.
- */
-export async function bootstrapGameVisibility(
-  gameId: string,
+function teamIdsBySlotOrder(
   gameTeamIdBySlot: Map<GameTeamSlot, string>,
-  startedAt: Date,
-  defaultStartNodeCode: string | null,
-  visibilityPhaseCount: number,
-  transaction: Transaction,
-): Promise<void> {
-  const teamIdsInSlotOrder = GAME_TEAM_SLOTS.map((slot) => {
+): string[] {
+  return GAME_TEAM_SLOTS.map((slot) => {
     const gameTeamId = gameTeamIdBySlot.get(slot);
     if (!gameTeamId) {
       throw new HttpError(
@@ -43,6 +32,96 @@ export async function bootstrapGameVisibility(
     }
     return gameTeamId;
   });
+}
+
+async function resolveStartNodeId(
+  gameId: string,
+  defaultStartNodeCode: string | null,
+  transaction: Transaction,
+): Promise<string | null> {
+  if (defaultStartNodeCode == null) return null;
+  const startNode = await GameNode.findOne({
+    where: { gameId, code: defaultStartNodeCode },
+    attributes: ["id"],
+    transaction,
+  });
+  if (!startNode) {
+    throw new HttpError(
+      500,
+      "internal_error",
+      `Default start station "${defaultStartNodeCode}" not found on game map`,
+    );
+  }
+  return startNode.id;
+}
+
+/**
+ * Always-needed game-start setup, independent of the phase-reveal layer:
+ *
+ *  - `game_team_positions`: one row per team, pointing at the lobby's
+ *    `defaultStartNodeCode` (or NULL when the lobby starts teams
+ *    unchecked). CHECK_IN / CHECK_OUT handlers throw a 500 if this row
+ *    is missing, so it must seed regardless of `visibility_mode`.
+ *  - `game_rule_flags` red-fives row: scoring catalog flag consumed by
+ *    `analyzeHand`; not phase-related.
+ *
+ * Split out from `bootstrapGameVisibility` so games with phase off
+ * (mode `none` or `slot`) can still run this minimum setup without
+ * also seeding the phase-only `game_node_visibility_groups` /
+ * `game_team_home_groups` / `game_location_team_visibility` tables.
+ */
+export async function bootstrapGameTeamPositionsAndRules(
+  gameId: string,
+  gameTeamIdBySlot: Map<GameTeamSlot, string>,
+  defaultStartNodeCode: string | null,
+  transaction: Transaction,
+): Promise<void> {
+  const teamIdsInSlotOrder = teamIdsBySlotOrder(gameTeamIdBySlot);
+  const startGameNodeId = await resolveStartNodeId(
+    gameId,
+    defaultStartNodeCode,
+    transaction,
+  );
+
+  await GameTeamPosition.bulkCreate(
+    teamIdsInSlotOrder.map((gameTeamId) => ({
+      gameTeamId,
+      currentGameNodeId: startGameNodeId,
+    })),
+    { transaction },
+  );
+
+  await GameRuleFlag.create(
+    {
+      gameId,
+      ruleKey: RED_FIVES_RULE_KEY,
+      enabled: true,
+    },
+    { transaction },
+  );
+}
+
+/**
+ * Phase-only setup: partitions nodes into `visibilityPhaseCount` groups,
+ * picks a home group per team, and seeds the phase-0 face-up
+ * `game_location_team_visibility` rows. Skipped entirely when the
+ * lobby's `visibilityMode` excludes the phase layer; in that case the
+ * projection treats every node as face-up via the mode branch in
+ * `game-state.ts`.
+ *
+ * Edge case `visibilityPhaseCount === 1` is supported: every node lands
+ * in the single group 0, every team's home is group 0, and phase 0
+ * reveals everything (same row count as a phase-off game, but the
+ * tables are populated so engine code that joins on them keeps working).
+ */
+export async function bootstrapGameVisibilityGroups(
+  gameId: string,
+  gameTeamIdBySlot: Map<GameTeamSlot, string>,
+  startedAt: Date,
+  visibilityPhaseCount: number,
+  transaction: Transaction,
+): Promise<void> {
+  const teamIdsInSlotOrder = teamIdsBySlotOrder(gameTeamIdBySlot);
 
   const nodes = await GameNode.findAll({
     where: { gameId },
@@ -114,38 +193,32 @@ export async function bootstrapGameVisibility(
   }
 
   await GameLocationTeamVisibility.bulkCreate(visibilityRows, { transaction });
+}
 
-  let startGameNodeId: string | null = null;
-  if (defaultStartNodeCode != null) {
-    const startNode = await GameNode.findOne({
-      where: { gameId, code: defaultStartNodeCode },
-      attributes: ["id"],
-      transaction,
-    });
-    if (!startNode) {
-      throw new HttpError(
-        500,
-        "internal_error",
-        `Default start station "${defaultStartNodeCode}" not found on game map`,
-      );
-    }
-    startGameNodeId = startNode.id;
-  }
-
-  await GameTeamPosition.bulkCreate(
-    teamIdsInSlotOrder.map((gameTeamId) => ({
-      gameTeamId,
-      currentGameNodeId: startGameNodeId,
-    })),
-    { transaction },
+/**
+ * Combined bootstrap for `visibility_mode = "both" | "phase"` games.
+ * Wraps `bootstrapGameVisibilityGroups` + `bootstrapGameTeamPositionsAndRules`
+ * so the historical call-site signature still works.
+ */
+export async function bootstrapGameVisibility(
+  gameId: string,
+  gameTeamIdBySlot: Map<GameTeamSlot, string>,
+  startedAt: Date,
+  defaultStartNodeCode: string | null,
+  visibilityPhaseCount: number,
+  transaction: Transaction,
+): Promise<void> {
+  await bootstrapGameVisibilityGroups(
+    gameId,
+    gameTeamIdBySlot,
+    startedAt,
+    visibilityPhaseCount,
+    transaction,
   );
-
-  await GameRuleFlag.create(
-    {
-      gameId,
-      ruleKey: RED_FIVES_RULE_KEY,
-      enabled: true,
-    },
-    { transaction },
+  await bootstrapGameTeamPositionsAndRules(
+    gameId,
+    gameTeamIdBySlot,
+    defaultStartNodeCode,
+    transaction,
   );
 }

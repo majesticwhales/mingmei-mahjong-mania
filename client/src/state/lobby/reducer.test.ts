@@ -16,6 +16,7 @@ const lobby: LobbyDetailDto = {
     slotMapVisible: [true],
     deadWallSize: 14,
     teamAssignmentMode: "pick",
+    visibilityMode: "both",
     minPlayersToStart: 4,
     defaultStartNodeCode: null,
     configUpdatedAt: null,

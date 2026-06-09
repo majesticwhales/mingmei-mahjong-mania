@@ -1,4 +1,9 @@
 import { sequelize } from "../config/database.ts";
+import {
+  isVisibilityMode,
+  visibilityIncludes,
+  type VisibilityMode,
+} from "../game/visibility-mode.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Lobby, type TeamAssignmentMode } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
@@ -51,6 +56,17 @@ export interface CreateLobbyOptions {
    * a 400 here. See TDD §3.9.
    */
   deadWallSize?: number;
+  /**
+   * Which visibility layers are active for the resulting game
+   * (`none | phase | slot | both`). Sourced from
+   * `mapTemplate.defaultVisibilityMode` when omitted. Picking a mode
+   * that excludes the phase layer locks `visibilityPhaseCount` /
+   * `visibilityPhaseIntervalSeconds`; picking one that excludes the
+   * slot layer locks non-zero `slotUnlockOffsetsSeconds[k>0]` and any
+   * `false` in `slotMapVisible[k>0]`. See TDD §3.2 / §3.3 and
+   * `server/src/game/visibility-mode.ts`.
+   */
+  visibilityMode?: VisibilityMode;
   teamAssignmentMode?: TeamAssignmentMode;
   minPlayersToStart?: number;
   defaultStartNodeCode?: string | null;
@@ -68,6 +84,8 @@ export interface UpdateLobbyConfigPatch {
   slotMapVisible?: boolean[];
   /** See `CreateLobbyOptions.deadWallSize`. */
   deadWallSize?: number;
+  /** See `CreateLobbyOptions.visibilityMode`. */
+  visibilityMode?: VisibilityMode;
   teamAssignmentMode?: TeamAssignmentMode;
   minPlayersToStart?: number;
   defaultStartNodeCode?: string | null;
@@ -159,6 +177,16 @@ function validateTeamAssignmentMode(mode: string): asserts mode is TeamAssignmen
       400,
       "validation_error",
       "teamAssignmentMode must be pick, random, or mixed",
+    );
+  }
+}
+
+function validateVisibilityMode(value: unknown): asserts value is VisibilityMode {
+  if (!isVisibilityMode(value)) {
+    throw new HttpError(
+      400,
+      "validation_error",
+      "visibilityMode must be one of: none, phase, slot, both",
     );
   }
 }
@@ -277,6 +305,94 @@ function resizeSlotArray<T>(source: T[], slotsPerNode: number, padValue: T): T[]
   return [...source, ...new Array<T>(slotsPerNode - source.length).fill(padValue)];
 }
 
+/**
+ * Per-mode knob lock. When the effective `visibilityMode` excludes a
+ * layer, the host cannot send patches that would meaningfully configure
+ * that layer — those knobs are dead weight and pretending to set them
+ * just leads to confusion (the engine ignores the values entirely).
+ *
+ * - `phase` off  -> reject any `visibilityPhaseCount` /
+ *                   `visibilityPhaseIntervalSeconds` in the patch.
+ * - `slot`  off  -> reject `slotUnlockOffsetsSeconds` whose `k>0`
+ *                   entry is non-zero, or `slotMapVisible` whose `k>0`
+ *                   entry is `false`. Setting either array to its
+ *                   trivial value (all-zero / all-true) is still fine
+ *                   because that's a no-op.
+ *
+ * The check runs after array length validation so the `k>0` indexing
+ * is guaranteed safe. Returns nothing; throws on the first violation.
+ */
+function assertPatchObeysVisibilityLock(
+  mode: VisibilityMode,
+  patch: {
+    visibilityPhaseCount?: number;
+    visibilityPhaseIntervalSeconds?: number;
+    slotUnlockOffsetsSeconds?: number[];
+    slotMapVisible?: boolean[];
+  },
+): void {
+  if (!visibilityIncludes(mode, "phase")) {
+    if (patch.visibilityPhaseCount !== undefined) {
+      throw new HttpError(
+        400,
+        "visibility_knob_locked",
+        `visibilityPhaseCount cannot be set when visibilityMode is "${mode}" (phase layer disabled)`,
+      );
+    }
+    if (patch.visibilityPhaseIntervalSeconds !== undefined) {
+      throw new HttpError(
+        400,
+        "visibility_knob_locked",
+        `visibilityPhaseIntervalSeconds cannot be set when visibilityMode is "${mode}" (phase layer disabled)`,
+      );
+    }
+  }
+  if (!visibilityIncludes(mode, "slot")) {
+    const offsets = patch.slotUnlockOffsetsSeconds;
+    if (offsets !== undefined) {
+      for (let i = 1; i < offsets.length; i += 1) {
+        if (offsets[i] !== 0) {
+          throw new HttpError(
+            400,
+            "visibility_knob_locked",
+            `slotUnlockOffsetsSeconds[${i}] must be 0 when visibilityMode is "${mode}" (slot layer disabled)`,
+          );
+        }
+      }
+    }
+    const visible = patch.slotMapVisible;
+    if (visible !== undefined) {
+      for (let i = 1; i < visible.length; i += 1) {
+        if (visible[i] === false) {
+          throw new HttpError(
+            400,
+            "visibility_knob_locked",
+            `slotMapVisible[${i}] must be true when visibilityMode is "${mode}" (slot layer disabled)`,
+          );
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Coerce slot-layer arrays to their trivial values (all unlocked at
+ * t=0, every slot map-visible). Called by `updateConfig` when the host
+ * transitions the lobby into a mode that excludes the slot layer:
+ * leftover non-zero offsets / `false` visibility flags would be silently
+ * ignored by the engine but visible in the DTO, which is worse than
+ * just zeroing them.
+ */
+function resetSlotKnobsToTrivial(slotsPerNode: number): {
+  offsets: number[];
+  visible: boolean[];
+} {
+  return {
+    offsets: new Array<number>(slotsPerNode).fill(0),
+    visible: new Array<boolean>(slotsPerNode).fill(true),
+  };
+}
+
 export async function createLobby(
   hostUserId: string,
   options: CreateLobbyOptions = {},
@@ -291,9 +407,12 @@ export async function createLobby(
     Math.floor(gameDurationSeconds / Math.max(visibilityPhaseCount, 1));
   const slotsPerNode = options.slotsPerNode ?? template.defaultSlotsPerNode;
   const deadWallSize = options.deadWallSize ?? template.defaultDeadWallSize;
+  const visibilityMode =
+    options.visibilityMode ?? template.defaultVisibilityMode;
   const teamAssignmentMode = options.teamAssignmentMode ?? "pick";
   const minPlayersToStart = options.minPlayersToStart ?? 4;
 
+  validateVisibilityMode(visibilityMode);
   validateTeamAssignmentMode(teamAssignmentMode);
   if (gameDurationSeconds < 60) {
     throw new HttpError(
@@ -340,6 +459,17 @@ export async function createLobby(
   validateSlotUnlockOffsetsSeconds(slotUnlockOffsetsSeconds, slotsPerNode);
   validateSlotMapVisible(slotMapVisible, slotsPerNode);
 
+  // Enforce the per-mode knob lock against whatever the host actually
+  // supplied (template-derived defaults are exempt by construction —
+  // the host didn't ask for those values, so silently allowing them
+  // keeps create paths that omit the slot arrays working).
+  assertPatchObeysVisibilityLock(visibilityMode, {
+    visibilityPhaseCount: options.visibilityPhaseCount,
+    visibilityPhaseIntervalSeconds: options.visibilityPhaseIntervalSeconds,
+    slotUnlockOffsetsSeconds: options.slotUnlockOffsetsSeconds,
+    slotMapVisible: options.slotMapVisible,
+  });
+
   let defaultStartNodeCode =
     options.defaultStartNodeCode !== undefined
       ? options.defaultStartNodeCode
@@ -364,6 +494,7 @@ export async function createLobby(
         slotUnlockOffsetsSeconds,
         slotMapVisible,
         deadWallSize,
+        visibilityMode,
         teamAssignmentMode,
         minPlayersToStart,
         defaultStartNodeCode,
@@ -528,6 +659,12 @@ export async function updateConfig(
   assertLobbyWaiting(lobby);
   assertIsHost(lobby, hostUserId);
 
+  // Snapshot the mode before applying patch fields so the lock check
+  // and the "did the mode actually transition?" reset both see the
+  // correct effective mode (post-patch if the host sent one, else
+  // the lobby's current value).
+  const previousVisibilityMode = lobby.visibilityMode;
+
   if (patch.mapTemplateId != null) {
     const template = await resolveMapTemplate(patch.mapTemplateId);
     lobby.mapTemplateId = template.id;
@@ -552,6 +689,14 @@ export async function updateConfig(
     if (patch.deadWallSize == null) {
       lobby.deadWallSize = template.defaultDeadWallSize;
     }
+    if (patch.visibilityMode == null) {
+      lobby.visibilityMode = template.defaultVisibilityMode;
+    }
+  }
+
+  if (patch.visibilityMode != null) {
+    validateVisibilityMode(patch.visibilityMode);
+    lobby.visibilityMode = patch.visibilityMode;
   }
   if (patch.gameDurationSeconds != null) {
     if (patch.gameDurationSeconds < 60) {
@@ -610,6 +755,53 @@ export async function updateConfig(
     lobby.slotsPerNode,
   );
   validateSlotMapVisible(lobby.slotMapVisible, lobby.slotsPerNode);
+
+  // Visibility-mode lock: applied here (post array-resize, post
+  // slotsPerNode validation) so the lock check sees the host's *new*
+  // arrays and the effective `slotsPerNode`. The lock only rejects
+  // explicit patch fields; the auto-resize path is exempt by design
+  // (auto-padding to zeros / trues is a no-op for slot-off games).
+  assertPatchObeysVisibilityLock(lobby.visibilityMode, {
+    visibilityPhaseCount: patch.visibilityPhaseCount,
+    visibilityPhaseIntervalSeconds: patch.visibilityPhaseIntervalSeconds,
+    slotUnlockOffsetsSeconds: patch.slotUnlockOffsetsSeconds,
+    slotMapVisible: patch.slotMapVisible,
+  });
+
+  // Mode transition cleanup: if the host just turned off a layer, force
+  // the locked knobs to their trivial values. The engine doesn't read
+  // them when the layer is off, so leaving stale values around would
+  // only confuse the DTO consumer (e.g. an FE that still shows
+  // "slot 2 unlocks at 5:00" for a phase-only game).
+  if (lobby.visibilityMode !== previousVisibilityMode) {
+    if (!visibilityIncludes(lobby.visibilityMode, "phase")) {
+      if (patch.visibilityPhaseCount == null) {
+        const template = await resolveMapTemplate(lobby.mapTemplateId);
+        lobby.visibilityPhaseCount = template.defaultVisibilityPhaseCount;
+      }
+      if (patch.visibilityPhaseIntervalSeconds == null) {
+        // Derive from current duration / phase count, matching the
+        // create-time fallback. Keeps the column populated with a
+        // sensible value even though no engine code reads it.
+        lobby.visibilityPhaseIntervalSeconds = Math.max(
+          1,
+          Math.floor(
+            lobby.gameDurationSeconds / Math.max(lobby.visibilityPhaseCount, 1),
+          ),
+        );
+      }
+    }
+    if (!visibilityIncludes(lobby.visibilityMode, "slot")) {
+      const trivial = resetSlotKnobsToTrivial(lobby.slotsPerNode);
+      if (patch.slotUnlockOffsetsSeconds == null) {
+        lobby.slotUnlockOffsetsSeconds = trivial.offsets;
+      }
+      if (patch.slotMapVisible == null) {
+        lobby.slotMapVisible = trivial.visible;
+      }
+    }
+  }
+
   if (patch.deadWallSize != null) {
     validateNonNegativeInt(patch.deadWallSize, "deadWallSize");
     lobby.deadWallSize = patch.deadWallSize;

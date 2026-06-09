@@ -32,7 +32,9 @@ import { MapTemplateLine } from "../models/map-template-line.ts";
 import { MapTemplateNode } from "../models/map-template-node.ts";
 import { MapTemplateNodeLine } from "../models/map-template-node-line.ts";
 import { GameLine } from "../models/game-line.ts";
+import { GameNodeChallenge } from "../models/game-node-challenge.ts";
 import { GameNodeLine } from "../models/game-node-line.ts";
+import { MapTemplateNodeChallenge } from "../models/map-template-node-challenge.ts";
 import { TeamDefinition } from "../models/team-definition.ts";
 import { TileType } from "../models/tile-type.ts";
 import { User } from "../models/user.ts";
@@ -53,6 +55,7 @@ export const sequelize = new Sequelize(databaseUrl, {
     MapTemplateLine,
     MapTemplateNode,
     MapTemplateNodeLine,
+    MapTemplateNodeChallenge,
     MapTemplateEdge,
     TileType,
     Lobby,
@@ -80,6 +83,7 @@ export const sequelize = new Sequelize(databaseUrl, {
     ChallengeType,
     ChallengeDeck,
     Challenge,
+    GameNodeChallenge,
     GameChallengeInstance,
     GameChallengeSubmission,
   ],

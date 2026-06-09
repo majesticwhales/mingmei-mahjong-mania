@@ -5,6 +5,7 @@ import {
   Table,
 } from "sequelize-typescript";
 import { BaseModel } from "./base.ts";
+import type { VisibilityMode } from "../game/visibility-mode.ts";
 import { MapTemplateEdge } from "./map-template-edge.ts";
 import { MapTemplateLine } from "./map-template-line.ts";
 import { MapTemplateNode } from "./map-template-node.ts";
@@ -37,6 +38,21 @@ export class MapTemplate extends BaseModel {
   /** Default number of visibility phases (= number of visibility groups). Lobbies inherit this. */
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 4 })
   declare defaultVisibilityPhaseCount: number;
+
+  /**
+   * Default visibility mode for lobbies built from this template. Picks
+   * which of the two visibility layers are active for the resulting
+   * game: `none` (neither), `phase` (node-group phase reveal only),
+   * `slot` (per-slot tier only), or `both` (current default).
+   * See `server/src/game/visibility-mode.ts` for the semantics and
+   * TDD §3.2 / §3.3 for the layer definitions.
+   */
+  @Column({
+    type: DataType.STRING(8),
+    allowNull: false,
+    defaultValue: "both",
+  })
+  declare defaultVisibilityMode: VisibilityMode;
 
   /**
    * Per-slot unlock offsets in seconds from `games.started_at`, one entry per

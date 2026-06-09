@@ -1,5 +1,9 @@
 import type { Transaction } from "sequelize";
 import {
+  visibilityIncludes,
+  type VisibilityMode,
+} from "../game/visibility-mode.ts";
+import {
   GameScheduledJob,
   type ScheduledJobType,
 } from "../models/game-scheduled-job.ts";
@@ -28,6 +32,13 @@ export interface ScheduleGameJobsInput {
    */
   slotUnlockOffsetsSeconds: number[];
   notifications: ScheduledNotificationInput[];
+  /**
+   * Snapshotted from `games.visibility_mode`. Gates the
+   * `VISIBILITY_PHASE_ADVANCE` and `SLOT_UNLOCKED` job loops: phase-off
+   * games skip the advances, slot-off games skip the unlocks. GAME_END
+   * and NOTIFICATION jobs always seed.
+   */
+  visibilityMode: VisibilityMode;
 }
 
 /**
@@ -58,7 +69,10 @@ export async function scheduleGameJobs(
     visibilityPhaseCount,
     slotUnlockOffsetsSeconds,
     notifications,
+    visibilityMode,
   } = input;
+  const phaseLayerActive = visibilityIncludes(visibilityMode, "phase");
+  const slotLayerActive = visibilityIncludes(visibilityMode, "slot");
   if (!Number.isInteger(visibilityPhaseCount) || visibilityPhaseCount < 1) {
     throw new Error(
       `visibilityPhaseCount must be >= 1, got ${visibilityPhaseCount}`,
@@ -94,14 +108,16 @@ export async function scheduleGameJobs(
     payload: Record<string, unknown> | null;
   }> = [];
 
-  for (let k = 1; k < visibilityPhaseCount; k += 1) {
-    jobs.push({
-      gameId,
-      jobType: "VISIBILITY_PHASE_ADVANCE",
-      runAt: new Date(startedAtMs + intervalMs * k),
-      status: "pending",
-      payload: { targetPhase: k },
-    });
+  if (phaseLayerActive) {
+    for (let k = 1; k < visibilityPhaseCount; k += 1) {
+      jobs.push({
+        gameId,
+        jobType: "VISIBILITY_PHASE_ADVANCE",
+        runAt: new Date(startedAtMs + intervalMs * k),
+        status: "pending",
+        payload: { targetPhase: k },
+      });
+    }
   }
 
   jobs.push({
@@ -112,18 +128,20 @@ export async function scheduleGameJobs(
     payload: null,
   });
 
-  for (let k = 1; k < slotUnlockOffsetsSeconds.length; k += 1) {
-    const offset = slotUnlockOffsetsSeconds[k]!;
-    // A 0 offset means the slot is unlocked at game start, same as slot 0;
-    // no SLOT_UNLOCKED event needed (the slot was never locked).
-    if (offset === 0) continue;
-    jobs.push({
-      gameId,
-      jobType: "SLOT_UNLOCKED",
-      runAt: new Date(startedAtMs + offset * 1000),
-      status: "pending",
-      payload: { slotIndex: k },
-    });
+  if (slotLayerActive) {
+    for (let k = 1; k < slotUnlockOffsetsSeconds.length; k += 1) {
+      const offset = slotUnlockOffsetsSeconds[k]!;
+      // A 0 offset means the slot is unlocked at game start, same as slot 0;
+      // no SLOT_UNLOCKED event needed (the slot was never locked).
+      if (offset === 0) continue;
+      jobs.push({
+        gameId,
+        jobType: "SLOT_UNLOCKED",
+        runAt: new Date(startedAtMs + offset * 1000),
+        status: "pending",
+        payload: { slotIndex: k },
+      });
+    }
   }
 
   for (const notification of notifications) {
