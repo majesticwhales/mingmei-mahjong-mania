@@ -231,6 +231,8 @@ export function GameScreen() {
           <GameTimer endsAt={projection.endsAt} ended={gameEnded} />
           {!gameEnded && (
             <VisibilityCountdown
+              visibilityPhase={projection.visibilityPhase}
+              visibilityPhaseCount={projection.visibilityPhaseCount}
               nextVisibilityChangeAt={projection.nextVisibilityChangeAt}
               onElapsed={handleVisibilityPhaseElapsed}
             />
@@ -257,6 +259,9 @@ export function GameScreen() {
         <MapShell
           network={network}
           mapNodes={projection.mapNodes}
+          visibilityPhase={projection.visibilityPhase}
+          visibilityPhaseCount={projection.visibilityPhaseCount}
+          phaseDrivenSlotMap={projection.phaseDrivenSlotMap}
           selectedStationId={mapSelectedNodeId}
           onSelectStation={handleSelectStation}
           onMapBackgroundClick={viewingNode ? handleClosePanel : undefined}

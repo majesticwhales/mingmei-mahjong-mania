@@ -85,19 +85,18 @@ describe("visibility-mode schema (chunk 1)", () => {
 
   describe("model + DB defaults agree", () => {
     /**
-     * The seeded map_template was backfilled to `'both'` at migration
-     * time; the model column default keeps Sequelize agreeing.
+     * TTC 2026 uses slot-mode visibility by default (timed slot unlocks).
      */
-    it("existing map_templates rows default to 'both'", async () => {
+    it("existing map_templates rows default to 'slot'", async () => {
       const template = await MapTemplate.findOne();
       if (!template) throw new Error("expected at least one seeded map_template");
-      expect(template.defaultVisibilityMode).toBe("both");
+      expect(template.defaultVisibilityMode).toBe("slot");
     });
 
-    it("a lobby created via the standard fixture inherits 'both'", async () => {
+    it("a lobby created via the standard fixture inherits 'slot'", async () => {
       const { lobbyId } = await createLobbyWithFourPlayers();
       const lobby = await Lobby.findByPk(lobbyId);
-      expect(lobby?.visibilityMode).toBe("both");
+      expect(lobby?.visibilityMode).toBe("slot");
     });
 
     it("a lightweight game inherits 'both' via the column default", async () => {
@@ -127,7 +126,7 @@ describe("visibility-mode schema (chunk 1)", () => {
 
       // Reload to confirm nothing was written.
       await template.reload();
-      expect(template.defaultVisibilityMode).toBe("both");
+      expect(template.defaultVisibilityMode).toBe("slot");
     });
   });
 });

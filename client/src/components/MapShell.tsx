@@ -12,6 +12,9 @@ import { SubwaySvg } from "./SubwaySvg";
 interface Props {
   network: Network;
   mapNodes?: MapNodeDto[];
+  visibilityPhase: number;
+  visibilityPhaseCount: number;
+  phaseDrivenSlotMap: boolean;
   selectedStationId: string | null;
   onSelectStation: (id: string) => void;
   onMapBackgroundClick?: () => void;
@@ -38,6 +41,9 @@ function ZoomControls() {
 export function MapShell({
   network,
   mapNodes,
+  visibilityPhase,
+  visibilityPhaseCount,
+  phaseDrivenSlotMap,
   selectedStationId,
   onSelectStation,
   onMapBackgroundClick,
@@ -69,6 +75,9 @@ export function MapShell({
           <SubwaySvg
             network={network}
             mapNodes={mapNodes}
+            visibilityPhase={visibilityPhase}
+            visibilityPhaseCount={visibilityPhaseCount}
+            phaseDrivenSlotMap={phaseDrivenSlotMap}
             selectedStationId={selectedStationId}
             onSelectStation={onSelectStation}
             onMapBackgroundClick={onMapBackgroundClick}

@@ -5,6 +5,7 @@ import {
   isSlotMapVisible,
   isSlotUnlocked,
   mapVisibleSlotIndices,
+  phaseDrivenMapVisibleSlotIndices,
   slotUnlockAtMs,
   unlockedSlotIndices,
 } from "../../../src/services/slot-visibility.ts";
@@ -116,6 +117,23 @@ describe("slot-visibility", () => {
       expect(mapVisibleSlotIndices([true, false, false], 3)).toEqual([0]);
       expect(mapVisibleSlotIndices([true, false, true], 3)).toEqual([0, 2]);
       expect(mapVisibleSlotIndices([true, true, true], 3)).toEqual([0, 1, 2]);
+    });
+  });
+
+  describe("phaseDrivenMapVisibleSlotIndices", () => {
+    it("returns one slot per phase when phase count matches slots per node", () => {
+      expect(phaseDrivenMapVisibleSlotIndices(0, 3, 3)).toEqual([0]);
+      expect(phaseDrivenMapVisibleSlotIndices(1, 3, 3)).toEqual([1]);
+      expect(phaseDrivenMapVisibleSlotIndices(2, 3, 3)).toEqual([2]);
+    });
+
+    it("returns null when counts do not match or slotsPerNode <= 1", () => {
+      expect(phaseDrivenMapVisibleSlotIndices(0, 3, 4)).toBeNull();
+      expect(phaseDrivenMapVisibleSlotIndices(0, 1, 1)).toBeNull();
+    });
+
+    it("returns empty when phase is out of range", () => {
+      expect(phaseDrivenMapVisibleSlotIndices(3, 3, 3)).toEqual([]);
     });
   });
 });

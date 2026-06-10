@@ -5,7 +5,6 @@ import { GameNodeVisibilityGroup } from "../../../src/models/game-node-visibilit
 import { GameRuleFlag } from "../../../src/models/game-rule-flag.ts";
 import { GameTeamHomeGroup } from "../../../src/models/game-team-home-group.ts";
 import { GameTeamPosition } from "../../../src/models/game-team-position.ts";
-import { GameNode } from "../../../src/models/game-node.ts";
 import { RED_FIVES_RULE_KEY } from "../../../src/tiles/red-five.ts";
 import { createLobbyWithFourPlayers } from "../../setup/lobby.ts";
 import { createGameShellWithMap } from "../../setup/game.ts";
@@ -37,7 +36,6 @@ describe("bootstrapGameVisibility", () => {
         faceUpCount,
         positionCount,
         ruleFlag,
-        bayNode,
       ] = await Promise.all([
         GameNodeVisibilityGroup.count({ transaction }),
         GameTeamHomeGroup.count({ where: { gameId: shell.gameId }, transaction }),
@@ -53,10 +51,6 @@ describe("bootstrapGameVisibility", () => {
           where: { gameId: shell.gameId, ruleKey: RED_FIVES_RULE_KEY },
           transaction,
         }),
-        GameNode.findOne({
-          where: { gameId: shell.gameId, code: "bay" },
-          transaction,
-        }),
       ]);
 
       expect(groupCount).toBe(84);
@@ -68,7 +62,7 @@ describe("bootstrapGameVisibility", () => {
         where: { gameTeamId: [...shell.gameTeamIdBySlot.values()] },
         transaction,
       });
-      expect(positions.every((p) => p.currentGameNodeId === bayNode?.id)).toBe(true);
+      expect(positions.every((p) => p.currentGameNodeId == null)).toBe(true);
       expect(ruleFlag?.enabled).toBe(true);
     });
   });

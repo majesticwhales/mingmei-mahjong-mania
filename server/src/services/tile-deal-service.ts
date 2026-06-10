@@ -1,4 +1,5 @@
 import type { Transaction } from "sequelize";
+import { TILE_STATION_CODES } from "../game/tile-stations.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { shuffleInPlace } from "../lib/shuffle.ts";
 import { GameNode } from "../models/game-node.ts";
@@ -19,22 +20,26 @@ export interface DealTilesOptions {
    * move; no engine command re-targets them.
    */
   deadWallSize?: number;
+  /**
+   * Which map nodes receive station tiles. Defaults to `TILE_STATION_CODES`
+   * (23 designated stations). Pass `"all"` to place at every cloned node
+   * (synthetic / legacy test maps).
+   */
+  tileStationCodes?: readonly string[] | "all";
 }
 
 /**
  * Deal tiles for a freshly cloned game map. The dealer:
  *
  * 1. Validates the closed-set invariant:
- *    `slotsPerNode × nodeCount + handSize × teamCount + deadWallSize
+ *    `slotsPerNode × tileStationCount + handSize × teamCount + deadWallSize
  *    === catalogSize`
- *    where `catalogSize = COUNT(*) FROM tile_types`. Both ends of the
- *    deal must consume the full shuffled catalog; any leftover tiles
- *    would silently never appear in the game, and any shortfall would
- *    leave a slot unfilled.
+ *    where `tileStationCount` is the number of nodes that receive tiles
+ *    (23 on the TTC map by default, not every cloned node). Both ends of
+ *    the deal must consume the full shuffled catalog.
  * 2. Creates one `game_tiles` row per `tile_types` row.
  * 3. Fisher–Yates shuffles the tile ids.
- * 4. Places `slotsPerNode` tiles at each `game_node` (in `code` order for
- *    determinism on rerun).
+ * 4. Places `slotsPerNode` tiles at each tile station (canonical code order).
  * 5. Deals `handSize` tiles into each team's hand, in `GAME_TEAM_SLOTS`
  *    order. The team count is `gameTeamIdBySlot.size`.
  * 6. Parks the remaining `deadWallSize` tiles as `dead_wall_index = 0..n-1`
@@ -76,21 +81,28 @@ export async function dealTilesForGame(
     GameNode.findAll({
       where: { gameId },
       order: [["code", "ASC"]],
-      attributes: ["id"],
+      attributes: ["id", "code"],
       transaction,
     }),
   ]);
 
+  const tileStationCodes =
+    options.tileStationCodes === "all"
+      ? null
+      : (options.tileStationCodes ?? TILE_STATION_CODES);
+
+  const dealNodes = resolveDealNodes(nodes, tileStationCodes);
+
   const catalogSize = tileTypes.length;
   const teamCount = gameTeamIdBySlot.size;
   const required =
-    slotsPerNode * nodes.length + handSize * teamCount + deadWallSize;
+    slotsPerNode * dealNodes.length + handSize * teamCount + deadWallSize;
 
   if (required !== catalogSize) {
     throw new HttpError(
       500,
       "internal_error",
-      `Tile catalog mismatch: slotsPerNode (${slotsPerNode}) × nodes (${nodes.length}) ` +
+      `Tile catalog mismatch: slotsPerNode (${slotsPerNode}) × tile stations (${dealNodes.length}) ` +
       `+ handSize (${handSize}) × teams (${teamCount}) + deadWallSize (${deadWallSize}) = ${required}, ` +
       `but tile catalog has ${catalogSize} entries`,
     );
@@ -117,7 +129,7 @@ export async function dealTilesForGame(
   }> = [];
 
   let offset = 0;
-  for (const node of nodes) {
+  for (const node of dealNodes) {
     for (let s = 0; s < slotsPerNode; s += 1) {
       placements.push({
         gameTileId: shuffledTileIds[offset]!,
@@ -133,8 +145,6 @@ export async function dealTilesForGame(
   for (const slot of GAME_TEAM_SLOTS) {
     const gameTeamId = gameTeamIdBySlot.get(slot);
     if (!gameTeamId) {
-      // Skip slots that aren't represented in this game (in case a future
-      // configuration allows teamCount != GAME_TEAM_SLOTS.length).
       continue;
     }
     for (let h = 0; h < handSize; h += 1) {
@@ -149,7 +159,6 @@ export async function dealTilesForGame(
     }
   }
 
-  // Park remaining tiles as the dead wall. Index 0 is the dora indicator.
   for (let d = 0; d < deadWallSize; d += 1) {
     placements.push({
       gameTileId: shuffledTileIds[offset]!,
@@ -170,4 +179,30 @@ export async function dealTilesForGame(
   }
 
   await GameTilePlacement.bulkCreate(placements, { transaction });
+}
+
+function resolveDealNodes(
+  nodes: Array<Pick<GameNode, "id" | "code">>,
+  tileStationCodes: readonly string[] | null,
+): Array<Pick<GameNode, "id" | "code">> {
+  if (tileStationCodes === null) {
+    return nodes;
+  }
+
+  const nodeByCode = new Map(nodes.map((node) => [node.code, node]));
+  const dealNodes: Array<Pick<GameNode, "id" | "code">> = [];
+
+  for (const code of tileStationCodes) {
+    const node = nodeByCode.get(code);
+    if (!node) {
+      throw new HttpError(
+        500,
+        "internal_error",
+        `Tile station "${code}" is not present on game map (missing from cloned nodes)`,
+      );
+    }
+    dealNodes.push(node);
+  }
+
+  return dealNodes;
 }

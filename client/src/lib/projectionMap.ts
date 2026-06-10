@@ -53,6 +53,7 @@ export function projectionToNetwork(
 
   const stations: Station[] = mapNodes.map((node) => ({
     id: node.id,
+    code: node.code,
     name: node.name,
     x: node.coordinateX,
     y: node.coordinateY,

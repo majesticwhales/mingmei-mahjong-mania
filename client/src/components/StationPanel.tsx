@@ -1,3 +1,5 @@
+import { TILE_BACK_IMAGE_PATH } from "../data/riichiTiles";
+import { isTileStation, TILES_PER_STATION } from "../data/tileStations";
 import type { SubwayLine } from "../data/types";
 import { tileImagePath } from "../lib/tileImages";
 import type { AtStationDto, HandTileDto, MapNodeDto, SlotTileDto, TileDto } from "../wire/projection";
@@ -17,11 +19,54 @@ interface Props {
   onSwapTile: () => void;
 }
 
-function renderSlotTiles(tiles: SlotTileDto[] | undefined, single?: TileDto) {
+function tilesBySlot(tiles: SlotTileDto[] | undefined, single?: TileDto) {
+  const bySlot = new Map<number, TileDto>();
+  if (tiles) {
+    for (const entry of tiles) {
+      bySlot.set(entry.slotIndex, entry.tile);
+    }
+  } else if (single) {
+    bySlot.set(0, single);
+  }
+  return bySlot;
+}
+
+function renderTripleStationSlots(tiles: SlotTileDto[] | undefined, single?: TileDto) {
+  const known = tilesBySlot(tiles, single);
+  return Array.from({ length: TILES_PER_STATION }, (_, slotIndex) => {
+    const tile = known.get(slotIndex);
+    if (tile) {
+      return (
+        <div key={slotIndex} className="station-panel__slot">
+          <span className="station-panel__slot-label">Slot {slotIndex + 1}</span>
+          <img
+            src={tileImagePath(tile)}
+            alt={tile.displayName}
+            className="station-panel__tile-image station-panel__tile-image--station-slot"
+          />
+          <p className="station-panel__tile-name">{tile.displayName}</p>
+        </div>
+      );
+    }
+    return (
+      <div key={slotIndex} className="station-panel__slot station-panel__slot--unknown">
+        <span className="station-panel__slot-label">Slot {slotIndex + 1}</span>
+        <img
+          src={TILE_BACK_IMAGE_PATH}
+          alt=""
+          className="station-panel__tile-image station-panel__tile-image--station-slot station-panel__tile-image--hidden"
+        />
+        <p className="station-panel__tile-name">Unknown</p>
+      </div>
+    );
+  });
+}
+
+function renderLegacyStationTiles(tiles: SlotTileDto[] | undefined, single?: TileDto) {
   if (tiles?.length) {
     return tiles.map((slot) => (
       <div key={slot.slotIndex} className="station-panel__slot">
-        <span className="station-panel__slot-label">slot {slot.slotIndex}</span>
+        <span className="station-panel__slot-label">Slot {slot.slotIndex + 1}</span>
         <img
           src={tileImagePath(slot.tile)}
           alt={slot.tile.displayName}
@@ -47,15 +92,17 @@ function renderSlotTiles(tiles: SlotTileDto[] | undefined, single?: TileDto) {
 }
 
 function stationTilesForView(
-  viewingNode: MapNodeDto | null,
+  viewingNode: MapNodeDto,
   atStation: AtStationDto | null,
   isViewingCheckedInStation: boolean,
 ) {
-  if (!viewingNode) return null;
-  if (isViewingCheckedInStation && atStation) {
-    return renderSlotTiles(atStation.tiles, atStation.tile);
+  const tiles = isViewingCheckedInStation && atStation ? atStation.tiles : viewingNode.tiles;
+  const single = isViewingCheckedInStation && atStation ? atStation.tile : viewingNode.tile;
+
+  if (isTileStation(viewingNode.code)) {
+    return renderTripleStationSlots(tiles, single);
   }
-  return renderSlotTiles(viewingNode.tiles, viewingNode.tile);
+  return renderLegacyStationTiles(tiles, single);
 }
 
 export function StationPanel({
@@ -80,7 +127,10 @@ export function StationPanel({
   const isBrowsingElsewhere =
     viewingId != null && checkedInId != null && viewingId !== checkedInId;
   const showCheckIn = viewingId != null && !isViewingCheckedInStation;
-  const stationTiles = stationTilesForView(viewingNode, atStation, isViewingCheckedInStation);
+  const stationTiles = viewingNode
+    ? stationTilesForView(viewingNode, atStation, isViewingCheckedInStation)
+    : null;
+  const stationSlotsTriple = Boolean(viewingNode && isTileStation(viewingNode.code));
   const actionsDisabled = commandsPending || commandsDisabled || checkInPending;
 
   return (
@@ -131,7 +181,13 @@ export function StationPanel({
         {viewingNode && stationTiles && (
           <section>
             <h3 className="station-panel__section-title">Station tiles</h3>
-            <div className="station-panel__slots">{stationTiles}</div>
+            <div
+              className={`station-panel__slots${
+                stationSlotsTriple ? " station-panel__slots--triple" : ""
+              }`}
+            >
+              {stationTiles}
+            </div>
           </section>
         )}
         {showCheckIn && (

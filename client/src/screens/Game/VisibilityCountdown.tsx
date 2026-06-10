@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 interface Props {
+  visibilityPhase: number;
+  visibilityPhaseCount: number;
   nextVisibilityChangeAt: string | null;
   onElapsed?: () => void;
 }
@@ -12,7 +14,12 @@ function formatRemaining(ms: number) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function VisibilityCountdown({ nextVisibilityChangeAt, onElapsed }: Props) {
+export function VisibilityCountdown({
+  visibilityPhase,
+  visibilityPhaseCount,
+  nextVisibilityChangeAt,
+  onElapsed,
+}: Props) {
   const [now, setNow] = useState(() => Date.now());
   const elapsedRef = useRef(false);
 
@@ -20,6 +27,10 @@ export function VisibilityCountdown({ nextVisibilityChangeAt, onElapsed }: Props
     ? new Date(nextVisibilityChangeAt).getTime()
     : null;
   const remaining = targetMs != null ? targetMs - now : null;
+  const tileLabel =
+    visibilityPhaseCount > 1
+      ? `Tile ${visibilityPhase + 1} of ${visibilityPhaseCount}`
+      : null;
 
   useEffect(() => {
     elapsedRef.current = false;
@@ -38,10 +49,13 @@ export function VisibilityCountdown({ nextVisibilityChangeAt, onElapsed }: Props
     onElapsed?.();
   }, [remaining, onElapsed]);
 
-  if (remaining == null) return null;
+  if (tileLabel == null && remaining == null) return null;
+
   return (
     <p className="game-visibility">
-      Next visibility: {formatRemaining(remaining)}
+      {tileLabel}
+      {tileLabel && remaining != null ? " · " : null}
+      {remaining != null ? `Next: ${formatRemaining(remaining)}` : null}
     </p>
   );
 }

@@ -18,8 +18,8 @@ function honorTileFile(suit: string, rank: number) {
       : null;
   }
   if (suit === "dragon") {
-    return ["Haku", "Hatsu", "Chun"][rank - 1]
-      ? `${TILE_ASSET_BASE_PATH}/${["Haku", "Hatsu", "Chun"][rank - 1]}.svg`
+    return ["Chun", "Haku", "Hatsu"][rank - 1]
+      ? `${TILE_ASSET_BASE_PATH}/${["Chun", "Haku", "Hatsu"][rank - 1]}.svg`
       : null;
   }
   return null;

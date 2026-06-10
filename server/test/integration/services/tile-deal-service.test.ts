@@ -13,7 +13,7 @@ describe("dealTilesForGame", () => {
     await truncateMutableTables(await getSequelize());
   });
 
-  it("deals the default 84 * 1 + 13 * 4 = 136 tile configuration", async () => {
+  it("deals 23 tile stations × 3 + 13 × 4 hands + 15 dead wall = 136", async () => {
     const { lobbyId } = await createLobbyWithFourPlayers({ assignTeams: false });
     const sequelize = await getSequelize();
 
@@ -22,35 +22,41 @@ describe("dealTilesForGame", () => {
       await dealTilesForGame(
         shell.gameId,
         shell.gameTeamIdBySlot,
-        1,
+        3,
         13,
         transaction,
+        { deadWallSize: 15 },
       );
 
-      const [tileCount, nodePlacements, teamPlacements] = await Promise.all([
-        GameTile.count({ where: { gameId: shell.gameId }, transaction }),
-        GameTilePlacement.count({
-          where: { gameNodeId: shell.gameNodeIds },
-          transaction,
-        }),
-        GameTilePlacement.count({
-          where: { gameTeamId: [...shell.gameTeamIdBySlot.values()] },
-          transaction,
-        }),
-      ]);
+      const [tileCount, nodePlacements, teamPlacements, deadWallPlacements] =
+        await Promise.all([
+          GameTile.count({ where: { gameId: shell.gameId }, transaction }),
+          GameTilePlacement.count({
+            where: { gameNodeId: shell.gameNodeIds },
+            transaction,
+          }),
+          GameTilePlacement.count({
+            where: { gameTeamId: [...shell.gameTeamIdBySlot.values()] },
+            transaction,
+          }),
+          GameTilePlacement.count({
+            where: { gameNodeId: null, gameTeamId: null },
+            transaction,
+          }),
+        ]);
 
       expect(tileCount).toBe(136);
-      expect(nodePlacements).toBe(84);
+      expect(nodePlacements).toBe(69);
       expect(teamPlacements).toBe(52);
+      expect(deadWallPlacements).toBe(15);
 
-      // Each node has exactly 1 placement.
-      for (const gameNodeId of shell.gameNodeIds) {
-        const perNode = await GameTilePlacement.count({
-          where: { gameNodeId },
-          transaction,
-        });
-        expect(perNode).toBe(1);
-      }
+      const nodesWithTiles = await GameTilePlacement.count({
+        where: { gameNodeId: shell.gameNodeIds },
+        distinct: true,
+        col: "game_node_id",
+        transaction,
+      });
+      expect(nodesWithTiles).toBe(23);
     });
   });
 
@@ -72,11 +78,12 @@ describe("dealTilesForGame", () => {
       });
       expect(templateNodes).toHaveLength(4);
 
+      const miniCodes = templateNodes.map((_tn, i) => `mini-${i}`);
       const gameNodes = await GameNode.bulkCreate(
         templateNodes.map((tn, i) => ({
           gameId: shell.gameId,
           templateNodeId: tn.id,
-          code: `mini-${i}`,
+          code: miniCodes[i]!,
           name: tn.name,
           latitude: tn.latitude,
           longitude: tn.longitude,
@@ -98,6 +105,7 @@ describe("dealTilesForGame", () => {
         8,
         26,
         transaction,
+        { tileStationCodes: miniCodes },
       );
 
       const [tileCount, nodePlacements, teamPlacements] = await Promise.all([
@@ -142,7 +150,7 @@ describe("dealTilesForGame", () => {
 
     await sequelize.transaction(async (transaction) => {
       const shell = await createGameShellWithMap(lobbyId, transaction);
-      // 84 × 2 + 13 × 4 = 168 + 52 = 220 ≠ 136
+      // 23 × 2 + 13 × 4 = 46 + 52 = 98 ≠ 136
       await expect(
         dealTilesForGame(
           shell.gameId,
@@ -201,11 +209,12 @@ describe("dealTilesForGame", () => {
         });
         expect(templateNodes).toHaveLength(80);
 
+        const dwCodes = templateNodes.map((_tn, i) => `dw-${i}`);
         const gameNodes = await GameNode.bulkCreate(
           templateNodes.map((tn, i) => ({
             gameId: shell.gameId,
             templateNodeId: tn.id,
-            code: `dw-${i}`,
+            code: dwCodes[i]!,
             name: tn.name,
             latitude: tn.latitude,
             longitude: tn.longitude,
@@ -219,14 +228,13 @@ describe("dealTilesForGame", () => {
           { transaction, returning: true },
         );
         const gameNodeIds = gameNodes.map((n) => n.id);
-
         await dealTilesForGame(
           shell.gameId,
           shell.gameTeamIdBySlot,
           1,
           13,
           transaction,
-          { deadWallSize: 4 },
+          { deadWallSize: 4, tileStationCodes: "all" },
         );
 
         const deadWallRows = await GameTilePlacement.findAll({
@@ -260,8 +268,7 @@ describe("dealTilesForGame", () => {
     });
 
     it("rejects when the closed-set invariant doesn't include deadWallSize", async () => {
-      // 84 × 1 + 13 × 4 + 4 = 140 ≠ 136 — dead wall pushes us over the
-      // catalog size; the dealer must reject.
+      // 23 × 3 + 13 × 4 + 4 = 125 ≠ 136 — dead wall count doesn't close the set.
       const { lobbyId } = await createLobbyWithFourPlayers({ assignTeams: false });
       const sequelize = await getSequelize();
 

@@ -90,13 +90,14 @@ describe("lobby-service", () => {
     const host = await registerAdminUser();
     const lobby = await lobbyService.createLobby(host.user.id);
 
-    expect(lobby.config.slotsPerNode).toBe(1);
-    expect(lobby.config.visibilityPhaseCount).toBe(4);
+    expect(lobby.config.slotsPerNode).toBe(3);
+    expect(lobby.config.visibilityPhaseCount).toBe(3);
   });
 
   it("accepts host overrides for slotsPerNode and visibilityPhaseCount on create", async () => {
     const host = await registerAdminUser();
     const lobby = await lobbyService.createLobby(host.user.id, {
+      visibilityMode: "both",
       slotsPerNode: 3,
       visibilityPhaseCount: 6,
     });
@@ -116,7 +117,10 @@ describe("lobby-service", () => {
     } satisfies Partial<HttpError>);
 
     await expect(
-      lobbyService.createLobby(host.user.id, { visibilityPhaseCount: 0 }),
+      lobbyService.createLobby(host.user.id, {
+        visibilityMode: "both",
+        visibilityPhaseCount: 0,
+      }),
     ).rejects.toMatchObject({
       status: 400,
       code: "validation_error",
@@ -128,6 +132,7 @@ describe("lobby-service", () => {
     const created = await lobbyService.createLobby(host.user.id);
 
     const updated = await lobbyService.updateConfig(created.id, host.user.id, {
+      visibilityMode: "both",
       slotsPerNode: 2,
       visibilityPhaseCount: 5,
     });
@@ -162,8 +167,8 @@ describe("lobby-service", () => {
       const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
 
-      expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0]);
-      expect(lobby.config.slotMapVisible).toEqual([true]);
+      expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 2400, 4800]);
+      expect(lobby.config.slotMapVisible).toEqual([true, true, true]);
     });
 
     it("accepts host overrides on create when length matches slotsPerNode", async () => {
@@ -293,10 +298,10 @@ describe("lobby-service", () => {
   });
 
   describe("dead wall (chunk 1)", () => {
-    it("defaults deadWallSize from the template (0)", async () => {
+    it("defaults deadWallSize from the template (15)", async () => {
       const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
-      expect(lobby.config.deadWallSize).toBe(0);
+      expect(lobby.config.deadWallSize).toBe(15);
     });
 
     it("accepts a host override on create", async () => {
@@ -345,10 +350,10 @@ describe("lobby-service", () => {
   });
 
   describe("visibility mode (chunk 2)", () => {
-    it("defaults to the template's defaultVisibilityMode ('both')", async () => {
+    it("defaults to the template's defaultVisibilityMode ('slot')", async () => {
       const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
-      expect(lobby.config.visibilityMode).toBe("both");
+      expect(lobby.config.visibilityMode).toBe("slot");
     });
 
     it.each(["none", "phase", "slot", "both"] as const)(
@@ -500,6 +505,7 @@ describe("lobby-service", () => {
       it("resets phase knobs to template defaults when host switches to `slot`", async () => {
         const host = await registerAdminUser();
         const created = await lobbyService.createLobby(host.user.id, {
+          visibilityMode: "both",
           visibilityPhaseCount: 6,
           visibilityPhaseIntervalSeconds: 30,
         });
@@ -511,8 +517,8 @@ describe("lobby-service", () => {
           { visibilityMode: "slot" },
         );
         expect(updated.config.visibilityMode).toBe("slot");
-        // Template default for TTC 2026 is 4.
-        expect(updated.config.visibilityPhaseCount).toBe(4);
+        // Template default for TTC 2026 is 3.
+        expect(updated.config.visibilityPhaseCount).toBe(3);
         expect(updated.config.visibilityPhaseIntervalSeconds).toBeGreaterThan(0);
       });
 
