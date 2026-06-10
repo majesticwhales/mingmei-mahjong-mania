@@ -6,7 +6,15 @@ import { GameContext } from "./Context";
 import { useClaimWin, useHandCompleted } from "./hooks";
 import type { HandCompletedDto } from "../../wire/projection";
 
-function buildProvider(submitCommand: ReturnType<typeof vi.fn>, handCompleted: HandCompletedDto | null = null) {
+type SubmitCommandFn = (
+  commandType: string,
+  payload?: Record<string, unknown>,
+) => Promise<string>;
+
+function buildProvider(
+  submitCommand: SubmitCommandFn,
+  handCompleted: HandCompletedDto | null = null,
+) {
   return function Provider({ children }: { children: ReactNode }) {
     return (
       <GameContext.Provider
@@ -34,7 +42,7 @@ function buildProvider(submitCommand: ReturnType<typeof vi.fn>, handCompleted: H
 
 describe("useClaimWin", () => {
   it("calls submitCommand with CLAIM_WIN + stationTileId payload", async () => {
-    const submitCommand = vi.fn().mockResolvedValue("cmd-1");
+    const submitCommand = vi.fn<SubmitCommandFn>().mockResolvedValue("cmd-1");
     const { result } = renderHook(() => useClaimWin(), {
       wrapper: buildProvider(submitCommand),
     });
@@ -48,7 +56,7 @@ describe("useClaimWin", () => {
 describe("useHandCompleted", () => {
   it("returns null when the team hasn't claimed a winning hand", () => {
     const { result } = renderHook(() => useHandCompleted(), {
-      wrapper: buildProvider(vi.fn(), null),
+      wrapper: buildProvider(vi.fn<SubmitCommandFn>(), null),
     });
     expect(result.current).toBeNull();
   });
@@ -71,7 +79,7 @@ describe("useHandCompleted", () => {
       finalYaku: [{ name: "Pinfu", han: 1 }],
     };
     const { result } = renderHook(() => useHandCompleted(), {
-      wrapper: buildProvider(vi.fn(), snapshot),
+      wrapper: buildProvider(vi.fn<SubmitCommandFn>(), snapshot),
     });
     expect(result.current).toEqual(snapshot);
   });
