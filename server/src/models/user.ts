@@ -33,6 +33,14 @@ export class User extends BaseModel {
     @Column({ type: DataType.STRING, allowNull: false, unique: true })
     declare username: string;
 
+    @Column({
+        field: "is_admin",
+        type: DataType.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+    })
+    declare isAdmin: boolean;
+
     @HasMany(() => MediaAsset)
     declare mediaAssets?: MediaAsset[];
 }

@@ -20,6 +20,7 @@ import { Lobby } from "../../../src/models/lobby.ts";
 import { MapTemplateNode } from "../../../src/models/map-template-node.ts";
 import { MapTemplateNodeChallenge } from "../../../src/models/map-template-node-challenge.ts";
 import { createLobbyWithFourPlayers } from "../../setup/lobby.ts";
+import { registerUser, setUserAdmin } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 
 const START_TEST_DECK_CODE = "start-test-deck";
@@ -277,6 +278,16 @@ describe("startFromLobby", () => {
       const types = jobs.map((j) => j.jobType);
       expect(types).toContain("VISIBILITY_PHASE_ADVANCE");
       expect(types).not.toContain("SLOT_UNLOCKED");
+    });
+  });
+
+  it("rejects non-admin users", async () => {
+    const { lobbyId } = await createLobbyWithFourPlayers();
+    const outsider = await registerUser();
+
+    await expect(startFromLobby(lobbyId, outsider.user.id)).rejects.toMatchObject({
+      status: 403,
+      code: "forbidden",
     });
   });
 });

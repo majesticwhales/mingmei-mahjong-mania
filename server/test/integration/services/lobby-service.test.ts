@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { HttpError } from "../../../src/lib/http-error.ts";
 import * as lobbyService from "../../../src/services/lobby-service.ts";
-import { registerUser } from "../../setup/auth.ts";
+import { registerAdminUser, registerUser } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 import { createLobbyWithFourPlayers } from "../../setup/lobby.ts";
 
@@ -11,7 +11,7 @@ describe("lobby-service", () => {
   });
 
   it("creates a lobby with the template default start station", async () => {
-    const host = await registerUser();
+    const host = await registerAdminUser();
     const lobby = await lobbyService.createLobby(host.user.id);
 
     expect(lobby.hostUserId).toBe(host.user.id);
@@ -20,7 +20,7 @@ describe("lobby-service", () => {
   });
 
   it("rejects an invalid default start station on create", async () => {
-    const host = await registerUser();
+    const host = await registerAdminUser();
     await expect(
       lobbyService.createLobby(host.user.id, {
         defaultStartNodeCode: "not-a-station",
@@ -32,7 +32,7 @@ describe("lobby-service", () => {
   });
 
   it("updates team when a member picks a different slot", async () => {
-    const host = await registerUser();
+    const host = await registerAdminUser();
     const lobby = await lobbyService.createLobby(host.user.id);
 
     await lobbyService.pickTeam(lobby.id, host.user.id, 1);
@@ -43,7 +43,7 @@ describe("lobby-service", () => {
   });
 
   it("join is idempotent for the same user", async () => {
-    const host = await registerUser();
+    const host = await registerAdminUser();
     const guest = await registerUser();
     const lobby = await lobbyService.createLobby(host.user.id);
 
@@ -54,7 +54,7 @@ describe("lobby-service", () => {
   });
 
   it("forbids non-members from viewing the lobby", async () => {
-    const host = await registerUser();
+    const host = await registerAdminUser();
     const outsider = await registerUser();
     const lobby = await lobbyService.createLobby(host.user.id);
 
@@ -87,7 +87,7 @@ describe("lobby-service", () => {
   });
 
   it("defaults slotsPerNode and visibilityPhaseCount from the template", async () => {
-    const host = await registerUser();
+    const host = await registerAdminUser();
     const lobby = await lobbyService.createLobby(host.user.id);
 
     expect(lobby.config.slotsPerNode).toBe(1);
@@ -95,7 +95,7 @@ describe("lobby-service", () => {
   });
 
   it("accepts host overrides for slotsPerNode and visibilityPhaseCount on create", async () => {
-    const host = await registerUser();
+    const host = await registerAdminUser();
     const lobby = await lobbyService.createLobby(host.user.id, {
       slotsPerNode: 3,
       visibilityPhaseCount: 6,
@@ -106,7 +106,7 @@ describe("lobby-service", () => {
   });
 
   it("rejects non-positive slotsPerNode / visibilityPhaseCount on create", async () => {
-    const host = await registerUser();
+    const host = await registerAdminUser();
 
     await expect(
       lobbyService.createLobby(host.user.id, { slotsPerNode: 0 }),
@@ -124,7 +124,7 @@ describe("lobby-service", () => {
   });
 
   it("host can update slotsPerNode and visibilityPhaseCount via updateConfig", async () => {
-    const host = await registerUser();
+    const host = await registerAdminUser();
     const created = await lobbyService.createLobby(host.user.id);
 
     const updated = await lobbyService.updateConfig(created.id, host.user.id, {
@@ -137,7 +137,7 @@ describe("lobby-service", () => {
   });
 
   it("rejects non-positive slotsPerNode / visibilityPhaseCount via updateConfig", async () => {
-    const host = await registerUser();
+    const host = await registerAdminUser();
     const created = await lobbyService.createLobby(host.user.id);
 
     await expect(
@@ -159,7 +159,7 @@ describe("lobby-service", () => {
 
   describe("per-slot rules arrays (chunk 5)", () => {
     it("defaults slotUnlockOffsetsSeconds and slotMapVisible from the template", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
 
       expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0]);
@@ -167,7 +167,7 @@ describe("lobby-service", () => {
     });
 
     it("accepts host overrides on create when length matches slotsPerNode", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id, {
         slotsPerNode: 3,
         slotUnlockOffsetsSeconds: [0, 300, 900],
@@ -180,7 +180,7 @@ describe("lobby-service", () => {
     });
 
     it("rejects on create when arrays mismatch slotsPerNode", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       await expect(
         lobbyService.createLobby(host.user.id, {
           slotsPerNode: 3,
@@ -190,7 +190,7 @@ describe("lobby-service", () => {
     });
 
     it("rejects slot 0 with a non-zero offset", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       await expect(
         lobbyService.createLobby(host.user.id, {
           slotsPerNode: 2,
@@ -200,7 +200,7 @@ describe("lobby-service", () => {
     });
 
     it("rejects slot 0 with map_visible = false", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       await expect(
         lobbyService.createLobby(host.user.id, {
           slotsPerNode: 2,
@@ -210,7 +210,7 @@ describe("lobby-service", () => {
     });
 
     it("host can update both arrays via updateConfig", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const created = await lobbyService.createLobby(host.user.id, {
         slotsPerNode: 2,
       });
@@ -229,7 +229,7 @@ describe("lobby-service", () => {
     });
 
     it("auto-pads arrays with 0 / true when slotsPerNode grows and arrays aren't repatched", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const created = await lobbyService.createLobby(host.user.id, {
         slotsPerNode: 2,
         slotUnlockOffsetsSeconds: [0, 60],
@@ -248,7 +248,7 @@ describe("lobby-service", () => {
     });
 
     it("auto-truncates arrays when slotsPerNode shrinks and arrays aren't repatched", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const created = await lobbyService.createLobby(host.user.id, {
         slotsPerNode: 3,
         slotUnlockOffsetsSeconds: [0, 60, 120],
@@ -265,7 +265,7 @@ describe("lobby-service", () => {
     });
 
     it("rejects update when explicit array length doesn't match resulting slotsPerNode", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const created = await lobbyService.createLobby(host.user.id, {
         slotsPerNode: 2,
       });
@@ -279,7 +279,7 @@ describe("lobby-service", () => {
     });
 
     it("rejects negative offset entries on update", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const created = await lobbyService.createLobby(host.user.id, {
         slotsPerNode: 2,
       });
@@ -294,13 +294,13 @@ describe("lobby-service", () => {
 
   describe("dead wall (chunk 1)", () => {
     it("defaults deadWallSize from the template (0)", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
       expect(lobby.config.deadWallSize).toBe(0);
     });
 
     it("accepts a host override on create", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id, {
         deadWallSize: 14,
       });
@@ -308,21 +308,21 @@ describe("lobby-service", () => {
     });
 
     it("rejects a negative deadWallSize on create", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       await expect(
         lobbyService.createLobby(host.user.id, { deadWallSize: -1 }),
       ).rejects.toMatchObject({ status: 400, code: "validation_error" });
     });
 
     it("rejects a non-integer deadWallSize on create", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       await expect(
         lobbyService.createLobby(host.user.id, { deadWallSize: 1.5 }),
       ).rejects.toMatchObject({ status: 400, code: "validation_error" });
     });
 
     it("host can update deadWallSize via updateConfig", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const created = await lobbyService.createLobby(host.user.id);
 
       const updated = await lobbyService.updateConfig(
@@ -334,7 +334,7 @@ describe("lobby-service", () => {
     });
 
     it("rejects a negative deadWallSize via updateConfig", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const created = await lobbyService.createLobby(host.user.id);
       await expect(
         lobbyService.updateConfig(created.id, host.user.id, {
@@ -346,7 +346,7 @@ describe("lobby-service", () => {
 
   describe("visibility mode (chunk 2)", () => {
     it("defaults to the template's defaultVisibilityMode ('both')", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
       expect(lobby.config.visibilityMode).toBe("both");
     });
@@ -354,7 +354,7 @@ describe("lobby-service", () => {
     it.each(["none", "phase", "slot", "both"] as const)(
       "accepts visibilityMode=%s on create",
       async (mode) => {
-        const host = await registerUser();
+        const host = await registerAdminUser();
         const lobby = await lobbyService.createLobby(host.user.id, {
           visibilityMode: mode,
         });
@@ -363,7 +363,7 @@ describe("lobby-service", () => {
     );
 
     it("rejects an unknown visibilityMode on create", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       await expect(
         lobbyService.createLobby(host.user.id, {
           // @ts-expect-error - intentionally bad input for runtime check
@@ -373,7 +373,7 @@ describe("lobby-service", () => {
     });
 
     it("host can patch visibilityMode via updateConfig", async () => {
-      const host = await registerUser();
+      const host = await registerAdminUser();
       const created = await lobbyService.createLobby(host.user.id);
       const updated = await lobbyService.updateConfig(
         created.id,
@@ -385,7 +385,7 @@ describe("lobby-service", () => {
 
     describe("knob lock", () => {
       it("rejects visibilityPhaseCount in a patch when mode excludes phase", async () => {
-        const host = await registerUser();
+        const host = await registerAdminUser();
         const created = await lobbyService.createLobby(host.user.id, {
           visibilityMode: "slot",
         });
@@ -400,7 +400,7 @@ describe("lobby-service", () => {
       });
 
       it("rejects visibilityPhaseIntervalSeconds in a patch when mode excludes phase", async () => {
-        const host = await registerUser();
+        const host = await registerAdminUser();
         const created = await lobbyService.createLobby(host.user.id, {
           visibilityMode: "none",
         });
@@ -415,7 +415,7 @@ describe("lobby-service", () => {
       });
 
       it("rejects non-zero slotUnlockOffsetsSeconds when mode excludes slot", async () => {
-        const host = await registerUser();
+        const host = await registerAdminUser();
         const created = await lobbyService.createLobby(host.user.id, {
           visibilityMode: "phase",
           slotsPerNode: 3,
@@ -431,7 +431,7 @@ describe("lobby-service", () => {
       });
 
       it("rejects a `false` slotMapVisible entry when mode excludes slot", async () => {
-        const host = await registerUser();
+        const host = await registerAdminUser();
         const created = await lobbyService.createLobby(host.user.id, {
           visibilityMode: "phase",
           slotsPerNode: 2,
@@ -450,7 +450,7 @@ describe("lobby-service", () => {
         // All-zero offsets are a no-op for the slot layer (it's
         // skipped at the engine when off), so the lock lets the host
         // re-send the existing trivial value.
-        const host = await registerUser();
+        const host = await registerAdminUser();
         const created = await lobbyService.createLobby(host.user.id, {
           visibilityMode: "phase",
           slotsPerNode: 2,
@@ -464,7 +464,7 @@ describe("lobby-service", () => {
       });
 
       it("rejects visibilityPhaseCount on create when visibilityMode excludes phase", async () => {
-        const host = await registerUser();
+        const host = await registerAdminUser();
         await expect(
           lobbyService.createLobby(host.user.id, {
             visibilityMode: "slot",
@@ -479,7 +479,7 @@ describe("lobby-service", () => {
 
     describe("mode-transition cleanup", () => {
       it("zeros out slot knobs when host switches from `both` to `phase`", async () => {
-        const host = await registerUser();
+        const host = await registerAdminUser();
         const created = await lobbyService.createLobby(host.user.id, {
           slotsPerNode: 3,
           slotUnlockOffsetsSeconds: [0, 60, 300],
@@ -498,7 +498,7 @@ describe("lobby-service", () => {
       });
 
       it("resets phase knobs to template defaults when host switches to `slot`", async () => {
-        const host = await registerUser();
+        const host = await registerAdminUser();
         const created = await lobbyService.createLobby(host.user.id, {
           visibilityPhaseCount: 6,
           visibilityPhaseIntervalSeconds: 30,
@@ -517,7 +517,7 @@ describe("lobby-service", () => {
       });
 
       it("does not mutate slot knobs when transitioning between two slot-active modes", async () => {
-        const host = await registerUser();
+        const host = await registerAdminUser();
         const created = await lobbyService.createLobby(host.user.id, {
           visibilityMode: "both",
           slotsPerNode: 2,

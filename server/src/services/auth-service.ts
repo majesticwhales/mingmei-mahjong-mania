@@ -8,6 +8,7 @@ export interface PublicUser {
   id: string;
   email: string;
   username: string;
+  isAdmin: boolean;
   createdAt: Date;
 }
 
@@ -21,13 +22,47 @@ const MIN_PASSWORD_LENGTH = 8;
 const MIN_USERNAME_LENGTH = 3;
 const MAX_USERNAME_LENGTH = 32;
 
+function adminEmailsFromEnv(): Set<string> {
+  const raw = process.env.ADMIN_EMAILS?.trim();
+  if (!raw) {
+    return new Set();
+  }
+  return new Set(
+    raw
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+async function applyAdminEmailGrant(user: User): Promise<User> {
+  if (user.isAdmin || !adminEmailsFromEnv().has(user.email.toLowerCase())) {
+    return user;
+  }
+  user.isAdmin = true;
+  await user.save();
+  return user;
+}
+
 function toPublicUser(user: User): PublicUser {
   return {
     id: user.id,
     email: user.email,
     username: user.username,
+    isAdmin: user.isAdmin,
     createdAt: user.createdAt,
   };
+}
+
+export async function assertIsAdmin(userId: string): Promise<User> {
+  const user = await User.findByPk(userId);
+  if (!user) {
+    throw new HttpError(404, "not_found", "User not found");
+  }
+  if (!user.isAdmin) {
+    throw new HttpError(403, "forbidden", "Admin permission required");
+  }
+  return user;
 }
 
 function normalizeEmail(email: string): string {
@@ -83,11 +118,12 @@ export async function register(
   validateRegisterInput(normalizedEmail, trimmedUsername, password);
 
   try {
-    const user = await User.create({
+    const created = await User.create({
       email: normalizedEmail,
       username: trimmedUsername,
       passwordHash: await hashPassword(password),
     });
+    const user = await applyAdminEmailGrant(created);
     const token = signAccessToken(user.id);
     return { user: toPublicUser(user), token };
   } catch (err) {
@@ -114,8 +150,9 @@ export async function login(
     throw new HttpError(401, "invalid_credentials", "Invalid email or password");
   }
 
-  const token = signAccessToken(user.id);
-  return { user: toPublicUser(user), token };
+  const granted = await applyAdminEmailGrant(user);
+  const token = signAccessToken(granted.id);
+  return { user: toPublicUser(granted), token };
 }
 
 export async function getUserById(userId: string): Promise<PublicUser> {

@@ -7,7 +7,7 @@ import {
   setBroadcaster,
 } from "../../../src/socket/broadcaster-registry.ts";
 import type { LobbyJoinAck } from "../../../src/socket/handlers/lobby.ts";
-import { registerUser } from "../../setup/auth.ts";
+import { registerAdminUser, registerUser } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 import { bearer, getAgent, type ApiAgent } from "../../setup/http.ts";
 import {
@@ -22,6 +22,11 @@ import * as lobbyService from "../../../src/services/lobby-service.ts";
 interface UserToken {
   userId: string;
   token: string;
+}
+
+async function registerAdminWithToken(): Promise<UserToken> {
+  const { user } = await registerAdminUser();
+  return { userId: user.id, token: signAccessToken(user.id) };
 }
 
 async function registerWithToken(): Promise<UserToken> {
@@ -46,7 +51,7 @@ describe("socket lobby.config push", () => {
     // Set up two users in the same lobby through the service layer (faster
     // than going through HTTP + auth for the prep work). The broadcasts
     // from these calls are harmless: no socket has joined the room yet.
-    host = await registerWithToken();
+    host = await registerAdminWithToken();
     member = await registerWithToken();
     const lobby = await lobbyService.createLobby(host.userId);
     lobbyId = lobby.id;

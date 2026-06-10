@@ -1,6 +1,6 @@
 import type { TeamAssignmentMode } from "../../src/models/lobby.ts";
 import * as lobbyService from "../../src/services/lobby-service.ts";
-import { registerUser } from "./auth.ts";
+import { registerUser, setUserAdmin } from "./auth.ts";
 
 export interface LobbyPlayersFixture {
   lobbyId: string;
@@ -26,6 +26,7 @@ export async function createLobbyWithFourPlayers(options?: {
   ]);
 
   const hostId = users[0]!.user.id;
+  await setUserAdmin(hostId);
   const lobby = await lobbyService.createLobby(hostId, {
     teamAssignmentMode: options?.teamAssignmentMode ?? "pick",
     defaultStartNodeCode: options?.defaultStartNodeCode,

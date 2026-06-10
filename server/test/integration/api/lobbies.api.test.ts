@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { registerViaApi } from "../../setup/auth.ts";
+import { registerAdminViaApi, registerViaApi } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 import { bearer, getAgent } from "../../setup/http.ts";
 
@@ -14,9 +14,9 @@ describe("POST /api/lobbies", () => {
     expect(res.status).toBe(401);
   });
 
-  it("creates a lobby for the authenticated host", async () => {
+  it("creates a lobby for an admin user", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
 
     const res = await agent
       .post("/api/lobbies")
@@ -33,7 +33,7 @@ describe("POST /api/lobbies", () => {
 
   it("accepts slotsPerNode and visibilityPhaseCount overrides on create", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
 
     const res = await agent
       .post("/api/lobbies")
@@ -47,7 +47,7 @@ describe("POST /api/lobbies", () => {
 
   it("rejects non-positive slotsPerNode on create", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
 
     const res = await agent
       .post("/api/lobbies")
@@ -56,6 +56,19 @@ describe("POST /api/lobbies", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("validation_error");
+  });
+
+  it("rejects create from a non-admin user", async () => {
+    const agent = await getAgent();
+    const user = await registerViaApi(agent);
+
+    const res = await agent
+      .post("/api/lobbies")
+      .set(bearer(user.token))
+      .send({ teamAssignmentMode: "pick" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("forbidden");
   });
 });
 
@@ -66,7 +79,7 @@ describe("GET /api/lobbies/:id", () => {
 
   it("returns 403 for a non-member", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
     const outsider = await registerViaApi(agent);
 
     const created = await agent
@@ -90,7 +103,7 @@ describe("PATCH /api/lobbies/:id/config", () => {
 
   it("returns 403 when a guest tries to update config", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
     const guest = await registerViaApi(agent);
 
     const created = await agent
@@ -113,7 +126,7 @@ describe("PATCH /api/lobbies/:id/config", () => {
 
   it("host can patch slotsPerNode and visibilityPhaseCount", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
 
     const created = await agent
       .post("/api/lobbies")
@@ -133,7 +146,7 @@ describe("PATCH /api/lobbies/:id/config", () => {
 
   it("host can patch visibilityMode", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
 
     const created = await agent
       .post("/api/lobbies")
@@ -153,7 +166,7 @@ describe("PATCH /api/lobbies/:id/config", () => {
 
   it("rejects a bogus visibilityMode with 400 validation_error", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
 
     const created = await agent
       .post("/api/lobbies")
@@ -172,7 +185,7 @@ describe("PATCH /api/lobbies/:id/config", () => {
 
   it("returns 400 visibility_knob_locked when patching a phase knob in slot mode", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
 
     const created = await agent
       .post("/api/lobbies")
@@ -197,13 +210,13 @@ describe("lobby flow through start", () => {
 
   it("starts a game when four players have picked distinct teams", async () => {
     const agent = await getAgent();
+    const host = await registerAdminViaApi(agent);
     const players = await Promise.all([
-      registerViaApi(agent),
+      Promise.resolve(host),
       registerViaApi(agent),
       registerViaApi(agent),
       registerViaApi(agent),
     ]);
-    const host = players[0]!;
 
     const created = await agent
       .post("/api/lobbies")
@@ -239,5 +252,43 @@ describe("lobby flow through start", () => {
     expect(started.status).toBe(201);
     expect(started.body.status).toBe("active");
     expect(started.body.gameId).toBeTruthy();
+  });
+
+  it("rejects start from a non-admin user", async () => {
+    const agent = await getAgent();
+    const host = await registerAdminViaApi(agent);
+    const players = await Promise.all([
+      Promise.resolve(host),
+      registerViaApi(agent),
+      registerViaApi(agent),
+      registerViaApi(agent),
+    ]);
+
+    const created = await agent
+      .post("/api/lobbies")
+      .set(bearer(host.token))
+      .send({ teamAssignmentMode: "pick" });
+
+    const lobbyId = created.body.lobby.id as string;
+
+    for (let i = 1; i < 4; i += 1) {
+      await agent
+        .post(`/api/lobbies/${lobbyId}/join`)
+        .set(bearer(players[i]!.token));
+    }
+
+    for (let i = 0; i < 4; i += 1) {
+      await agent
+        .post(`/api/lobbies/${lobbyId}/team`)
+        .set(bearer(players[i]!.token))
+        .send({ teamSlot: i + 1 });
+    }
+
+    const started = await agent
+      .post(`/api/lobbies/${lobbyId}/start`)
+      .set(bearer(players[1]!.token));
+
+    expect(started.status).toBe(403);
+    expect(started.body.error).toBe("forbidden");
   });
 });

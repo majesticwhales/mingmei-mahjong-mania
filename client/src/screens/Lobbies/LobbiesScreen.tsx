@@ -1,9 +1,10 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../state/auth/hooks";
+import { useAuth, useIsAdmin } from "../../state/auth/hooks";
 
 export function LobbiesScreen() {
   const { state, logout } = useAuth();
+  const isAdmin = useIsAdmin();
   const navigate = useNavigate();
   const [lobbyId, setLobbyId] = useState("");
 
@@ -25,13 +26,15 @@ export function LobbiesScreen() {
         </button>
       </header>
       <h1 className="screen__title">Lobbies</h1>
-      <button
-        type="button"
-        className="btn btn--primary btn--block"
-        onClick={() => navigate("/lobbies/new", { replace: false })}
-      >
-        + Create new lobby
-      </button>
+      {isAdmin ? (
+        <button
+          type="button"
+          className="btn btn--primary btn--block"
+          onClick={() => navigate("/lobbies/new", { replace: false })}
+        >
+          + Create new lobby
+        </button>
+      ) : null}
       <form className="form form--inline" onSubmit={handleJoin}>
         <h2 className="form__section-title">Join existing lobby</h2>
         <label className="form__field">
