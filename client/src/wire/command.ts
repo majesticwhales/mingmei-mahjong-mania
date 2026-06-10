@@ -6,7 +6,11 @@ export type CommandType =
   | "CHECK_IN"
   | "CHECK_OUT"
   | "SWAP_TILE"
-  | "SWAP_LOCATION_TILES";
+  | "SWAP_LOCATION_TILES"
+  | "START_CHALLENGE"
+  | "CHALLENGE_COMPLETED"
+  | "CHALLENGE_FORFEITED"
+  | "CLAIM_WIN";
 
 export interface GameCommandPayload {
   gameId: string;

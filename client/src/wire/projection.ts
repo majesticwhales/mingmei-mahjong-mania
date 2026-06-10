@@ -84,6 +84,45 @@ export interface FinalYakuDto {
 }
 
 /**
+ * Phase I scoring identity. Used inside `handAnalysis.waits[].tile` to
+ * identify a wait tile by `(suit, rank, copyIndex)` so the client can
+ * cross-reference it against the station tiles in `atStation`.
+ */
+export interface ScoringTileDto {
+  suit: string;
+  rank: number;
+  copyIndex: number;
+}
+
+/**
+ * Phase I — a single wait the scoring orchestrator surfaces for a
+ * 13-tile tenpai hand. Mirrors `AnalyzedWait` in
+ * `server/src/scoring/orchestrator.ts`. Consumed by `ClaimWinModal`
+ * to decide which station tiles flip the affordance from "Swap" to
+ * "Claim".
+ */
+export interface AnalyzedWaitDto {
+  tile: ScoringTileDto;
+  han: number;
+  fu: number;
+  points: number;
+  yaku: FinalYakuDto[];
+  isYakuman: boolean;
+}
+
+/**
+ * Phase I — full output of `analyzeHand` for the team's hand. Present
+ * when the hand has 13 or 14 tiles (the only sizes the scoring module
+ * supports); `undefined` otherwise.
+ */
+export interface AnalyzeHandResultDto {
+  /** `-1` winning, `0` tenpai, `1+` away from tenpai. */
+  shanten: number;
+  /** Present when `shanten <= 0`; absent otherwise. */
+  waits?: AnalyzedWaitDto[];
+}
+
+/**
  * Phase J: snapshot of the requesting team's completed hand. Populated
  * only on the projection of the team that successfully `CLAIM_WIN`-ed;
  * remains `null` for other teams' projections.
@@ -125,7 +164,7 @@ export interface GameStateProjection {
   roundWind: number;
   seatWind: number;
   doraIndicator: TileDto | null;
-  handAnalysis?: Record<string, unknown>;
+  handAnalysis?: AnalyzeHandResultDto;
   /** Phase J: requesting team's hand-completed snapshot, or `null` if not completed. */
   handCompleted: HandCompletedDto | null;
   /** Phase J: completion-order roster across every team in the game. */

@@ -13,10 +13,17 @@ interface Props {
   commandsPending?: boolean;
   checkInPending?: boolean;
   commandsDisabled?: boolean;
+  /**
+   * Phase J — when `true`, show a "Claim hand" button alongside Swap.
+   * The parent decides this from `(handAnalysis.shanten === 0 && some
+   * station tile matches a wait)`; the panel only renders.
+   */
+  canClaimWin?: boolean;
   onClose: () => void;
   onCheckIn: (nodeId: string) => void;
   onCheckOut: () => void;
   onSwapTile: () => void;
+  onClaimWin?: () => void;
 }
 
 function tilesBySlot(tiles: SlotTileDto[] | undefined, single?: TileDto) {
@@ -114,10 +121,12 @@ export function StationPanel({
   commandsPending = false,
   checkInPending = false,
   commandsDisabled = false,
+  canClaimWin = false,
   onClose,
   onCheckIn,
   onCheckOut,
   onSwapTile,
+  onClaimWin,
 }: Props) {
   const isOpen = Boolean(viewingNode);
   const checkedInId = atStation?.nodeId ?? null;
@@ -214,6 +223,16 @@ export function StationPanel({
             >
               Swap tile
             </button>
+            {canClaimWin && onClaimWin && (
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={actionsDisabled}
+                onClick={onClaimWin}
+              >
+                Claim hand
+              </button>
+            )}
             <button
               type="button"
               className="btn btn--danger"
