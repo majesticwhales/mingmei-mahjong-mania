@@ -137,11 +137,18 @@ export function GameSummaryScreen() {
   const { leaveGame } = useGame();
   const gameTeamId = useGameTeamId();
   const [fetchState, setFetchState] = useState<FetchState>({ status: "loading" });
+  // Reset to the loading state during render when the route id changes,
+  // rather than via a synchronous setState in the fetch effect. See
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [trackedId, setTrackedId] = useState(id);
+  if (trackedId !== id) {
+    setTrackedId(id);
+    setFetchState({ status: "loading" });
+  }
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
-    setFetchState({ status: "loading" });
     restClient
       .getGameSummary(id)
       .then((summary) => {

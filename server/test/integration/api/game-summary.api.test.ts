@@ -24,7 +24,10 @@ import { bearer, getAgent, type ApiAgent } from "../../setup/http.ts";
  * Mint a 13-tile hand for the given team from the seeded `tile_types`
  * catalog. Mirrors `placeHandTiles` in `claim-win.test.ts`. Used to
  * craft a tenpai hand for the noten-with-waits coverage; we duplicate
- * here to keep the test self-contained.
+ * here to keep the test self-contained. Callers must pass the same
+ * `tiles` set as `reservedTileTypes` to `setupLightweightGame` so the
+ * fixture's auto-dealer doesn't pre-mint a conflicting `game_tile`
+ * row and trip `game_tiles_game_type_copy_unique`.
  */
 async function placeHandTiles(
   gameId: string,
@@ -55,6 +58,29 @@ async function placeHandTiles(
 }
 
 /**
+ * The 13 tile-types making up the canonical shanpon-tenpai hand below.
+ * Exposed so the test can pass the same set as `reservedTileTypes` to
+ * `setupLightweightGame`, preventing the fixture's auto-dealer from
+ * minting colliding `game_tiles` for these `(suit, rank, copyIndex)`
+ * triples when `handTilesBySlot` is set.
+ */
+const SHANPON_TENPAI_TILES: ReadonlyArray<readonly [string, number, number]> = [
+  ["man", 2, 0],
+  ["man", 3, 0],
+  ["man", 4, 0],
+  ["pin", 2, 0],
+  ["pin", 3, 0],
+  ["pin", 4, 0],
+  ["sou", 2, 0],
+  ["sou", 3, 0],
+  ["sou", 4, 0],
+  ["pin", 5, 1],
+  ["pin", 5, 2],
+  ["pin", 8, 0],
+  ["pin", 8, 1],
+];
+
+/**
  * Canonical shanpon-tenpai hand from the chunk-2 claim-win suite:
  * `234m 234p 234s 55p 88p`, 13 tiles, wait on 5p / 8p. We re-seed it
  * here so the summary endpoint can demonstrate `waits[]` over a known
@@ -64,21 +90,7 @@ async function seedShanponTenpai(
   gameId: string,
   gameTeamId: string,
 ): Promise<void> {
-  await placeHandTiles(gameId, gameTeamId, [
-    ["man", 2, 0],
-    ["man", 3, 0],
-    ["man", 4, 0],
-    ["pin", 2, 0],
-    ["pin", 3, 0],
-    ["pin", 4, 0],
-    ["sou", 2, 0],
-    ["sou", 3, 0],
-    ["sou", 4, 0],
-    ["pin", 5, 1],
-    ["pin", 5, 2],
-    ["pin", 8, 0],
-    ["pin", 8, 1],
-  ]);
+  await placeHandTiles(gameId, gameTeamId, SHANPON_TENPAI_TILES);
 }
 
 async function insertGameEndJob(gameId: string): Promise<void> {
@@ -175,6 +187,12 @@ describe("GET /api/games/:id/summary", () => {
           ],
         },
       ],
+      // Reserve the shanpon-tenpai tile-types so the auto-dealer feeding
+      // `handTilesBySlot: { 1: 1, 3: 5 }` doesn't snipe a row that
+      // `seedShanponTenpai(slot 2)` then tries to insert; without this,
+      // the manual `GameTile.create` below trips
+      // `game_tiles_game_type_copy_unique`.
+      reservedTileTypes: SHANPON_TENPAI_TILES,
     });
     // Slot 2: build the shanpon-tenpai hand so the service runs
     // analyzeHand and surfaces `waits[]`.

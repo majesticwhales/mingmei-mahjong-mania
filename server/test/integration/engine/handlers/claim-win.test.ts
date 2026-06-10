@@ -28,7 +28,10 @@ import { getSequelize, truncateMutableTables } from "../../../setup/db.ts";
  * rows pointing at the matching `tile_types` row. Mirrors the
  * `placeHandTiles` helper from the projection tests so this suite can
  * craft a known tenpai hand without reaching into the lightweight
- * fixture's random tile-type stream.
+ * fixture's random tile-type stream. Callers must pass the same
+ * `tiles` set as `reservedTileTypes` to `setupLightweightGame` so the
+ * fixture's auto-dealer doesn't pre-mint a conflicting `game_tile`
+ * row and trip `game_tiles_game_type_copy_unique`.
  */
 async function placeHandTiles(
   gameId: string,
@@ -99,6 +102,21 @@ async function placeStationTile(args: {
 }
 
 /**
+ * The 13 tile-types making up the canonical shanpon-tenpai hand below.
+ * Exposed as a constant so tests can pass the same set as
+ * `reservedTileTypes` to `setupLightweightGame` — the lightweight
+ * fixture's auto-dealer would otherwise mint colliding `game_tiles`
+ * from this prefix of the catalog when `handTilesBySlot` is set.
+ */
+const SHANPON_TENPAI_TILES: ReadonlyArray<readonly [string, number, number]> = [
+  ["man", 2, 0], ["man", 3, 0], ["man", 4, 0],
+  ["pin", 2, 0], ["pin", 3, 0], ["pin", 4, 0],
+  ["sou", 2, 0], ["sou", 3, 0], ["sou", 4, 0],
+  ["pin", 5, 1], ["pin", 5, 2],
+  ["pin", 8, 0], ["pin", 8, 1],
+];
+
+/**
  * Seed the canonical shanpon-tenpai hand used by the happy-path tests
  * — `234m 234p 234s 55p 88p` (13 tiles), wait on 5p / 8p. Tanyao +
  * sanshoku-doujun + (yakuhai-free shape), three-han with a fourth from
@@ -108,13 +126,7 @@ async function seedShanponTenpai(
   gameId: string,
   gameTeamId: string,
 ): Promise<void> {
-  await placeHandTiles(gameId, gameTeamId, [
-    ["man", 2, 0], ["man", 3, 0], ["man", 4, 0],
-    ["pin", 2, 0], ["pin", 3, 0], ["pin", 4, 0],
-    ["sou", 2, 0], ["sou", 3, 0], ["sou", 4, 0],
-    ["pin", 5, 1], ["pin", 5, 2],
-    ["pin", 8, 0], ["pin", 8, 1],
-  ]);
+  await placeHandTiles(gameId, gameTeamId, SHANPON_TENPAI_TILES);
 }
 
 describe("CLAIM_WIN handler", () => {
@@ -534,6 +546,9 @@ describe("CLAIM_WIN handler", () => {
         { slot: 2, finalPoints: 2000 },
         { slot: 3, finalPoints: 3000 },
       ],
+      // Reserve every tile we'll plant by hand below so the fixture's
+      // auto-dealer doesn't snipe one of them for `handTilesBySlot`.
+      reservedTileTypes: [...SHANPON_TENPAI_TILES, ["pin", 8, 2]],
     });
     const claimant = fixture.participants.find((p) => p.teamSlot === 4)!;
     const bayId = fixture.nodeIdByCode.get("bay")!;
@@ -594,6 +609,8 @@ describe("CLAIM_WIN handler", () => {
         { slot: 2, finalPoints: 2000 },
         { slot: 3, finalPoints: 3000 },
       ],
+      // Same auto-dealer collision avoidance as the prior test.
+      reservedTileTypes: [...SHANPON_TENPAI_TILES, ["pin", 8, 2]],
     });
     const claimant = fixture.participants.find((p) => p.teamSlot === 4)!;
     const bayId = fixture.nodeIdByCode.get("bay")!;

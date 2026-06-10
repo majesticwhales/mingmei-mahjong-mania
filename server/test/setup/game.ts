@@ -1,4 +1,4 @@
-import { QueryTypes, type Transaction } from "sequelize";
+import { Op, QueryTypes, type Transaction } from "sequelize";
 import type { VisibilityMode } from "../../src/game/visibility-mode.ts";
 import { GAME_TEAM_SLOTS, type GameTeamSlot } from "../../src/services/even-team-assignment.ts";
 import { cloneMapTemplateToGame } from "../../src/services/map-clone-service.ts";
@@ -466,6 +466,21 @@ export interface LightweightGameOptions {
         finalPoints?: number;
         finalYakuKeys?: { name: string; han: number }[];
       }>;
+  /**
+   * Tile-types (specified as `[suit, rank, copyIndex]` triples) the
+   * caller plans to mint by hand later (e.g. via a test-local
+   * `placeHandTiles` helper that builds a deterministic tenpai shape).
+   * Filtered out of the auto-deal pool used by `handTilesBySlot` and
+   * `nodeTilesByCode` so the caller's subsequent `GameTile.create`
+   * calls don't collide with the fixture on
+   * `game_tiles_game_type_copy_unique`.
+   *
+   * Note: the pool ordering still puts the remaining tile-types in
+   * `id ASC`; this option only thins it. Callers reserving more rows
+   * than `tile_types.length - (sum of handTilesBySlot + nodeTilesByCode)`
+   * will trip the catalog-size check below.
+   */
+  reservedTileTypes?: ReadonlyArray<readonly [string, number, number]>;
 }
 
 export interface LightweightGameFixture {
@@ -516,6 +531,7 @@ export async function setupLightweightGame(
     options.slotMapVisible ?? new Array(slotsPerNode).fill(true);
   const visibilityMode = options.visibilityMode ?? "both";
   const markTeamHandCompleted = options.markTeamHandCompleted;
+  const reservedTileTypes = options.reservedTileTypes ?? [];
 
   if (slotUnlockOffsetsSeconds.length !== slotsPerNode) {
     throw new Error(
@@ -696,7 +712,37 @@ export async function setupLightweightGame(
     }
 
     let tileTypeOffset = 0;
-    const tileTypeIds = await getTileTypeIds();
+    const fullTileTypeIds = await getTileTypeIds();
+    // Phase J — when the caller plans to manually mint tiles for a
+    // specific `(suit, rank, copyIndex)` set (e.g. `seedShanponTenpai`
+    // for the claim-win + summary suites), thin the auto-deal pool so
+    // the fixture's `handTilesBySlot` / `nodeTilesByCode` rows don't
+    // collide with those manual inserts on
+    // `game_tiles_game_type_copy_unique`. The reservation is by
+    // tile-type id, looked up by `(suit, rank, copyIndex)` against the
+    // catalog inside the same transaction so the WHERE-clause matches
+    // existing rows exactly.
+    let reservedIds = new Set<string>();
+    if (reservedTileTypes.length > 0) {
+      const reservedRows = await TileType.findAll({
+        where: {
+          [Op.or]: reservedTileTypes.map(([suit, rank, copyIndex]) => ({
+            suit,
+            rank,
+            copyIndex,
+          })),
+        },
+        attributes: ["id"],
+        transaction,
+      });
+      reservedIds = new Set(reservedRows.map((r) => r.id));
+      if (reservedRows.length !== reservedTileTypes.length) {
+        throw new Error(
+          `setupLightweightGame: reservedTileTypes asked for ${reservedTileTypes.length} tile-type rows but the catalog only matched ${reservedRows.length}; did the seed run?`,
+        );
+      }
+    }
+    const tileTypeIds = fullTileTypeIds.filter((id) => !reservedIds.has(id));
     const totalRequested =
       Object.values(handTilesBySlot).reduce<number>(
         (sum, n) => sum + (n ?? 0),
@@ -705,7 +751,7 @@ export async function setupLightweightGame(
       Object.values(nodeTilesByCode).reduce<number>((sum, n) => sum + n, 0);
     if (totalRequested > tileTypeIds.length) {
       throw new Error(
-        `setupLightweightGame: requested ${totalRequested} tiles but the catalog only has ${tileTypeIds.length}`,
+        `setupLightweightGame: requested ${totalRequested} tiles but the catalog only has ${tileTypeIds.length} (after reserving ${reservedIds.size})`,
       );
     }
 
