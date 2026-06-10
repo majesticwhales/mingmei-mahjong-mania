@@ -65,7 +65,7 @@ export async function startFromLobby(
       LobbyTeamAssignment.findAll({ where: { lobbyId } }),
       TeamDefinition.findAll({ order: [["sortOrder", "ASC"]] }),
       MapTemplate.findByPk(lobby.mapTemplateId),
-      User.findByPk(hostUserId),
+      User.findByPk(lobby.hostUserId),
     ]);
   const relaxLobbyStart = isRelaxLobbyStart(host?.username);
 
