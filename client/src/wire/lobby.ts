@@ -48,6 +48,8 @@ export interface LobbyDetailDto {
   id: string;
   status: LobbyStatus;
   hostUserId: string;
+  /** Id of the game spawned from this lobby once the host starts it; null while still `waiting`. */
+  gameId: string | null;
   config: LobbyConfigDto;
   members: LobbyMemberDto[];
   readiness: LobbyReadinessDto;

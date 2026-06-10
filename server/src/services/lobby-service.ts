@@ -5,6 +5,7 @@ import {
   type VisibilityMode,
 } from "../game/visibility-mode.ts";
 import { HttpError } from "../lib/http-error.ts";
+import { Game } from "../models/game.ts";
 import { Lobby, type TeamAssignmentMode } from "../models/lobby.ts";
 import { LobbyMember } from "../models/lobby-member.ts";
 import { LobbyNotification } from "../models/lobby-notification.ts";
@@ -117,7 +118,7 @@ async function loadLobbyBundle(lobbyId: string) {
   if (!lobby) {
     throw new HttpError(404, "not_found", "Lobby not found");
   }
-  const [members, teamAssignments, notificationRows] = await Promise.all([
+  const [members, teamAssignments, notificationRows, game] = await Promise.all([
     LobbyMember.findAll({ where: { lobbyId } }),
     LobbyTeamAssignment.findAll({ where: { lobbyId } }),
     LobbyNotification.findAll({
@@ -127,12 +128,14 @@ async function loadLobbyBundle(lobbyId: string) {
         ["createdAt", "ASC"],
       ],
     }),
+    Game.findOne({ where: { lobbyId }, attributes: ["id"] }),
   ]);
   const userIds = [...new Set(members.map((m) => m.userId))];
   const users = await User.findAll({ where: { id: userIds } });
   const usersById = new Map(users.map((u) => [u.id, u]));
   const notifications = notificationRows.map(serializeLobbyNotification);
-  return { lobby, members, teamAssignments, usersById, notifications };
+  const gameId = game?.id ?? null;
+  return { lobby, members, teamAssignments, usersById, notifications, gameId };
 }
 
 function assertLobbyWaiting(lobby: Lobby) {
@@ -535,13 +538,16 @@ export async function createLobby(
     // A freshly-created lobby has no notifications yet, so we can skip
     // the extra query and pass `[]` directly. `loadLobbyBundle` is the
     // path that's exercised after this when the host calls
-    // `addLobbyNotification` and the bundle gets re-read.
+    // `addLobbyNotification` and the bundle gets re-read. There's also
+    // no `games` row yet — `gameId` only becomes non-null after
+    // `startFromLobby` commits.
     return serializeLobbyDetail(
       lobby,
       members,
       teamAssignments,
       usersById,
       [],
+      null,
     );
   });
 }
@@ -550,7 +556,7 @@ export async function getLobbyForUser(
   lobbyId: string,
   userId: string,
 ): Promise<LobbyDetailDto> {
-  const { lobby, members, teamAssignments, usersById, notifications } =
+  const { lobby, members, teamAssignments, usersById, notifications, gameId } =
     await loadLobbyBundle(lobbyId);
   assertIsMember(members, userId);
   return serializeLobbyDetail(
@@ -559,6 +565,7 @@ export async function getLobbyForUser(
     teamAssignments,
     usersById,
     notifications,
+    gameId,
   );
 }
 
@@ -575,7 +582,7 @@ export async function getLobbyForUser(
 export async function getLobbyDetail(
   lobbyId: string,
 ): Promise<LobbyDetailDto> {
-  const { lobby, members, teamAssignments, usersById, notifications } =
+  const { lobby, members, teamAssignments, usersById, notifications, gameId } =
     await loadLobbyBundle(lobbyId);
   return serializeLobbyDetail(
     lobby,
@@ -583,6 +590,7 @@ export async function getLobbyDetail(
     teamAssignments,
     usersById,
     notifications,
+    gameId,
   );
 }
 
@@ -590,7 +598,7 @@ export async function joinLobby(
   lobbyId: string,
   userId: string,
 ): Promise<LobbyDetailDto> {
-  const { lobby, members, teamAssignments, usersById, notifications } =
+  const { lobby, members, teamAssignments, usersById, notifications, gameId } =
     await loadLobbyBundle(lobbyId);
   assertLobbyWaiting(lobby);
 
@@ -604,6 +612,7 @@ export async function joinLobby(
       teamAssignments,
       usersById,
       notifications,
+      gameId,
     );
   }
 

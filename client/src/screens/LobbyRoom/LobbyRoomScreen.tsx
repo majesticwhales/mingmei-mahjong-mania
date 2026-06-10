@@ -41,6 +41,22 @@ export function LobbyRoomScreen() {
     void loadLobby(id);
   }, [id, loadLobby, createLobby, navigate]);
 
+  // Auto-navigate every lobby member (host included) to the game screen
+  // once the server flips the lobby out of `waiting` and the `lobby.config`
+  // broadcast carries a non-null `gameId`. This is what makes non-host
+  // clients leave the lobby UI when the host clicks Start — the host's
+  // own REST-driven `navigate` in `handleStart` is then just a redundant
+  // safety net for the same gameId.
+  const targetGameId =
+    state.status === "ready" && state.lobby.status !== "waiting"
+      ? state.lobby.gameId
+      : null;
+  useEffect(() => {
+    if (targetGameId) {
+      navigate(`/games/${targetGameId}`);
+    }
+  }, [targetGameId, navigate]);
+
   const myTeamSlot = useMemo(() => {
     if (authState.status !== "authenticated" || state.status !== "ready") return null;
     return (
