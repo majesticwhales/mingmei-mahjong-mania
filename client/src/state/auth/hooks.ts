@@ -21,3 +21,11 @@ export function useRequireAuth() {
   }
   return state;
 }
+
+export function useIsAdmin() {
+  const { state } = useAuth();
+  if (state.status !== "authenticated") {
+    return false;
+  }
+  return state.user.isAdmin;
+}

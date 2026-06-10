@@ -7,6 +7,7 @@ import { authProtectedRouter, authPublicRouter } from "./routes/auth.ts";
 import { gamesRouter } from "./routes/games.ts";
 import { lobbiesRouter } from "./routes/lobbies.ts";
 import { getDefaultNetwork, mapTemplatesRouter } from "./routes/map-templates.ts";
+import { mountClientStatic } from "./static-client.ts";
 
 export const app = express();
 
@@ -36,5 +37,7 @@ app.use("/api/map-templates", mapTemplatesRouter);
 app.use("/api/auth", requireAuth, authProtectedRouter);
 app.use("/api/lobbies", requireAuth, lobbiesRouter);
 app.use("/api/games", requireAuth, gamesRouter);
+
+mountClientStatic(app);
 
 app.use(errorHandler);

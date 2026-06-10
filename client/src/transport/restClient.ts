@@ -205,6 +205,13 @@ export const restClient = {
       body,
     });
   },
+  endGame(gameId: string) {
+    return request<{ status: "ended" }>({
+      method: "POST",
+      path: `/api/games/${gameId}/end`,
+      body: {},
+    });
+  },
 };
 
 export { AUTH_STORAGE_KEY };

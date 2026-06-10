@@ -28,6 +28,7 @@ const lobby: LobbyDetailDto = {
     reasons: [],
     memberCount: 1,
     minPlayersToStart: 4,
+    soloStartAllowed: false,
     playersPerTeam: { "1": 0, "2": 0, "3": 0, "4": 0 },
     missingTeams: [1, 2, 3, 4],
     unassignedCount: 1,

@@ -20,6 +20,7 @@ import { Lobby } from "../../../src/models/lobby.ts";
 import { MapTemplateNode } from "../../../src/models/map-template-node.ts";
 import { MapTemplateNodeChallenge } from "../../../src/models/map-template-node-challenge.ts";
 import { createLobbyWithFourPlayers } from "../../setup/lobby.ts";
+import { registerUser } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 
 const START_TEST_DECK_CODE = "start-test-deck";
@@ -64,30 +65,27 @@ describe("startFromLobby", () => {
     expect(lobby?.status).toBe("closed");
     expect(tileCount).toBe(136);
     expect(nodeCount).toBe(84);
-    expect(jobCount).toBe(4);
+    expect(jobCount).toBe(3);
 
     const game = await Game.findByPk(result.gameId);
     expect(game?.status).toBe("active");
-    expect(game?.slotsPerNode).toBe(1);
-    expect(game?.visibilityPhaseCount).toBe(4);
+    expect(game?.slotsPerNode).toBe(3);
+    expect(game?.deadWallSize).toBe(15);
+    expect(game?.visibilityPhaseCount).toBe(3);
   });
 
   it("snapshots non-default slotsPerNode and visibilityPhaseCount from the lobby onto the game", async () => {
     const { lobbyId, hostId } = await createLobbyWithFourPlayers();
-    // Pick a configuration that keeps the deal-time invariant satisfied
-    // against the seeded 84-node / 136-tile catalog:
-    //   slots = 1, visibilityPhases = 2 → still 84 × 1 + 13 × 4 = 136.
-    // (slots > 1 against the 84-node template would fail tile-deal validation;
-    // chunk 4 covers that path. Here we only care that the snapshot column
-    // ends up on the Game.)
+    // 23 × 3 + 13 × 4 + 15 = 136 — only visibility phase count changes here.
     await lobbyService.updateConfig(lobbyId, hostId, {
+      visibilityMode: "phase",
       visibilityPhaseCount: 2,
     });
 
     const result = await startFromLobby(lobbyId, hostId);
     const game = await Game.findByPk(result.gameId);
 
-    expect(game?.slotsPerNode).toBe(1);
+    expect(game?.slotsPerNode).toBe(3);
     expect(game?.visibilityPhaseCount).toBe(2);
 
     // With N = 2, scheduleGameJobs should produce one VISIBILITY_PHASE_ADVANCE
@@ -277,6 +275,16 @@ describe("startFromLobby", () => {
       const types = jobs.map((j) => j.jobType);
       expect(types).toContain("VISIBILITY_PHASE_ADVANCE");
       expect(types).not.toContain("SLOT_UNLOCKED");
+    });
+  });
+
+  it("rejects non-admin users", async () => {
+    const { lobbyId } = await createLobbyWithFourPlayers();
+    const outsider = await registerUser();
+
+    await expect(startFromLobby(lobbyId, outsider.user.id)).rejects.toMatchObject({
+      status: 403,
+      code: "forbidden",
     });
   });
 });

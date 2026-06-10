@@ -79,7 +79,10 @@ describe("ConfigForm — visibility mode (chunk 6)", () => {
     await userEvent.click(screen.getByRole("button", { name: /save config/i }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave.mock.calls[0]?.[0]).toMatchObject({ visibilityMode: "slot" });
+    const patch = onSave.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(patch).toMatchObject({ visibilityMode: "slot" });
+    expect(patch).not.toHaveProperty("visibilityPhaseCount");
+    expect(patch).not.toHaveProperty("visibilityPhaseIntervalSeconds");
   });
 });
 

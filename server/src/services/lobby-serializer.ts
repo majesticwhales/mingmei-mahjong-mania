@@ -1,5 +1,5 @@
 import type { VisibilityMode } from "../game/visibility-mode.ts";
-import { isDevRelaxLobbyStart } from "../lib/dev-flags.ts";
+import { isRelaxLobbyStart } from "../lib/dev-flags.ts";
 import type { Lobby, LobbyStatus, TeamAssignmentMode } from "../models/lobby.ts";
 import type { LobbyMember } from "../models/lobby-member.ts";
 import type { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
@@ -23,6 +23,8 @@ export interface LobbyReadinessDto {
   reasons: string[];
   memberCount: number;
   minPlayersToStart: number;
+  /** True when dev relax or an allowlisted host may start with fewer players. */
+  soloStartAllowed: boolean;
   /** Player count per team slot 1–4 (picked members only; random pool not included). */
   playersPerTeam: Record<string, number>;
   /** Team slots 1–4 with zero picked players. */
@@ -127,11 +129,13 @@ export function computeReadiness(
   lobby: Lobby,
   members: LobbyMember[],
   teamAssignments: LobbyTeamAssignment[],
+  hostUsername?: string | null,
 ): LobbyReadinessDto {
   const reasons: string[] = [];
   const memberCount = members.length;
   const minPlayersToStart = lobby.minPlayersToStart;
   const mode = lobby.teamAssignmentMode;
+  const soloStartAllowed = isRelaxLobbyStart(hostUsername);
 
   if (lobby.status !== "waiting") {
     reasons.push(`Lobby status is "${lobby.status}", not waiting`);
@@ -146,15 +150,16 @@ export function computeReadiness(
     (team) => playersPerTeam[String(team)] === 0,
   );
 
-  if (isDevRelaxLobbyStart()) {
+  if (soloStartAllowed) {
     if (memberCount < 1) {
-      reasons.push("Need at least 1 player to start (dev mode)");
+      reasons.push("Need at least 1 player to start");
     }
     return {
       ready: reasons.length === 0,
       reasons,
       memberCount,
       minPlayersToStart,
+      soloStartAllowed,
       playersPerTeam,
       missingTeams: [...missingTeams],
       unassignedCount,
@@ -200,6 +205,7 @@ export function computeReadiness(
     reasons,
     memberCount,
     minPlayersToStart,
+    soloStartAllowed,
     playersPerTeam,
     missingTeams: [...missingTeams],
     unassignedCount,
@@ -253,7 +259,12 @@ export function serializeLobbyDetail(
       configUpdatedAt: lobby.configUpdatedAt,
     },
     members: memberDtos,
-    readiness: computeReadiness(lobby, members, teamAssignments),
+    readiness: computeReadiness(
+      lobby,
+      members,
+      teamAssignments,
+      usersById.get(lobby.hostUserId)?.username,
+    ),
     notifications,
   };
 }

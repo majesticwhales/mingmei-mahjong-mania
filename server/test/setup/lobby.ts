@@ -1,6 +1,7 @@
 import type { TeamAssignmentMode } from "../../src/models/lobby.ts";
+import type { VisibilityMode } from "../../src/game/visibility-mode.ts";
 import * as lobbyService from "../../src/services/lobby-service.ts";
-import { registerUser } from "./auth.ts";
+import { registerUser, setUserAdmin } from "./auth.ts";
 
 export interface LobbyPlayersFixture {
   lobbyId: string;
@@ -17,6 +18,8 @@ export async function createLobbyWithFourPlayers(options?: {
    * to fall through to the template's default (`bay` on TTC 2026).
    */
   defaultStartNodeCode?: string | null;
+  visibilityMode?: VisibilityMode;
+  visibilityPhaseCount?: number;
 }): Promise<LobbyPlayersFixture> {
   const users = await Promise.all([
     registerUser(),
@@ -26,9 +29,12 @@ export async function createLobbyWithFourPlayers(options?: {
   ]);
 
   const hostId = users[0]!.user.id;
+  await setUserAdmin(hostId);
   const lobby = await lobbyService.createLobby(hostId, {
     teamAssignmentMode: options?.teamAssignmentMode ?? "pick",
     defaultStartNodeCode: options?.defaultStartNodeCode,
+    visibilityMode: options?.visibilityMode,
+    visibilityPhaseCount: options?.visibilityPhaseCount,
   });
 
   for (let i = 1; i < 4; i += 1) {

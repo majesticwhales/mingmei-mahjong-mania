@@ -5,6 +5,7 @@ import { GameParticipant } from "../models/game-participant.ts";
 import { enqueueCommand } from "../queue/enqueue-command.ts";
 import { triggerGameQueue } from "../queue/worker.ts";
 import { buildGameSummary } from "../services/game-summary-service.ts";
+import { endGameEarly } from "../services/game-end-service.ts";
 
 export const gamesRouter = Router();
 
@@ -64,6 +65,14 @@ function parseOptionalRecord(
  * row. Idempotent retries on a `duplicate` insert do the same trigger;
  * the worker's coalescing guarantees this is cheap.
  */
+gamesRouter.post(
+  "/:id/end",
+  asyncHandler(async (req, res) => {
+    const result = await endGameEarly(req.params.id, req.user!.id);
+    res.json(result);
+  }),
+);
+
 gamesRouter.post(
   "/:id/commands",
   asyncHandler(async (req, res) => {

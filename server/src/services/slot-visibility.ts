@@ -14,8 +14,8 @@
  *      lookup of `games.slot_map_visible[k]`. Slot 0 is always `true` by
  *      column-level invariant. Higher slots may be `false`, meaning their
  *      tile is *never* exposed in `mapNodes[].tiles[]` regardless of fog
- *      phase. (Once unlocked, the tile is still visible via `atStation`
- *      to a checked-in team — see §6.3.)
+ *      phase. Checked-in teams still see every tile at their station via
+ *      `atStation` (see §6.3); swap eligibility uses `isSlotUnlocked`.
  *
  * No DB access here; callers pass the snapshot arrays from `games`. This
  * makes the helper trivially unit-testable and keeps the visibility rules
@@ -151,4 +151,27 @@ export function mapVisibleSlotIndices(
     if (isSlotMapVisible(slotMapVisible, k)) out.push(k);
   }
   return out;
+}
+
+/**
+ * When `visibilityPhaseCount === slotsPerNode`, each visibility phase
+ * reveals exactly one station tile on the map: phase `k` shows slot `k`.
+ * Returns `null` when the static `slot_map_visible` flags should apply.
+ */
+export function phaseDrivenMapVisibleSlotIndices(
+  visibilityPhase: number,
+  slotsPerNode: number,
+  visibilityPhaseCount: number,
+): number[] | null {
+  if (visibilityPhaseCount !== slotsPerNode || slotsPerNode <= 1) {
+    return null;
+  }
+  if (
+    !Number.isInteger(visibilityPhase) ||
+    visibilityPhase < 0 ||
+    visibilityPhase >= slotsPerNode
+  ) {
+    return [];
+  }
+  return [visibilityPhase];
 }

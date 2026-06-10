@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { registerViaApi } from "../../setup/auth.ts";
+import { registerAdminViaApi, registerViaApi } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 import { bearer, getAgent } from "../../setup/http.ts";
 
@@ -28,7 +28,7 @@ describe("lobby notifications API", () => {
 
   it("host can create, list, update, and delete notifications", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
     const lobbyId = await createLobby(host.token);
 
     const created = await agent
@@ -82,7 +82,7 @@ describe("lobby notifications API", () => {
 
   it("rejects mutation from non-host", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
     const guest = await registerViaApi(agent);
     const lobbyId = await createLobby(host.token);
     await agent.post(`/api/lobbies/${lobbyId}/join`).set(bearer(guest.token));
@@ -97,7 +97,7 @@ describe("lobby notifications API", () => {
 
   it("rejects listing from a non-member", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
     const outsider = await registerViaApi(agent);
     const lobbyId = await createLobby(host.token);
 
@@ -109,7 +109,7 @@ describe("lobby notifications API", () => {
 
   it("validates request bodies", async () => {
     const agent = await getAgent();
-    const host = await registerViaApi(agent);
+    const host = await registerAdminViaApi(agent);
     const lobbyId = await createLobby(host.token);
 
     const missingTemplate = await agent

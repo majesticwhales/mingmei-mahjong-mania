@@ -24,6 +24,7 @@ import {
 import { teamCodeToWindRank } from "../scoring/seat-wind.ts";
 import {
   mapVisibleSlotIndices,
+  phaseDrivenMapVisibleSlotIndices,
   unlockedSlotIndices,
 } from "../services/slot-visibility.ts";
 import {
@@ -211,10 +212,20 @@ export interface GameStateProjection {
   /**
    * Earliest pending `VISIBILITY_PHASE_ADVANCE` job's `runAt`, or `null`
    * when none are scheduled (e.g. game is in its terminal phase). The
-   * client uses this for the visibility-countdown banner; no global
-   * `visibilityPhase` is exposed.
+   * client uses this for the visibility-countdown banner.
    */
   nextVisibilityChangeAt: string | null;
+  /** Current visibility phase index `[0, visibilityPhaseCount)`. */
+  visibilityPhase: number;
+  /** Snapshotted phase count; equals `slotsPerNode` in the tile-slot mode. */
+  visibilityPhaseCount: number;
+  /**
+   * When true, the map exposes exactly one station slot per visibility
+   * phase (`visibility_mode` includes `phase` and
+   * `visibilityPhaseCount === slotsPerNode`). The client uses this to
+   * avoid re-filtering tiles that slot-unlock mode already exposes.
+   */
+  phaseDrivenSlotMap: boolean;
   mapNodes: MapNodeDto[];
   mapLines: MapLineDto[];
   mapEdges: MapEdgeDto[];
@@ -494,16 +505,20 @@ export async function buildGameStateProjection(
     }
   }
 
-  // When the slot layer is off, treat every slot as map-visible. The
-  // host can't have flipped any `slot_map_visible[k>0]` to false in
-  // that mode (chunk-2 knob lock), but games that switched mode
-  // mid-flight could still have stale `false` entries from the prior
-  // mode — the projection ignores them so the layout is consistent.
-  const mapVisibleSlots = !slotLayerActive
-    ? Array.from({ length: slotsPerNode }, (_v, k) => k)
-    : multiSlot
-      ? mapVisibleSlotIndices(game.slotMapVisible, slotsPerNode)
-      : [0];
+  const phaseDrivenSlotMap =
+    phaseLayerActive &&
+    phaseDrivenMapVisibleSlotIndices(
+      0,
+      slotsPerNode,
+      game.visibilityPhaseCount,
+    ) != null;
+  const mapVisibleSlots = resolveMapVisibleSlotIndices({
+    game,
+    slotsPerNode,
+    phaseLayerActive,
+    slotLayerActive,
+    nowMs,
+  });
 
   const mapNodes: MapNodeDto[] = nodes.map((node) => {
     const dto: MapNodeDto = {
@@ -586,24 +601,22 @@ export async function buildGameStateProjection(
   const currentChallenge =
     !handCompletedFlag && teamPosition?.currentGameNodeId != null
       ? await buildCurrentChallenge({
-          gameNodeId: teamPosition.currentGameNodeId,
-          gameTeamId,
-          nowMs,
-        })
+        gameNodeId: teamPosition.currentGameNodeId,
+        gameTeamId,
+        nowMs,
+      })
       : null;
 
   const atStation = handCompletedFlag
     ? null
     : buildAtStation({
-        game,
-        teamPosition,
-        nodes,
-        tilesByNodeSlot,
-        multiSlot,
-        nowMs,
-        currentChallenge,
-        slotLayerActive,
-      });
+      game,
+      teamPosition,
+      nodes,
+      tilesByNodeSlot,
+      multiSlot,
+      currentChallenge,
+    });
 
   ownHandTiles.sort(handTileSortComparator);
   const handTiles: HandTileDto[] = ownHandTiles.map((entry, index) => ({
@@ -724,6 +737,9 @@ export async function buildGameStateProjection(
     nextVisibilityChangeAt: phaseLayerActive
       ? nextVisibilityJob?.runAt.toISOString() ?? null
       : null,
+    visibilityPhase: game.visibilityPhase,
+    visibilityPhaseCount: game.visibilityPhaseCount,
+    phaseDrivenSlotMap,
     mapNodes,
     mapLines,
     mapEdges,
@@ -758,21 +774,47 @@ function indicatorToScoringInput(
   ];
 }
 
+function resolveMapVisibleSlotIndices(params: {
+  game: Game;
+  slotsPerNode: number;
+  phaseLayerActive: boolean;
+  slotLayerActive: boolean;
+  nowMs: number;
+}): number[] {
+  const { game, slotsPerNode, phaseLayerActive, slotLayerActive, nowMs } =
+    params;
+
+  if (game.status === "ended") {
+    return Array.from({ length: slotsPerNode }, (_v, k) => k);
+  }
+
+  const phaseDrivenSlots = phaseLayerActive
+    ? phaseDrivenMapVisibleSlotIndices(
+      game.visibilityPhase,
+      slotsPerNode,
+      game.visibilityPhaseCount,
+    )
+    : null;
+  if (phaseDrivenSlots != null) {
+    return phaseDrivenSlots;
+  }
+
+  if (!slotLayerActive) {
+    return Array.from({ length: slotsPerNode }, (_v, k) => k);
+  }
+
+  const allowed = mapVisibleSlotIndices(game.slotMapVisible, slotsPerNode);
+  const unlocked = new Set(unlockedSlotIndices(game, slotsPerNode, nowMs));
+  return allowed.filter((slotIndex) => unlocked.has(slotIndex));
+}
+
 function buildAtStation(params: {
   game: Game;
   teamPosition: GameTeamPosition | null;
   nodes: GameNode[];
   tilesByNodeSlot: Map<string, Map<number, TileDto>>;
   multiSlot: boolean;
-  nowMs: number;
   currentChallenge: AtStationChallengeDto | null;
-  /**
-   * Whether per-slot unlock rules are active (`visibility_mode`
-   * includes `slot`). When false, every slot at the station is
-   * exposed to the checked-in team regardless of the
-   * `slot_unlock_offsets_seconds` snapshot.
-   */
-  slotLayerActive: boolean;
 }): AtStationDto | null {
   const {
     game,
@@ -780,9 +822,7 @@ function buildAtStation(params: {
     nodes,
     tilesByNodeSlot,
     multiSlot,
-    nowMs,
     currentChallenge,
-    slotLayerActive,
   } = params;
   const nodeId = teamPosition?.currentGameNodeId;
   if (!nodeId) {
@@ -802,15 +842,12 @@ function buildAtStation(params: {
   };
 
   if (multiSlot) {
-    // Slot-off games treat every slot index as unlocked at the
-    // station; otherwise we defer to the wall-clock helper that
-    // reads `game.slot_unlock_offsets_seconds`.
-    const unlocked = slotLayerActive
-      ? unlockedSlotIndices(game, game.slotsPerNode, nowMs)
-      : Array.from({ length: game.slotsPerNode }, (_v, k) => k);
+    // Checked-in teams see every tile at the station. Map fog and slot
+    // unlock times still gate what appears on `mapNodes`; swap
+    // eligibility is enforced separately in the engine.
     const entries: SlotTileDto[] = [];
     if (bySlot) {
-      for (const slotIndex of unlocked) {
+      for (let slotIndex = 0; slotIndex < game.slotsPerNode; slotIndex += 1) {
         const tile = bySlot.get(slotIndex);
         if (tile) {
           entries.push({ slotIndex, tile });

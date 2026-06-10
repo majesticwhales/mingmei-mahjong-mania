@@ -54,6 +54,10 @@ export async function createGameShell(
       visibilityPhase: 0,
       visibilityPhaseCount: lobby.visibilityPhaseCount,
       visibilityPhaseIntervalSeconds: lobby.visibilityPhaseIntervalSeconds,
+      slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
+      slotMapVisible: lobby.slotMapVisible,
+      deadWallSize: lobby.deadWallSize,
+      visibilityMode: lobby.visibilityMode,
       configVersion: 1,
     },
     { transaction },
@@ -131,15 +135,21 @@ export interface StartedGameFixture {
 /**
  * Fully bootstrap a started game (lobby → `startFromLobby`). Returns the
  * mapping from team slot to game-team id so engine tests can address a
- * specific team without re-querying. Pass `defaultStartNodeCode: null` to
- * make teams start unchecked (useful for first-CHECK_IN tests); omit to
- * inherit the template default.
+ * specific team without re-querying. Teams always start unchecked; use
+ * `setupLightweightGame({ startNodeCodeBySlot })` when a test needs an
+ * initial check-in without going through `CHECK_IN`.
  */
 export async function setupStartedGame(
-  options: { defaultStartNodeCode?: string | null } = {},
+  options: {
+    defaultStartNodeCode?: string | null;
+    visibilityMode?: import("../../src/game/visibility-mode.ts").VisibilityMode;
+    visibilityPhaseCount?: number;
+  } = {},
 ): Promise<StartedGameFixture> {
   const { lobbyId, hostId, userIds } = await createLobbyWithFourPlayers({
     defaultStartNodeCode: options.defaultStartNodeCode,
+    visibilityMode: options.visibilityMode,
+    visibilityPhaseCount: options.visibilityPhaseCount,
   });
   const { gameId } = await startFromLobby(lobbyId, hostId);
 

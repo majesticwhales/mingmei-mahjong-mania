@@ -102,6 +102,41 @@ describe("computeReadiness", () => {
         [assignment("solo", null)],
       );
       expect(readiness.ready).toBe(true);
+      expect(readiness.soloStartAllowed).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("is ready with one player for allowlisted production hosts", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEV_RELAX_LOBBY_START", "false");
+    try {
+      const readiness = computeReadiness(
+        lobby({ teamAssignmentMode: "pick" }),
+        [member("solo")],
+        [assignment("solo", null)],
+        "waterbug",
+      );
+      expect(readiness.ready).toBe(true);
+      expect(readiness.soloStartAllowed).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("enforces full lobby rules for non-allowlisted production hosts", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEV_RELAX_LOBBY_START", "false");
+    try {
+      const readiness = computeReadiness(
+        lobby({ teamAssignmentMode: "pick" }),
+        [member("solo")],
+        [assignment("solo", null)],
+        "someone_else",
+      );
+      expect(readiness.ready).toBe(false);
+      expect(readiness.soloStartAllowed).toBe(false);
     } finally {
       vi.unstubAllEnvs();
     }

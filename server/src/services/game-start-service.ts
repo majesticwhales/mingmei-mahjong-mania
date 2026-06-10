@@ -13,8 +13,9 @@ import {
 import { bootstrapGameChallenges } from "./game-challenge-bootstrap.ts";
 import { scheduleGameJobs } from "./game-schedule-service.ts";
 import { dealTilesForGame } from "./tile-deal-service.ts";
-import { isDevRelaxLobbyStart } from "../lib/dev-flags.ts";
+import { isRelaxLobbyStart } from "../lib/dev-flags.ts";
 import { HttpError } from "../lib/http-error.ts";
+import { assertIsAdmin } from "./auth-service.ts";
 import { Game } from "../models/game.ts";
 import { GameParticipant } from "../models/game-participant.ts";
 import { GameTeam } from "../models/game-team.ts";
@@ -25,6 +26,7 @@ import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import { MapTemplate } from "../models/map-template.ts";
 import { TeamDefinition } from "../models/team-definition.ts";
 import { getBroadcaster } from "../socket/broadcaster-registry.ts";
+import { User } from "../models/user.ts";
 
 export interface StartGameResult {
   gameId: string;
@@ -37,14 +39,13 @@ export interface StartGameResult {
  */
 export async function startFromLobby(
   lobbyId: string,
-  hostUserId: string,
+  userId: string,
 ): Promise<StartGameResult> {
+  await assertIsAdmin(userId);
+
   const lobby = await Lobby.findByPk(lobbyId);
   if (!lobby) {
     throw new HttpError(404, "not_found", "Lobby not found");
-  }
-  if (lobby.hostUserId !== hostUserId) {
-    throw new HttpError(403, "forbidden", "Only the host can start the game");
   }
   if (lobby.status !== "waiting") {
     throw new HttpError(
@@ -59,13 +60,15 @@ export async function startFromLobby(
     throw new HttpError(409, "game_exists", "This lobby already has a game");
   }
 
-  const [members, teamAssignments, teamDefinitions, mapTemplate] =
+  const [members, teamAssignments, teamDefinitions, mapTemplate, host] =
     await Promise.all([
       LobbyMember.findAll({ where: { lobbyId } }),
       LobbyTeamAssignment.findAll({ where: { lobbyId } }),
       TeamDefinition.findAll({ order: [["sortOrder", "ASC"]] }),
       MapTemplate.findByPk(lobby.mapTemplateId),
+      User.findByPk(lobby.hostUserId),
     ]);
+  const relaxLobbyStart = isRelaxLobbyStart(host?.username);
 
   if (!mapTemplate) {
     throw new HttpError(404, "not_found", "Map template not found");
@@ -78,7 +81,12 @@ export async function startFromLobby(
     );
   }
 
-  const readiness = computeReadiness(lobby, members, teamAssignments);
+  const readiness = computeReadiness(
+    lobby,
+    members,
+    teamAssignments,
+    host?.username,
+  );
   if (!readiness.ready) {
     throw new HttpError(409, "lobby_not_ready", readiness.reasons.join("; "));
   }
@@ -87,13 +95,13 @@ export async function startFromLobby(
     const row = teamAssignments.find((a) => a.userId === member.userId);
     const teamSlot =
       row?.teamSlot ??
-      (isDevRelaxLobbyStart() ? 1 : null);
+      (relaxLobbyStart ? 1 : null);
     return { userId: member.userId, teamSlot };
   });
 
   let resolvedTeams: Map<string, GameTeamSlot>;
   try {
-    const mode = isDevRelaxLobbyStart() ? "pick" : lobby.teamAssignmentMode;
+    const mode = relaxLobbyStart ? "pick" : lobby.teamAssignmentMode;
     resolvedTeams = resolveTeamsForGameStart(mode, assignmentInputs);
   } catch (err) {
     const message =
@@ -220,12 +228,12 @@ export async function startFromLobby(
         startedAt,
         game.visibilityPhaseCount,
         transaction,
+        { slotsPerNode: game.slotsPerNode },
       );
     }
     await bootstrapGameTeamPositionsAndRules(
       game.id,
       gameTeamIdBySlot,
-      lobby.defaultStartNodeCode,
       transaction,
     );
 

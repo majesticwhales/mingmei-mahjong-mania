@@ -125,7 +125,10 @@ describe("VISIBILITY_PHASE_ADVANCE handler", () => {
   });
 
   it("upserts face-up visibility rows for the newly unlocked group", async () => {
-    const { gameId, participants } = await setupStartedGame();
+    const { gameId, participants } = await setupStartedGame({
+      visibilityMode: "phase",
+      visibilityPhaseCount: 4,
+    });
     const gameTeamId = participants[0]!.gameTeamId;
     await clearJobs(gameId);
 
@@ -521,7 +524,10 @@ describe("builtinSchedulerHandlers end-to-end", () => {
   it("drains the full set of jobs scheduled at game start (3 advances + 1 end)", async () => {
     // Intentionally uses `setupStartedGame` because this test asserts the
     // 3 phase-advance + 1 game-end jobs that `startFromLobby` seeds.
-    const { gameId } = await setupStartedGame();
+    const { gameId } = await setupStartedGame({
+      visibilityMode: "phase",
+      visibilityPhaseCount: 4,
+    });
     // The default lobby schedules every job in the future relative to startedAt;
     // pull them into the past so this tick can claim all four at once.
     await GameScheduledJob.update(

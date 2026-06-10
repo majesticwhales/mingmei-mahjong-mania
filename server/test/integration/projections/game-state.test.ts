@@ -301,42 +301,34 @@ describe("buildGameStateProjection", () => {
     );
   });
 
-  it("multi-slot atStation: includes only slots whose unlock offset has elapsed at `now`", async () => {
+  it("multi-slot atStation: reveals every tile at the checked-in station", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["a"],
       startNodeCodeBySlot: { 1: "a" },
       nodeTilesByCode: { a: 2 },
       slotsPerNode: 2,
+      visibilityMode: "slot",
       slotUnlockOffsetsSeconds: [0, 60 * 60],
     });
     const participant = fixture.participants[0]!;
     const slot0Id = fixture.nodeTiles.find((t) => t.slotIndex === 0)!.gameTileId;
     const slot1Id = fixture.nodeTiles.find((t) => t.slotIndex === 1)!.gameTileId;
 
-    const lockedProjection = await buildGameStateProjection(
+    const projection = await buildGameStateProjection(
       fixture.gameId,
       participant.gameTeamId,
       { now: new Date() },
     );
-    expect(lockedProjection.atStation?.tile).toBeUndefined();
-    expect(lockedProjection.atStation?.tiles).toHaveLength(1);
-    expect(lockedProjection.atStation?.tiles![0]!.slotIndex).toBe(0);
-    expect(lockedProjection.atStation?.tiles![0]!.tile.instanceId).toBe(
+    expect(projection.atStation?.tiles).toHaveLength(2);
+    expect(projection.atStation?.tiles?.map((e) => e.slotIndex)).toEqual([0, 1]);
+    expect(projection.atStation?.tiles?.map((e) => e.tile.instanceId)).toEqual([
       slot0Id,
-    );
-
-    const unlockedProjection = await buildGameStateProjection(
-      fixture.gameId,
-      participant.gameTeamId,
-      { now: new Date(Date.now() + 2 * 60 * 60 * 1000) },
-    );
-    expect(unlockedProjection.atStation?.tiles).toHaveLength(2);
+      slot1Id,
+    ]);
+    // Map still respects slot unlock times.
     expect(
-      unlockedProjection.atStation?.tiles?.map((e) => e.slotIndex),
-    ).toEqual([0, 1]);
-    expect(
-      unlockedProjection.atStation?.tiles?.map((e) => e.tile.instanceId),
-    ).toEqual([slot0Id, slot1Id]);
+      projection.mapNodes.find((n) => n.code === "a")!.tiles?.map((t) => t.slotIndex),
+    ).toEqual([0]);
   });
 
   it("nextVisibilityChangeAt: surfaces the earliest pending VISIBILITY_PHASE_ADVANCE runAt", async () => {

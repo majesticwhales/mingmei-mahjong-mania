@@ -113,6 +113,9 @@ export interface GameStateProjection {
   status: GameStatus;
   endsAt: string;
   nextVisibilityChangeAt: string | null;
+  visibilityPhase: number;
+  visibilityPhaseCount: number;
+  phaseDrivenSlotMap: boolean;
   mapNodes: MapNodeDto[];
   mapLines: MapLineDto[];
   mapEdges: MapEdgeDto[];

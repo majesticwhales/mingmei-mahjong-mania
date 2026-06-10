@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { HttpError } from "../../transport/httpError";
-import { useAuth } from "../../state/auth/hooks";
+import { useAuth, useIsAdmin } from "../../state/auth/hooks";
 import { useIsHost, useLobby, useLobbyMembers, useLobbyNotifications } from "../../state/lobby/hooks";
 import { ConfigForm, type ConfigFormHandle } from "./ConfigForm";
 import { MemberList } from "./MemberList";
@@ -26,6 +26,7 @@ export function LobbyRoomScreen() {
     startLobby,
   } = useLobby();
   const isHost = useIsHost();
+  const isAdmin = useIsAdmin();
   const members = useLobbyMembers();
   const notifications = useLobbyNotifications();
   const [starting, setStarting] = useState(false);
@@ -35,11 +36,15 @@ export function LobbyRoomScreen() {
   useEffect(() => {
     if (!id) return;
     if (id === "new") {
+      if (authState.status !== "authenticated" || !authState.user.isAdmin) {
+        navigate("/lobbies", { replace: true });
+        return;
+      }
       void createLobby().then((lobby) => navigate(`/lobbies/${lobby.id}`, { replace: true }));
       return;
     }
     void loadLobby(id);
-  }, [id, loadLobby, createLobby, navigate]);
+  }, [id, loadLobby, createLobby, navigate, authState]);
 
   // Auto-navigate every lobby member (host included) to the game screen
   // once the server flips the lobby out of `waiting` and the `lobby.config`
@@ -138,24 +143,30 @@ export function LobbyRoomScreen() {
             onUpdate={updateNotification}
             onRemove={removeNotification}
           />
-          <button
-            type="button"
-            className="btn btn--primary btn--block"
-            disabled={!lobby.readiness.ready || starting}
-            onClick={handleStart}
-          >
-            {starting ? "Starting…" : "Start game"}
-          </button>
         </>
+      ) : null}
+      {isAdmin ? (
+        <button
+          type="button"
+          className="btn btn--primary btn--block"
+          disabled={!lobby.readiness.ready || starting}
+          onClick={handleStart}
+        >
+          {starting ? "Starting…" : "Start game"}
+        </button>
       ) : (
-        <p className="screen__subtitle">Waiting for host…</p>
+        <p className="screen__subtitle">Waiting for an admin to start the game…</p>
       )}
       {!lobby.readiness.ready && (
         <p className="form__error">{lobby.readiness.reasons.join(" · ")}</p>
       )}
-      {import.meta.env.DEV && lobby.readiness.ready && lobby.readiness.memberCount < 4 && (
-        <p className="screen__subtitle">Dev mode: solo start enabled (server DEV_RELAX_LOBBY_START).</p>
-      )}
+      {lobby.readiness.soloStartAllowed &&
+        lobby.readiness.ready &&
+        lobby.readiness.memberCount < 4 && (
+          <p className="screen__subtitle">
+            Test mode: you can start with fewer than four players.
+          </p>
+        )}
       {error && <p className="form__error">{error}</p>}
     </main>
   );
