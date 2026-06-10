@@ -20,7 +20,7 @@ import { Lobby } from "../../../src/models/lobby.ts";
 import { MapTemplateNode } from "../../../src/models/map-template-node.ts";
 import { MapTemplateNodeChallenge } from "../../../src/models/map-template-node-challenge.ts";
 import { createLobbyWithFourPlayers } from "../../setup/lobby.ts";
-import { registerUser, setUserAdmin } from "../../setup/auth.ts";
+import { registerUser } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 
 const START_TEST_DECK_CODE = "start-test-deck";
