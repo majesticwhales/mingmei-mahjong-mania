@@ -26,6 +26,7 @@ This document defines **infrastructure and architecture** for *mingmei-mahjong-m
 - **Riichi hand evaluation** module (stub → full scoring; see [§3.9](#39-mahjong-hand-evaluation-riichi))
 - **End-game completion mechanic** — a new `CLAIM_WIN` engine command lets a tenpai team take a station tile as their winning 14th tile; the team is then **hand-completed** and locked from further tile-modifying commands. When every team has hand-completed (or the scheduled `GAME_END` fires), the game ends with a per-team scoring snapshot computed via `analyzeHand`. See [§3.10](#310-game-end-and-hand-completion)
 - **Discord integration (per-lobby opt-in)** — a separate `discord-bot` Node process running alongside the main server provisions a per-game category (private team channels + public general + public notifications), bot-posts on every team-visible engine event, and drives the same scheduled notifications the in-app banner shows. Engine writes to a durable `discord_event_outbox` table + `pg_notify`; the bot consumes via `LISTEN` and `discord.js`. See [§3.11](#311-discord-integration-per-lobby-opt-in)
+- **Server-authoritative views + telemetry hardening (Phase L)** — three intertwined moves: every user-driven command optionally carries a `geo` block that the engine stamps onto the event row with a per-command `geolocationWarning` (warn + allow, never rejects); the `game.state` projection pre-resolves slot visibility / lock state so the client renders directly from `mapNodes[].tiles[]` instead of re-deriving phase math; a new `GET /api/games/:id/nodes/:nodeId/view` endpoint serves the per-team station view (visible tiles + available actions with disable reasons) so the StationPanel data flows through one server-resolved surface. See [§3.12](#312-telemetry-geo-on-every-user-driven-command), [§3.13](#313-server-authoritative-tile-visibility), [§3.14](#314-node-view-endpoint)
 
 ### Abstraction layer vs rule layer
 
@@ -90,13 +91,15 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 | Check-in photo | **Deferred (Phase G, post-MVP)** — v1 MVP CHECK_IN is photo-less. Planned post-MVP: **required**; stored in R2; **hidden during game**; **game summary** after end. Schema (`media_assets`) ready; UX + upload pipeline post-MVP. |
 | Media retention | **Deferred (Phase G, post-MVP)** — planned 365 days, then delete (lifecycle rule + sweeper). |
 | Object storage | **Deferred (Phase G, post-MVP)** — planned **Cloudflare R2** (prod), **MinIO** (dev). |
-| Geolocation | Browser API; **warn + allow** on `CHECK_IN` only (Phase F shipped). Two relative checks vs. `game_nodes.geofence_radius_meters` (default 100 m): distance via haversine, and accuracy. Either failure flips `geolocationWarning`; both passing sets `geofenceValidated`. Persisted on `game_team_positions` and lifted onto the CHECK_IN event. The handler never rejects on a warning. |
+| Geolocation | Browser API; **warn + allow** on `CHECK_IN` only (Phase F shipped). Two relative checks vs. `game_nodes.geofence_radius_meters` (default 100 m): distance via haversine, and accuracy. Either failure flips `geolocationWarning`; both passing sets `geofenceValidated`. Persisted on `game_team_positions` and lifted onto the CHECK_IN event. The handler never rejects on a warning. **Phase L extends this to every user-driven command** (warn + allow throughout; off-station commands record geo with no warning since there's no station to compare against). See [§3.12](#312-telemetry-geo-on-every-user-driven-command). |
 | Notifications | Per-lobby `lobby_notifications` rows (`at_seconds`, opaque `template` key, optional `data` JSONB); copied into `game_scheduled_jobs` as `NOTIFICATION` rows at game start; broadcast over Socket |
 | Game end | Drain **in-flight** command queue, then `ended` |
 | Realtime | Commands → queue → engine → `game_events` → broadcast |
 | State storage | Relational tables; JSONB only on events/commands/challenge params/notification data |
 | Hand scoring | **Riichi** ruleset; pure `analyzeHand` module in `server/src/scoring/`. **Shipped (Phase I)**: module + `game.state` projection wiring (`handAnalysis`, `roundWind`, `seatWind`, `doraIndicator`). End-of-game summary integration lands in **Phase J** ([§3.10](#310-game-end-and-hand-completion)). Tile model treats every hand as fully concealed (no calls / kans). Wins are non-dealer tsumo. Round wind randomized per game (persisted on `games.round_wind`); seat wind per team. Red-fives add `+1 han` per copy in the winning hand. Dora indicator from the dead wall (`game_tile_placements.dead_wall_index = 0`) adds `+1 han per matching tile`; like red fives, dora is not itself a yaku. 28 yaku detectors (1–6 han) + 8 yakuman with **additive stacking** for co-firing yakuman. See §3.9. |
 | Discord integration | **Phase K (post-MVP)**, per-lobby opt-in. A separate `discord-bot` Node process running alongside the main server uses Postgres `LISTEN/NOTIFY` + a durable `discord_event_outbox` table to drive side effects: per-game channel category, private team channels, public general + notifications channels, and bot-posted messages on `CHECK_IN`, `START_CHALLENGE`, `CHALLENGE_COMPLETED/FORFEITED`, `CLAIM_WIN_SUCCEEDED`, `GAME_ENDED`, and scheduled notifications. Failure-isolated from the engine — the bot can crash without blocking gameplay. See [§3.11](#311-discord-integration-per-lobby-opt-in). |
+| Server-authoritative views | **Phase L (spec'd)**. Three bug-bash items grouped under one banner: (a) every user-driven command optionally carries `geo` (warn + allow, persisted to `game_team_positions.last_known_*` + lifted onto the event); (b) `GameStateProjection.mapNodes[].tiles[]` flips to `{ slotIndex, tile?, visible, locked }` so the client renders straight from the projection — `visibilityPhase` / `phaseDrivenSlotMap` survive only as telemetry; (c) new `GET /api/games/:id/nodes/:nodeId/view` returns the per-team station view (visible tiles + `availableActions[]` with stable disable-reason codes). See [§3.12](#312-telemetry-geo-on-every-user-driven-command), [§3.13](#313-server-authoritative-tile-visibility), [§3.14](#314-node-view-endpoint). |
+| Lobby auto-join | **Phase L (spec'd)** — client auto-joins on `forbidden` / `not_a_member` instead of requiring the user to press a "Try again" button. Terminal errors (`lobby_full`, `lobby_closed`, `lobby_already_started`) still surface inline. Server contract is unchanged; only the client retry policy moves. See client TDD §4 LobbyRoomScreen. |
 
 ---
 
@@ -241,6 +244,8 @@ canSwapSlot(team, node, slotIndex) =
 `geofenceValidated` is true iff **both** checks pass; `geolocationWarning` is true iff **either** check fails. Clients pass the raw browser values through unchanged; coordinates are stored as-reported, not server-corrected. When the `geo` field is omitted (geolocation denied, unavailable, or timed out client-side) all four position-row columns stay `NULL` and the CHECK_IN event payload omits the geo fields entirely.
 
 **Check-in elsewhere:** Server runs check-out first, then check-in.
+
+**Geo on every command (Phase L):** every command in the table above optionally accepts the same `geo: { latitude, longitude, accuracy, capturedAt? }` block as `CHECK_IN`. The engine still **always accepts** the command (warn + allow throughout); each handler stamps the team's last-known position columns and lifts the geo block onto the event payload. The `geolocationWarning` flag is derived per command: while the team is checked in, the same haversine + accuracy comparison runs against the current station's `geofence_radius_meters`; off-station commands (e.g. a `CHECK_IN` while not yet checked in anywhere, or any future off-station action) record `geo` with no warning since there's no station to compare against. The CHECK_IN-specific `geofenceValidated` flag stays a CHECK_IN concept — Phase L does **not** add it to other commands. See [§3.12](#312-telemetry-geo-on-every-user-driven-command) for the full flow + persistence shape.
 
 ### 3.5 Check-in photo flow
 
@@ -636,6 +641,173 @@ The mapping is **fixed** in v1 — there's no per-lobby override. Future version
 
 §3.4 (CHECK_IN / CHECK_OUT), §3.5 (check-in photo flow), §3.6 (tile identity), §3.8 (challenges), §3.10 (CLAIM_WIN), and §6.3 (projection) each have side effects that flow through the outbox per the mapping table above. No engine-side change is needed in those sections — the engine just adds an `insertIntoDiscordOutbox(...)` call inside the same transaction whenever `games.discord_enabled = TRUE`. The helper lives in `server/src/discord/outbox.ts` and is the **only** Discord-aware code reachable from the engine; everything else lives in the sibling bot process.
 
+### 3.12 Telemetry: geo on every user-driven command
+
+**Status:** spec'd as **Phase L**; generalizes the Phase F `CHECK_IN` warn/allow flow to every user-driven engine command. Strictly additive on the wire (`geo` is optional everywhere) and strictly **warn + allow** — no command ever rejects on a geo failure.
+
+#### Command payload extension
+
+Every user-driven command accepts an optional `geo` block that is a superset of the Phase F shape:
+
+```ts
+type GeoPayload = {
+  latitude: number;            // WGS84, browser-reported, stored as-is
+  longitude: number;
+  accuracy: number;            // meters, browser-reported
+  capturedAt?: string;         // ISO 8601, client clock; advisory only
+};
+```
+
+Affected commands: `CHECK_IN`, `CHECK_OUT`, `SWAP_TILE`, `SWAP_LOCATION_TILES`, `START_CHALLENGE`, `CHALLENGE_COMPLETED`, `CHALLENGE_FORFEITED`, `CLAIM_WIN`. The browser `getCurrentPosition` call is fire-and-forget on the client (see client TDD §4 `useCommandWithGeo`); if it denies, errors, or times out, the command ships **without** `geo` and the engine accepts it unchanged. Existing clients that never send `geo` continue to work exactly as today.
+
+#### Engine flow
+
+1. Validate `geo` if present (numeric coords inside `[-90, 90]` / `[-180, 180]`, non-negative accuracy). A malformed `geo` is dropped — the command still applies, but no telemetry is recorded. (Rejecting on a malformed advisory field would defeat the warn-and-allow guarantee.)
+2. Apply the command's normal effect.
+3. **Stamp `game_team_positions`** with the latest sample: `last_known_latitude`, `last_known_longitude`, `last_known_accuracy`, `last_known_seen_at = now()`. These columns are independent of the existing `last_check_in_*` columns — they track the team's *most recent* geo regardless of which command emitted it, while `last_check_in_*` remains the CHECK_IN-time snapshot. See [§4.5](#45-positions-and-visibility).
+4. **Derive `geolocationWarning`** per command:
+   - **Team is checked in at a station** (`current_game_node_id IS NOT NULL`): reuse the existing haversine + accuracy helper in `server/src/services/geolocation.ts` against the team's *current* station's `geofence_radius_meters`. Same two-trigger rule as §3.4 — either failure flips the flag.
+   - **Team is checked out**: there is no station to compare against. `geolocationWarning = false`. The geo is still stamped on the position row and lifted onto the event payload — only the warning flag is suppressed.
+   - **`geo` is absent**: no flag is emitted. Position-row columns stay untouched (they preserve whatever the last command set).
+5. **Lift onto the event row.** Every user-driven `game_events.payload` gains `geo?` (the raw sample, never server-corrected) and `geolocationWarning?` (only when `geo` was provided and the team was checked in). The CHECK_IN-specific `geofenceValidated` flag stays a CHECK_IN concept and is **not** propagated to other commands. The `RecentEventDto` fan-out (§6.4) carries `geolocationWarning` only — raw coordinates are stripped before broadcast so other teams can't triangulate a rival.
+
+#### Implementation surface
+
+- One shared helper: `recordCommandGeolocation(tx, gameTeamId, geo?, currentNodeId)` returns `{ geolocationWarning: boolean | undefined }` and writes the position row. Every handler calls it before constructing the event payload; no handler re-implements the math.
+- The existing Phase F path stays the dominant CHECK_IN behavior — `recordCommandGeolocation` returns the same warning flag the Phase F evaluator returned, plus it now also handles the position-row stamp that CHECK_IN was doing inline. CHECK_IN's `geofenceValidated` field is computed alongside (CHECK_IN-only) and lifted onto the event in addition to the shared `geolocationWarning`.
+- No new socket events. Geo is a payload-level concern only.
+
+#### What this does **not** change
+
+- The engine never rejects on geo. Existing `409` reasons (`not_checked_in`, `wrong_node`, `slot_locked`, `swap_credit_required`, `hand_completed`, …) are unchanged.
+- The `CHECK_IN` geofence semantics (§3.4) — distance check, accuracy check, both relative to `geofence_radius_meters` — are unchanged. Phase L just generalizes the *delivery* of geo from "CHECK_IN-only" to "every command", and stamps a per-command warning derived from the same helper.
+- `last_check_in_*` columns stay the CHECK_IN-time snapshot. Phase L adds `last_known_*` as an independent telemetry surface (last command of any kind).
+
+### 3.13 Server-authoritative tile visibility
+
+**Status:** spec'd as **Phase L**. Collapses the client's slot-visibility math (currently split between the projection and the client's `applyPhaseSlotVisibility` helper) into the projection. After this phase the client renders `mapNodes[].tiles[]` directly — no visibility math runs in the client.
+
+#### Wire shape change
+
+Today `mapNodes[].tile` (singular) / `mapNodes[].tiles[]` (per-slot) include a tile **only** when both `faceUpOnMap(team, node)` AND `slot_map_visible[slotIndex]` are true. Hidden slots either omit the entry entirely (singular) or omit `slotIndex` rows (per-slot), forcing the client to know `slots_per_node` and re-derive what slots exist.
+
+After Phase L the shape becomes:
+
+```json
+{
+  "id": "uuid",
+  "code": "STN_01",
+  "name": "Union Station",
+  "coordinateX": 12,
+  "coordinateY": 4,
+  "lineIds": ["red", "blue"],
+  "labelAnchor": "ne",
+  "labelRotate": null,
+  "isInterchange": false,
+  "latitude": 51.5074,
+  "longitude": -0.1278,
+  "tiles": [
+    { "slotIndex": 0, "tile": { "instanceId": "...", "suit": "sou", "rank": 5, "displayName": "5 Sou", "isRedFive": false }, "visible": true,  "locked": false },
+    { "slotIndex": 1, "tile": null,                                                                                       "visible": false, "locked": false },
+    { "slotIndex": 2, "tile": null,                                                                                       "visible": false, "locked": true  }
+  ]
+}
+```
+
+- **`slotIndex`** — every slot the node has (`0 .. slots_per_node - 1`) appears in the array, in ascending order. Empty slots (no placement) appear with `tile: null, visible: false, locked: false`.
+- **`tile`** — present iff `visible: true` AND a tile occupies the slot. Otherwise `null`.
+- **`visible`** — server-resolved per-team boolean. True iff both `faceUpOnMap(team, node)` AND the slot's map-visibility tier (`slot_map_visible[slotIndex]`) are true, *and* the team has not been hand-completed (a hand-completed team's `atStation` collapses to `null` per §6.3; the map projection still shows tiles per the usual rules).
+- **`locked`** — slot-lock layer mirror. True when `now < started_at + slot_unlock_offsets_seconds[slotIndex] * 1000`. Independent of `visible` — a slot can be visible-and-locked (StationPanel greys the "Swap" affordance), or locked-and-hidden (the map shows a placeholder shadow with a countdown).
+
+#### Per-slot deprecation
+
+The `tiles[]` per-slot wire shape from chunk 6 of the original visibility plan (§6.3) is **replaced** by the Phase L shape. The pre-Phase-L "singular `tile` for `slots_per_node = 1`" back-compat path is dropped — every game emits the new array even when `slots_per_node = 1`. (The array still has exactly one entry in that case.) Clients shipping before Phase L need a single update to read `tiles[].tile` instead of `tile`.
+
+#### `visibilityPhase` becomes telemetry-only
+
+`visibilityPhase`, `visibilityPhaseCount`, and `phaseDrivenSlotMap` stay on the projection so the `VisibilityCountdown` component and the event log can render "phase 2 of 4" copy, but **UI rendering paths must read `mapNodes[].tiles[].visible`, never these fields**. Removing the client's `applyPhaseSlotVisibility` (and the related `buildTileSlots` math in `client/src/components/SubwaySvg.tsx`) is part of the Phase L client work (§10).
+
+The existing `resolveMapVisibleSlotIndices` + `phaseDrivenMapVisibleSlotIndices` helpers in `server/src/projections/game-state.ts` (lines ~515-521 and ~808) already do the visibility math today; this section formalizes that the **output** (visible-slot set, locked-slot set) is what the wire carries, not the **inputs** (mode, phase index, slot offsets).
+
+#### Visibility-mode interaction
+
+The mode gate from §3.2 / §3.3 is unchanged: when `games.visibility_mode` excludes the phase layer the projection treats every group as face-up; when it excludes the slot layer the projection treats every slot as visible-and-unlocked. Phase L just pre-computes the resulting `visible` / `locked` booleans on the server instead of relying on the client to do the same flatten. Mode-off layers produce `visible: true` / `locked: false` rows trivially.
+
+### 3.14 Node-view endpoint
+
+**Status:** spec'd as **Phase L**. A dedicated REST surface for the StationPanel — "what does node X look like from team T's perspective right now". Pre-Phase-L the client derives this from `atStation` + `mapNodes[]` + a pile of client-side rules; the endpoint moves all of it to the server.
+
+```http
+GET /api/games/:id/nodes/:nodeId/view
+200 NodeViewDto
+404 game_not_found
+404 node_not_found
+403 forbidden                     # requester is not a game participant
+409 game_not_started
+409 game_ended
+```
+
+Authz: the requester must be in `game_participants` for the game; the response is **always** scoped to the requesting user's team (matching the per-team projection scope). No host override — even a host playing on team east sees team east's view.
+
+```ts
+type NodeViewDto = {
+  nodeId: string;
+  code: string;
+  name: string;
+  lineIds: string[];
+  isInterchange: boolean;
+  tiles: Array<{
+    slotIndex: number;
+    tile: TileDto | null;             // null when !visible or empty slot
+    visible: boolean;                 // §3.13 server-resolved
+    locked: boolean;                  // §3.13 slot-unlock countdown
+  }>;
+  currentChallenge: CurrentChallengeDto | null;   // reuses §6.3 atStation.currentChallenge
+  availableActions: Array<{
+    action: "check_in" | "check_out" | "swap_tile"
+          | "swap_location_tiles" | "start_challenge" | "claim_win";
+    enabled: boolean;
+    reason?: "not_checked_in"
+           | "wrong_node"
+           | "slot_locked"
+           | "hand_completed"
+           | "swap_credit_required"
+           | "credit_already_used"
+           | "challenge_in_progress"
+           | "challenge_on_cooldown"
+           | "no_challenge_at_station"
+           | "no_winning_wait"
+           | "not_tenpai"
+           | "game_ended";
+  }>;
+};
+```
+
+- **`tiles[]`** — byte-identical to the per-node entry on `GameStateProjection.mapNodes[]` (§3.13) for the same node + team + clock. Shared via a service helper (see below).
+- **`currentChallenge`** — same shape as `atStation.currentChallenge` (§6.3). `null` when the station has no challenges configured, or when the requesting team isn't checked in at this node (off-station challenge state is not exposed). Reuses the existing `CurrentChallengeDto`; no new type.
+- **`availableActions[]`** — every command the StationPanel might surface; `enabled: false` rows still appear with a stable `reason` code so the client can render a tooltip ("Slot 2 unlocks in 4m 17s") without re-deriving the rule. `claim_win` only appears when the team is checked in at the node, has `handAnalysis.shanten === 0`, and a wait matches one of the visible station tiles; the reason for an absence is `no_winning_wait` (matching wait but tile not visible / wrong copy), `not_tenpai` (`shanten > 0`), or `hand_completed`.
+
+#### `buildNodeView` service
+
+To keep the endpoint and the projection from drifting:
+
+```ts
+// server/src/services/node-view.ts
+async function buildNodeView(
+  gameId: string,
+  gameTeamId: string,
+  nodeId: string,
+  tx?: Transaction,
+): Promise<NodeViewDto>;
+```
+
+- `buildGameStateProjection` calls `buildNodeView` for the team's current station (the existing `atStation` payload becomes a thin wrapper around it — just adds the `pendingSwapCredit` / `creditEarnedInSession` flags that are CHECK_IN-state, not node-state).
+- The route handler calls `buildNodeView` directly and serializes the result. The two paths share the same query plan and the same visibility / lock derivation — there's no way for the projection and the endpoint to disagree on whether slot 2 is locked.
+
+#### Polling vs push
+
+Phase L ships the endpoint as **fetch-on-mount + invalidate on `game.event`** — the client refreshes when any event for the game arrives over the existing socket room (no new socket channel). A future phase can promote this to a per-node socket room if the polling load justifies it; the REST surface is the primary contract.
+
 ---
 
 ## 4. Data model
@@ -857,6 +1029,8 @@ Where each `game_tile` lives — **exactly one** of:
 #### `game_team_positions`
 
 `current_game_node_id` (nullable), `checked_in_at`, `last_check_in_latitude`, `last_check_in_longitude`, `geofence_validated`, `geolocation_warning`.
+
+**Phase L additions (telemetry):** `last_known_latitude` (DOUBLE PRECISION, nullable), `last_known_longitude` (DOUBLE PRECISION, nullable), `last_known_accuracy` (DOUBLE PRECISION, nullable, meters), `last_known_seen_at` (TIMESTAMP WITH TIME ZONE, nullable). These four columns are updated by **every user-driven command** that carries a `geo` block — independent of `last_check_in_*`, which remains the CHECK_IN-time snapshot. See [§3.12](#312-telemetry-geo-on-every-user-driven-command). The columns stay `NULL` for any team whose client never sends `geo`; the engine never rejects on a missing sample. Phase H's `pending_swap_credit` / `credit_earned_in_session` columns are unaffected.
 
 #### `game_node_visibility_groups`
 
@@ -1234,6 +1408,8 @@ includedTiles =
 
 Both `mapVisibleSlotIndices` and the unlock helpers live in `server/src/services/slot-visibility.ts`; the projection layer must consume them directly rather than re-implementing the rules.
 
+**Phase L wire-shape change (server-authoritative visibility).** The pre-Phase-L "omit hidden slots" pattern above is **replaced** by an exhaustive per-slot array `{ slotIndex, tile, visible, locked }` — every slot the node has appears in the array, in ascending order, with `visible` / `locked` pre-resolved per team. Hidden tiles render as `tile: null, visible: false` rows (the client renders a face-down shadow). The singular `tile` field and the `slots_per_node = 1` back-compat path are dropped (a 1-slot game still emits a 1-entry `tiles[]`). `visibilityPhase`, `visibilityPhaseCount`, and `phaseDrivenSlotMap` are **deprecated as rendering inputs** and survive only as telemetry for `VisibilityCountdown` / event-log copy — UI rendering paths must read `mapNodes[].tiles[].visible`, never these fields. See [§3.13](#313-server-authoritative-tile-visibility) for the full shape + the `buildNodeView` helper that both this projection and the new `GET /api/games/:id/nodes/:nodeId/view` route share.
+
 **`mapLines[]`** — line catalog for styling:
 
 ```json
@@ -1375,6 +1551,11 @@ The wiring is enabled for every team's projection — no opt-in flag. Clients ig
 - `teamsCompleted` — public list of every team currently hand-completed, scoped to identity only (`gameTeamId`, `teamCode`, `completedAt`). Lets the client render "X / 4 teams finished" without leaking which tile they won on or what their score is. The detailed scoring breakdown for **other** teams is only visible via `GET /api/games/:id/summary` once the game ends.
 - Both fields are present (possibly empty / null) on every projection from Phase J onward; older clients ignore them.
 
+**Phase L projection updates.** Two additive changes, both backed by the new sections above:
+
+- `mapNodes[].tiles[]` adopts the exhaustive `{ slotIndex, tile, visible, locked }` shape ([§3.13](#313-server-authoritative-tile-visibility)). `atStation` becomes a thin wrapper around `buildNodeView(gameId, gameTeamId, currentNodeId)` ([§3.14](#314-node-view-endpoint)) plus the CHECK_IN-state flags (`pendingSwapCredit`, `creditEarnedInSession`) — both surfaces emit byte-identical `tiles[]` for the same node + team + clock.
+- `recentEvents[].geolocationWarning` is now emitted by **every** user-driven event type — not just CHECK_IN ([§3.12](#312-telemetry-geo-on-every-user-driven-command)). Raw `geo` coordinates are stripped from `RecentEventDto` before fan-out (the on-row payload keeps them for the audit log); only the per-event `geolocationWarning` flag is broadcast.
+
 ### Scheduler
 
 `SchedulerWorker` polls `game_scheduled_jobs` (`FOR UPDATE SKIP LOCKED`).  
@@ -1397,6 +1578,8 @@ The engine appends one row to `game_events` per state-changing action; the realt
 | `SLOT_UNLOCKED` | system | `slotIndex`, `unlockedAt` |
 | `CLAIM_WIN_SUCCEEDED` | player | (new in Phase J) — `gameTeamId`, `stationTileId`, `nodeId`, `finalHan`, `finalFu`, `finalPoints`, `finalYaku[]`, `isYakuman` |
 | `GAME_ENDED` | system | `endedAt`, `endReason` (`timer` / `all_teams_completed`), `winningGameTeamId?` |
+
+**Phase L geo telemetry on every player event.** Every `player`-origin row above also accepts optional `geo` + `geolocationWarning` in its payload — additive to the existing fields, never replacing them. CHECK_IN keeps its CHECK_IN-only `geofenceValidated`; the other events get only `geolocationWarning`. The `RecentEventDto` fan-out strips the raw `geo` block before broadcast and surfaces `geolocationWarning` to the requesting team's own events (other teams see neither). See [§3.12](#312-telemetry-geo-on-every-user-driven-command).
 
 **`CLAIM_WIN_SUCCEEDED` payload** (Phase J):
 
@@ -1446,7 +1629,7 @@ The engine appends one row to `game_events` per state-changing action; the realt
 | Auth | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` |
 | Users | `POST /api/users/me/discord-link`, `DELETE /api/users/me/discord-link`, `GET /api/users/me/discord-status` (Phase K) |
 | Lobbies | `POST /api/lobbies`, `GET /api/lobbies/:id`, `PATCH /api/lobbies/:id/config` (host, accepts `discordEnabled` from Phase K), `POST …/join`, `POST …/team`, `POST …/start` |
-| Games | `GET /api/games/:id`, `GET /api/games/:id/summary` (ended only; full per-team hand-analysis snapshot from Phase J — see [§3.10](#310-game-end-and-hand-completion) and the contract below) |
+| Games | `GET /api/games/:id`, `GET /api/games/:id/summary` (ended only; full per-team hand-analysis snapshot from Phase J — see [§3.10](#310-game-end-and-hand-completion) and the contract below), `GET /api/games/:id/nodes/:nodeId/view` (Phase L — per-team station view; tiles + currentChallenge + availableActions, see [§3.14](#314-node-view-endpoint)) |
 | Media | `POST /api/games/:id/media/upload-url`, optional `POST …/media/:id/confirm` |
 | Catalog | `GET /api/map-templates`, `GET /api/tile-types`, `GET /api/challenge-decks` |
 | Scoring | (no HTTP surface in v1; `analyzeHand` is consumed in-process. An optional dev endpoint can wrap it later if useful for tooling.) |
@@ -1518,6 +1701,41 @@ type GameSummaryDto = {
 - For **incomplete teams**, `analyzeHand` may be invoked once at request time to populate `waits[]`. The result is cached for the lifetime of the endpoint response and not persisted.
 - The endpoint is intended for both **post-game scoreboard rendering** and the eventual Discord bot's end-of-game summary post (see §3.11).
 
+### `GET /api/games/:id/nodes/:nodeId/view` (Phase L)
+
+Returns the server-authoritative view of a single station from the requesting team's perspective. Full spec in [§3.14](#314-node-view-endpoint); the response shape is `NodeViewDto`:
+
+```ts
+type NodeViewDto = {
+  nodeId: string;
+  code: string;
+  name: string;
+  lineIds: string[];
+  isInterchange: boolean;
+  tiles: Array<{
+    slotIndex: number;
+    tile: TileDto | null;        // null when !visible or empty slot
+    visible: boolean;            // §3.13 server-resolved
+    locked: boolean;             // §3.13 slot-unlock countdown
+  }>;
+  currentChallenge: CurrentChallengeDto | null;   // reuses §6.3 atStation.currentChallenge
+  availableActions: Array<{
+    action: "check_in" | "check_out" | "swap_tile"
+          | "swap_location_tiles" | "start_challenge" | "claim_win";
+    enabled: boolean;
+    reason?: "not_checked_in" | "wrong_node" | "slot_locked" | "hand_completed"
+           | "swap_credit_required" | "credit_already_used"
+           | "challenge_in_progress" | "challenge_on_cooldown"
+           | "no_challenge_at_station" | "no_winning_wait"
+           | "not_tenpai" | "game_ended";
+  }>;
+};
+```
+
+- **Status codes:** `200 NodeViewDto`, `403 forbidden` (requester not in `game_participants`), `404 game_not_found`, `404 node_not_found`, `409 game_not_started`, `409 game_ended`.
+- **Authz:** requesting user's team is read from `game_participants`; the response is **always** scoped to that team — the host has no override.
+- **Shared service:** the route handler and `buildGameStateProjection` both call `buildNodeView(gameId, gameTeamId, nodeId, tx?)` so the two surfaces never drift.
+
 ---
 
 ## 8. Server module layout
@@ -1566,6 +1784,7 @@ Entry: `http.createServer(app)` + Socket.IO; `import "dotenv/config"`. The Disco
 | **I** | **Scoring — Shipped.** Pure `analyzeHand` module under `server/src/scoring/`: shanten (standard / chiitoitsu / kokushi), wait enumeration, 28-detector yaku catalog (1–6 han + 8 yakuman with additive stacking), fu + non-dealer tsumo points, red-five bonus, **dora indicator** bonus (`scoring/dora.ts`, `+1 han per matching tile`, gated by the same "needs a yaku" rule as red fives, ignored by yakuman). `games.round_wind` + `games.dead_wall_size` migrations; `GameStartService` randomizes the round wind and snapshots `dead_wall_size`; the dealer parks the trailing tiles in the dead wall as `dead_wall_index = 0..n-1` placements (index 0 = dora indicator). `buildGameStateProjection` wires `analyzeHand` into every team's `game.state` (new fields: `roundWind`, `seatWind`, `doraIndicator`, `handAnalysis?`). **Follow-ups (post-MVP):** Uradora + kan-dora (the multi-indicator path is already in the API) when kan / riichi land. Challenge resolvers (Phase H) reuse the same module when a card requires proving a scoring hand. |
 | **J** | **End-game mechanics + summary.** New `CLAIM_WIN` engine command (`{ stationTileId }`) routes through the same validation pipeline as `SWAP_TILE` plus a `shanten === -1` check on the candidate 14-tile hand. On success, the station tile moves into the team's hand, `game_teams.{hand_completed_at, winning_tile_id, winning_node_id, final_han, final_fu, final_points, final_yaku_keys}` are snapshotted, and a `CLAIM_WIN_SUCCEEDED` event is broadcast. Engine refuses any further tile-modifying command from a hand-completed team (`SWAP_TILE`, `CLAIM_WIN`, `START_CHALLENGE`, etc. → `409 hand_completed`). When all teams are hand-completed, the `GAME_END` job is upserted to `runAt = now()` so the existing scheduler path drives termination — no new "end the game now" code path. The `GAME_END` worker stamps `final_*` columns on incomplete teams (`final_points = 0`) and emits `GAME_ENDED` with `endReason ∈ {"timer", "all_teams_completed"}` + optional `winningGameTeamId`. `buildGameStateProjection` gains `handCompleted` (team-private) + `teamsCompleted[]` (public roster); `atStation` becomes `null` for completed teams. `GET /api/games/:id/summary` is implemented against the snapshot columns. See [§3.10](#310-game-end-and-hand-completion). |
 | **K** | **Discord integration (per-lobby opt-in).** New `users.discord_*` columns + Discord-link API (`POST/DELETE /api/users/me/discord-link`, `GET /api/users/me/discord-status`). `lobbies.discord_enabled` (host knob) + `games.discord_enabled` (snapshot). New `server/src/discord/` module + sibling `server/bin/discord-bot.ts` process. New tables `game_discord_channels` + `discord_event_outbox`; engine handlers wrap an `await discordOutbox.insert(tx, ...)` inside the same transaction as `game_events` (no-op when `discord_enabled = FALSE`). Bot uses `pg LISTEN 'discord_outbox'` + a 30s drain poll + `discord.js` REST to provision channels, post messages, and archive the category at `GAME_ENDED`. Failure-isolated: bot can crash without blocking the engine; engine never reads bot status. See [§3.11](#311-discord-integration-per-lobby-opt-in). |
+| **L** | **Server-authoritative views + telemetry hardening.** Three intertwined moves. **(a) Geo on every command** ([§3.12](#312-telemetry-geo-on-every-user-driven-command)): every user-driven command gains optional `geo: { latitude, longitude, accuracy, capturedAt? }`. A shared `recordCommandGeolocation` helper stamps `game_team_positions.last_known_*` (4 new columns, see [§4.5](#45-positions-and-visibility)) and lifts `geo` + a derived `geolocationWarning` onto the event payload. Warn + allow throughout — no command rejects on geo. The CHECK_IN-specific `geofenceValidated` flag stays CHECK_IN-only. **(b) Server-authoritative tile visibility** ([§3.13](#313-server-authoritative-tile-visibility)): `GameStateProjection.mapNodes[].tiles[]` becomes an exhaustive per-slot array `{ slotIndex, tile, visible, locked }`. `visibilityPhase` / `phaseDrivenSlotMap` survive only as telemetry — UI rendering paths must read `tiles[].visible`. The singular `tile` field is dropped (the `slots_per_node = 1` back-compat path goes with it). **(c) Node-view endpoint** ([§3.14](#314-node-view-endpoint)): new `GET /api/games/:id/nodes/:nodeId/view` returns per-team tiles + `currentChallenge` + `availableActions[]` (with stable `reason` codes for disabled rows). A shared `buildNodeView` service backs both the route and the projection's `atStation` so the two surfaces never drift. |
 
 ---
 

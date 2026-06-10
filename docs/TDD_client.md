@@ -169,9 +169,10 @@ For v1 we duplicate wire types under `client/src/wire/`. The mirrored files are:
 - `client/src/wire/auth.ts` — `RegisterRequest` (Phase K: optional `discordUsername`), `LoginRequest`, `AuthResponse`, `User` (Phase K: gains `discordUsername`, `discordUserId`, `discordLinkStatus`).
 - `client/src/wire/lobby.ts` — `LobbyDetailDto`, `LobbyConfigDto` (Phase K: gains `discordEnabled`), `LobbyMemberDto`, `LobbyReadinessDto`, `LobbyNotificationDto`, `LobbyConfigPatch`, `CreateLobbyInput`, `VisibilityMode` (`"none" | "phase" | "slot" | "both"`), `TeamAssignmentMode`.
 - `client/src/wire/discord.ts` — **new in Phase K.** `DiscordLinkStatus` (`"unlinked" | "pending" | "linked" | "failed"`), `DiscordLinkRequest`, `DiscordLinkStatusResponse`. Consumed exclusively by `AuthContext` + Profile screen + Lobby room.
-- `client/src/wire/projection.ts` — `GameStateProjection`, `TileDto`, `SlotTileDto`, `MapNodeDto`, `MapLineDto`, `MapEdgeDto`, `AtStationDto`, `HandTileDto`, `RecentEventDto`, plus the **Phase J** additions `HandCompletedDto` (the team-private snapshot, fields per server §6.3) and `TeamsCompletedEntryDto` (the public roster entry).
+- `client/src/wire/projection.ts` — `GameStateProjection`, `TileDto`, `SlotTileDto`, `MapNodeDto`, `MapLineDto`, `MapEdgeDto`, `AtStationDto`, `HandTileDto`, `RecentEventDto`, plus the **Phase J** additions `HandCompletedDto` (the team-private snapshot, fields per server §6.3) and `TeamsCompletedEntryDto` (the public roster entry). **Phase L:** `MapNodeDto.tiles[]` flips from the conditional `{ slotIndex, tile }` shape to an exhaustive `{ slotIndex, tile: TileDto | null, visible: boolean, locked: boolean }` array — every slot the node has appears in ascending `slotIndex` order, `tile` is `null` whenever `!visible` or the slot is empty. The pre-Phase-L singular `tile` field on `MapNodeDto` is removed; a 1-slot game still emits a 1-entry array. `visibilityPhase`, `visibilityPhaseCount`, and `phaseDrivenSlotMap` survive on the projection but are flagged in JSDoc as "telemetry-only — do not use for rendering" (their only consumer becomes `<VisibilityCountdown />`).
 - `client/src/wire/summary.ts` — **new in Phase J.** `GameSummaryDto`, `GameSummaryTeamDto`, `AnalyzedWaitDto` (mirrors `server/src/scoring/index.ts` shape); consumed exclusively by the post-game `SummaryScreen`.
-- `client/src/wire/command.ts` — `GameCommandPayload`, `GameCommandAcked`, `GameCommandRejected`, `GameJoinPayload`, `GameJoinResponse`, `Ack<T>` envelope, `CommandType` literal union, per-command-type payload narrowings.
+- `client/src/wire/nodeView.ts` — **new in Phase L.** `NodeViewDto`, `NodeViewTileDto`, `AvailableActionDto`, `AvailableActionReason` (string literal union of the stable disable-reason codes from server [§3.14](TDD_server.md#314-node-view-endpoint)). Consumed by `useNodeView()` and the `StationPanel`. The `NodeViewTileDto` shape is **identical** to `MapNodeDto.tiles[]` post-Phase-L — the two are byte-equal for the same node + team + clock, by design.
+- `client/src/wire/command.ts` — `GameCommandPayload`, `GameCommandAcked`, `GameCommandRejected`, `GameJoinPayload`, `GameJoinResponse`, `Ack<T>` envelope, `CommandType` literal union, per-command-type payload narrowings. **Phase L:** the shared `GeoPayload` type (`{ latitude, longitude, accuracy, capturedAt? }`) is lifted out of the CHECK_IN payload narrowing and added as an optional field on **every** command's payload (`CHECK_IN`, `CHECK_OUT`, `SWAP_TILE`, `SWAP_LOCATION_TILES`, `START_CHALLENGE`, `CHALLENGE_COMPLETED`, `CHALLENGE_FORFEITED`, `CLAIM_WIN`) — additive, never required.
 - `client/src/wire/error.ts` — `HttpErrorBody` (`{ error: { code: string; message: string; details?: unknown } }`).
 
 These files are *only* type declarations — no runtime code, no validation. Mismatch surfaces at compile time when the server changes and we manually re-sync. A `// SERVER SOURCE:` comment at the top of each file points at the server-side definition so the sync is auditable.
@@ -200,6 +201,7 @@ All endpoints below already exist on the server; the client just needs to call t
 | `DELETE /api/lobbies/:id/notifications/:notifId` | — | `204` | `restClient.deleteNotification()` (host only) | [server/src/routes/lobbies.ts](../server/src/routes/lobbies.ts) |
 | `POST /api/games/:id/commands` | `{ gameTeamId, commandType, payload?, clientCommandId }` | `202 { clientCommandId, queueItemId }` | `restClient.submitCommand()` — **HTTP fallback path** for the outbox when the socket is down. Same idempotency contract as `game.command`. | [server/src/routes/games.ts](../server/src/routes/games.ts) |
 | `GET /api/games/:id/summary` | — | `200 { summary: GameSummaryDto }` or `409 game_not_ended` | `restClient.getGameSummary()` — **Phase J.** Called by `SummaryScreen` after `GAME_ENDED` is observed on `game.event`. Read-only; the response shape is `wire/summary.ts::GameSummaryDto`. | [server/src/routes/games.ts](../server/src/routes/games.ts) |
+| `GET /api/games/:id/nodes/:nodeId/view` | — | `200 NodeViewDto`, `403 forbidden`, `404 game_not_found`, `404 node_not_found`, `409 game_not_started`, `409 game_ended` | `restClient.getNodeView(gameId, nodeId)` — **Phase L.** Called by `useNodeView(nodeId)` on mount + on every `game.event` for the game. Returns the per-team station view (tiles + currentChallenge + availableActions). Response shape is `wire/nodeView.ts::NodeViewDto`. | [server/src/routes/games.ts](../server/src/routes/games.ts) |
 | `POST /api/users/me/discord-link` | `{ discordUsername: string }` | `200 { user: User }` or `409 discord_username_taken` | `restClient.linkDiscord()` — **Phase K.** Called from the Profile screen or Register form. Server flips `user.discordLinkStatus` to `"pending"` immediately; the bot resolves at the next lobby start. | [server/src/routes/users.ts](../server/src/routes/users.ts) |
 | `DELETE /api/users/me/discord-link` | — | `204` | `restClient.unlinkDiscord()` — **Phase K.** Clears the username/snowflake and resets `discordLinkStatus = "unlinked"`. | [server/src/routes/users.ts](../server/src/routes/users.ts) |
 | `GET /api/users/me/discord-status` | — | `200 { user: { discordUsername, discordUserId, discordLinkStatus, lastError } }` | `restClient.getDiscordStatus()` — **Phase K.** Polled by the Profile screen while status is `"pending"`. | [server/src/routes/users.ts](../server/src/routes/users.ts) |
@@ -398,6 +400,8 @@ The client tracks **at most one active lobby at a time**. Switching lobbies disp
 
 **Visibility-mode error path:** `updateConfig` may reject with `visibility_knob_locked` if the host's patch sets a knob the chosen `visibilityMode` excludes (phase knobs while mode is `slot`/`none`; non-trivial slot arrays while mode is `phase`/`none`). The host form prevents this in normal use by disabling the offending inputs (see §7.3 wireframes and `client/src/screens/LobbyRoom/ConfigForm.tsx`), so the error path catches stale clients and adversarial requests only. The error surfaces inline via the existing `LobbyRoomScreen` error state; the next `lobby.config` push resyncs the draft to the server's reset values. See §4.4 for the error-code row.
 
+**Phase L — auto-join effect.** Today (`LobbyRoomScreen` lines ~88-97) a `loadLobby` failure with `forbidden` / `not_a_member` lands the user in an error state with a manual "Try join" button. Phase L replaces that with an **auto-join** effect inside `LobbyProvider`: when `loadLobby(id)` rejects with one of those two codes **and** the user is authenticated, the provider transparently calls `joinLobby(id)` exactly once before transitioning to `error`. On success the provider re-runs `loadLobby(id)` and the screen renders without ever showing the error UI. The retry is one-shot (the `error` branch keeps its current shape — no Try join button) and is keyed on `(lobbyId, userId)` so revisiting the same lobby after logout/login retries again. Terminal errors that are **not** auto-recoverable — `lobby_full`, `lobby_closed`, `lobby_already_started`, `not_found`, `validation_error` — bypass the auto-join branch entirely and surface inline copy on the error screen ("This lobby is full" / "Host already started the game" / etc.) instead of the now-removed Try join affordance. The screen-level "Try again" button is replaced with a "Back to lobbies" link for these terminal cases.
+
 ### 5.4 `GameContext`
 
 **Shape:**
@@ -440,6 +444,8 @@ On every `game.state` push we merge `state.recentEvents` into `eventLog` (skip d
 - `useNextVisibilityChange()` — selector returning the visibility countdown target; drives the timer banner.
 - `useHandCompleted()` — **Phase J.** Selector returning `projection.handCompleted` or null. Truthy means the team has claimed and the entire in-game action surface (`CHECK_IN`/`CHECK_OUT` exempted, see §3.10 server) is locked. The Game / Hand / Station panels read this to flip disabled / readonly / "you won!" modes.
 - `useTeamsCompleted()` — **Phase J.** Selector returning `projection.teamsCompleted` (sorted by `completedAt`). Drives the "X / 4 teams finished" badge that the lobby timer banner gains in Phase J.
+- `useNodeView(nodeId: string | null)` — **Phase L.** Returns `{ data: NodeViewDto | null; loading: boolean; error: HttpError | null; refresh: () => void }`. Fetches `GET /api/games/:id/nodes/:nodeId/view` on mount and whenever `nodeId` changes. Subscribes to `game.event` on the active game; any inbound event invalidates the cached view and triggers a background refresh (the previous result stays rendered until the new one lands — no flicker). Passing `null` short-circuits to `{ data: null, loading: false, error: null, refresh }` so callers don't need to gate the hook behind an early return. The hook owns no global cache — multiple mounts of the same `(gameId, nodeId)` pair issue independent fetches; the dedupe is a post-MVP concern. Used by `StationPanel` (always, for the team's `currentNodeId` plus any node the user has selected on the map) and by the future "node preview" overlay.
+- `useCommandWithGeo(commandType: CommandType)` — **Phase L.** Wraps `useGame().submitCommand` with a fire-and-forget `navigator.geolocation.getCurrentPosition` call (5 s timeout — same budget as Phase F's CHECK_IN-only path). Returns `(payload: Omit<CommandPayloadFor<commandType>, "geo">) => Promise<string>` (the inner Promise resolves with the `clientCommandId`). If geo resolves inside the window, the `geo` field is added to the payload; if it denies / errors / times out, the command is submitted without `geo` and no toast fires — geo is **always advisory** on the client too. The hook is the only place in the client that calls `getCurrentPosition` after Phase L lands; the existing `useGeolocation` hook is reduced to a thin internal primitive consumed by `useCommandWithGeo`. Wraps **every** command site by default — the goal is full telemetry coverage, not selective opt-in.
 
 **Side effects in `GameProvider`:** on `game/load`, emit `game.join` and await ack. Subscribes to `game.state`, `game.event`, `game.notification`. On reconnect (`useConnection().status === "connected"` after a prior `disconnected`), re-emit `game.join` to resync. Outbox interactions are delegated to `OutboxContext` — `submitCommand` calls `outbox.enqueue(...)`. **Phase J:** on the first inbound `game.event` whose `type === "GAME_ENDED"`, the provider navigates the user to `/games/:id/summary` (replace, not push, so the back button returns to the lobby list). SummaryScreen lazy-loads via `restClient.getGameSummary()`.
 
@@ -979,6 +985,13 @@ Existing components are reused with minimal changes:
 
 The existing `services/network.ts` (`fetchSubway`) is **deleted** in chunk 5; its responsibilities move to `restClient` and the projection.
 
+**Phase L — server-authoritative rewires.** Two component-level changes ride on the wire-shape moves in [§4.1](#41-type-duplication-policy):
+
+- `<StationPanel />` switches its primary data source from `useAtStation()` (a thin pointer at the team's currently-checked-in node on the projection) to `useNodeView(viewingNodeId)`. `viewingNodeId` is whatever node the user is *viewing* — the team's current station by default, or whichever node the user has tapped on the map. The projection's `atStation` becomes a "where am I checked in right now" pointer used only to derive the default `viewingNodeId` and to surface the CHECK_IN-state credit flags (`pendingSwapCredit`, `creditEarnedInSession`) that are still projection-level. The action buttons (Check in, Check out, Swap, Claim, Start challenge) read their `enabled` + `reason` directly from `NodeViewDto.availableActions[]` — the StationPanel stops re-deriving them from raw projection fields.
+- `<SubwaySvg />` drops its `buildTileSlots` + `applyPhaseSlotVisibility` helpers (currently around lines 25-90 of `client/src/components/SubwaySvg.tsx`). The component renders `mapNode.tiles[].visible` / `.locked` directly from the projection: a `visible: true` slot shows its `tile`; a `visible: false` slot renders a face-down shadow; a `locked: true` slot adds a small lock badge / countdown overlay. The pure helpers and their test files (`SubwaySvg.test.tsx`'s phase-math cases) are deleted in the same chunk; their replacement is one trivial render test per visibility / lock state.
+
+Net effect: the client has **no** visibility math after Phase L. Mode gates, phase indexes, slot offsets, and slot-lock derivations all live on the server; the client just draws what `tiles[]` says.
+
 ---
 
 ## 8. Implementation phases (chunked plan)
@@ -1260,6 +1273,106 @@ The visibility-mode dropdown, phase-knob lock, slot-tier editor, and auto-distri
 3. **One team claims, others noten** — one team claims, the others sit; verify the timer still fires on schedule and the summary mixes one completed row + three noten rows.
 
 Verify auto-redirect, verify event log scrolls cleanly, verify "Back to lobbies" returns to a fresh state.
+
+---
+
+### Phase L — Server-authoritative views + telemetry hardening
+
+The client side of server Phase L ([docs/TDD_server.md §3.12–§3.14](TDD_server.md#312-telemetry-geo-on-every-user-driven-command)). Sliced into **6 chunks** mirroring the Phase J cadence — each chunk is independently reviewable, shippable, and testable. L1–L4 are server-side; L5 is the client-side rewire; L6 is docs + drift cleanup. The client-side chunks below describe the L5 / L6 client work and the client-test coverage for L1–L4's wire-shape changes (e.g. the projection mirror in L3).
+
+#### Chunk L1 — schema (server-only)
+
+**Server work:** `game_team_positions.last_known_*` migration (4 columns) + model + tests. No client-facing changes; the client TDD captures the column list in §4.1 / §5.4 only as a forward reference.
+
+**Client work:** none. The client checks that the new columns don't surface on the wire by inspecting a fixture projection — that test lives in chunk L3.
+
+#### Chunk L2 — engine telemetry (server-only)
+
+**Server work:** extend every player-origin handler (`CHECK_IN`, `CHECK_OUT`, `SWAP_TILE`, `SWAP_LOCATION_TILES`, `START_CHALLENGE`, `CHALLENGE_COMPLETED`, `CHALLENGE_FORFEITED`, `CLAIM_WIN`) to accept the shared `GeoPayload`; lift it onto the event payload; persist `last_known_*` via the new `recordCommandGeolocation` helper; derive `geolocationWarning` per command. Tests cover warn + allow on every command + the off-station "no warning" path.
+
+**Client work:** none yet. The wire is back-compat (every `geo` field is optional); existing clients keep submitting CHECK_IN-only `geo`.
+
+#### Chunk L3 — projection rewire
+
+**Goal:** the projection emits the new exhaustive `mapNodes[].tiles[]` shape ([§3.13](TDD_server.md#313-server-authoritative-tile-visibility)); the client mirrors the wire type.
+
+**Server work:** projection emits `{ slotIndex, tile, visible, locked }`; the singular `tile` field is dropped from `MapNodeDto`. `visibilityPhase` etc. survive as telemetry. Integration tests assert the per-team `visible` / `locked` matrix against the existing `resolveMapVisibleSlotIndices` + slot-offset helpers.
+
+**Files added (client):** none.
+
+**Files modified (client):**
+
+- `client/src/wire/projection.ts` — `MapNodeDto.tile?: TileDto` field deleted; `MapNodeDto.tiles[]` retyped to `Array<{ slotIndex: number; tile: TileDto | null; visible: boolean; locked: boolean }>`. JSDoc on `visibilityPhase`, `visibilityPhaseCount`, `phaseDrivenSlotMap` flips to "telemetry-only; do not use for rendering". `AtStationDto.tile`/`AtStationDto.tiles[]` mirror the same shape (a thin wrapper around the same per-node entry — see L4).
+- `client/src/test/fixtures/projection.ts` — fixtures updated to the new shape.
+
+**Test coverage:**
+
+- `projection.fixtures.test.ts` — type-level assertion: building a `GameStateProjection` with the new shape compiles; the old `tile?` field is gone.
+- `SubwaySvg.test.tsx` — adds cases asserting that a `tiles[]` entry with `visible: false` renders a face-down shadow; `locked: true` renders the lock badge; `visible: true` renders the tile. (The phase-math test cases are **kept** in this chunk so the old + new code can coexist for one chunk.)
+
+**Manual smoke:** start a game with `slots_per_node = 4`; verify the projection shows all four slots in `tiles[]` with the right per-team `visible` / `locked` flags by inspecting the network tab.
+
+#### Chunk L4 — node-view endpoint
+
+**Goal:** the new `GET /api/games/:id/nodes/:nodeId/view` is live + the client can call it. No StationPanel rewire yet — that's L5.
+
+**Server work:** `buildNodeView` service + the route + integration tests covering all `availableActions` reason codes.
+
+**Files added (client):**
+
+- `client/src/wire/nodeView.ts` — `NodeViewDto`, `NodeViewTileDto`, `AvailableActionDto`, `AvailableActionReason`.
+- `client/src/state/game/useNodeView.ts` — the hook described in §5.4.
+
+**Files modified (client):**
+
+- `client/src/transport/restClient.ts` — `getNodeView(gameId, nodeId)` per §4.2.
+
+**Test coverage:**
+
+- `useNodeView.test.tsx` — happy-path fetch on mount; `null` nodeId short-circuits; `game.event` triggers a refresh; previous data stays rendered during the refresh.
+- `restClient.test.ts` extension — `getNodeView` JWT injection + error mapping.
+
+**Manual smoke:** call the endpoint directly via devtools while checked in; verify `availableActions` enables the right buttons.
+
+#### Chunk L5 — client UI rewire
+
+**Goal:** lobby auto-join; StationPanel sourced from `useNodeView`; SubwaySvg drops its phase math; every command site uses `useCommandWithGeo`.
+
+**Files added (client):**
+
+- `client/src/state/game/useCommandWithGeo.ts` — the wrapper described in §5.4. Owns the `getCurrentPosition` call (5 s timeout, fire-and-forget).
+- `client/src/screens/LobbyRoom/useLobbyAutoJoin.ts` — small effect-only hook used by `LobbyProvider`'s loader (kept as a module so the test can mount it in isolation).
+
+**Files modified (client):**
+
+- `client/src/screens/LobbyRoom/LobbyRoomScreen.tsx` — `error` branch reshaped per §5.3: no more "Try join" button for `forbidden` / `not_a_member` (the auto-join effect handles those silently); inline copy for `lobby_full` / `lobby_closed` / `lobby_already_started`; "Back to lobbies" link for everything else.
+- `client/src/state/lobby/Context.tsx` — wires `useLobbyAutoJoin`.
+- `client/src/components/StationPanel.tsx` — primary data source flips from `useAtStation()` to `useNodeView(viewingNodeId)`; action buttons read `enabled` + `reason` from `availableActions[]` instead of re-deriving from raw projection fields.
+- `client/src/components/SubwaySvg.tsx` — `buildTileSlots` + `applyPhaseSlotVisibility` deleted; renders `mapNode.tiles[].visible` / `.locked` directly.
+- `client/src/screens/Game/{CheckInButton,CheckOutButton,SwapTileModal,SwapLocationTilesModal,ClaimWinModal,StartChallengeButton,...}.tsx` — every command site swaps its `useGame().checkIn(...)` / `submitCommand(...)` call for `useCommandWithGeo(...)`. The existing `useGeolocation` hook becomes an internal primitive of `useCommandWithGeo` only.
+
+**Test coverage:**
+
+- `useCommandWithGeo.test.tsx` — granted geo lands in payload; denied / timed-out geo submits the command without `geo`; the inner Promise resolves with `clientCommandId` in both cases.
+- `LobbyRoomScreen.autojoin.test.tsx` — mounting with a `forbidden` first-load error issues exactly one `joinLobby` call and re-renders into `ready`. Terminal errors stay terminal.
+- `StationPanel.nodeView.test.tsx` — given a fixture `NodeViewDto`, renders the right tiles + button states; `availableActions[].reason` flows into the tooltip copy.
+- `SubwaySvg.test.tsx` — the phase-math cases from L3 are now **deleted**; the new render tests for `visible` / `locked` are the only ones.
+
+**Manual smoke:** open a lobby URL while logged in but not yet joined — verify the screen flashes loading and lands in the lobby room without the "Try join" intermediate. In-game: deny browser geolocation, perform every command; verify each completes and the geo column on the server stays NULL. Re-grant geolocation; verify the `last_known_*` columns populate as commands fire.
+
+#### Chunk L6 — docs polish + drift cleanup
+
+**Goal:** catch any wire / type drift introduced by L1-L5; remove dead helpers; sync both TDDs.
+
+**Work:**
+
+- Audit `client/src/wire/` for stale field comments (e.g. anything that still references the singular `mapNode.tile`).
+- Delete `client/src/lib/applyPhaseSlotVisibility.ts` (if any helpers leaked outside `SubwaySvg`).
+- Delete any `playerViews.ts` mock-data references that still assume the old `MapNodeDto.tile?` shape.
+- Update [docs/TDD_server.md](TDD_server.md) and this doc for any wire shape that drifted during implementation (the implementing PR is allowed to update both TDDs in the same change).
+- Run the full server + client test suite + a 4-team manual smoke test to verify no regressions in Phase J / Phase H interactions.
+
+No new tests in L6 itself — the drift cleanup re-runs the existing matrix.
 
 ---
 
