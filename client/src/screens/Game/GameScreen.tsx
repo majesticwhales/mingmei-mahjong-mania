@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { Legend } from "../../components/Legend";
@@ -29,8 +29,8 @@ export function GameScreen() {
   const [panelDismissed, setPanelDismissed] = useState(false);
   const [eventLogOpen, setEventLogOpen] = useState(false);
   const [lastSeenEventSequence, setLastSeenEventSequence] = useState(0);
+  const [trackedGameId, setTrackedGameId] = useState<string | null>(null);
   const [eventLogUnseenBoundary, setEventLogUnseenBoundary] = useState<number | null>(null);
-  const seenGameIdRef = useRef<string | null>(null);
   const [swapOpen, setSwapOpen] = useState(false);
   const [ending, setEnding] = useState(false);
   const [checkInPending, setCheckInPending] = useState(false);
@@ -103,33 +103,22 @@ export function GameScreen() {
 
   const activeGameId = state.status === "active" ? state.id : null;
 
-  useEffect(() => {
-    if (activeGameId == null) {
-      seenGameIdRef.current = null;
-      setLastSeenEventSequence(0);
-      return;
-    }
-    if (seenGameIdRef.current !== activeGameId) {
-      seenGameIdRef.current = activeGameId;
-      setLastSeenEventSequence(latestEventSequence);
-    }
-  }, [activeGameId, latestEventSequence]);
-
-  useEffect(() => {
-    if (eventLogOpen) {
-      setLastSeenEventSequence(latestEventSequence);
-    }
-  }, [eventLogOpen, latestEventSequence]);
+  if (activeGameId !== trackedGameId) {
+    setTrackedGameId(activeGameId);
+    setLastSeenEventSequence(activeGameId == null ? 0 : latestEventSequence);
+  }
 
   const hasUnseenEvents =
     !eventLogOpen && latestEventSequence > lastSeenEventSequence;
 
   function handleOpenEventLog() {
     setEventLogUnseenBoundary(lastSeenEventSequence);
+    setLastSeenEventSequence(latestEventSequence);
     setEventLogOpen(true);
   }
 
   function handleCloseEventLog() {
+    setLastSeenEventSequence(latestEventSequence);
     setEventLogOpen(false);
     setEventLogUnseenBoundary(null);
   }
