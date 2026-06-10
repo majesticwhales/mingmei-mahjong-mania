@@ -1,3 +1,4 @@
+import { assertIsAdmin } from "./auth-service.ts";
 import { sequelize } from "../config/database.ts";
 import {
   isVisibilityMode,
@@ -397,6 +398,8 @@ export async function createLobby(
   hostUserId: string,
   options: CreateLobbyOptions = {},
 ): Promise<LobbyDetailDto> {
+  await assertIsAdmin(hostUserId);
+
   const template = await resolveMapTemplate(options.mapTemplateId);
   const gameDurationSeconds =
     options.gameDurationSeconds ?? template.defaultDurationSeconds;

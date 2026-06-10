@@ -6,9 +6,11 @@ import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
 import { captureGeolocation } from "../../hooks/useGeolocation";
 import { projectionToNetwork } from "../../lib/projectionMap";
+import { useIsAdmin } from "../../state/auth/hooks";
 import { useAtStation, useEventLog, useGame, useGameProjection } from "../../state/game/hooks";
 import { useOutbox } from "../../state/outbox/hooks";
 import { HttpError } from "../../transport/httpError";
+import { restClient } from "../../transport/restClient";
 import { EventLogDrawer } from "./EventLogDrawer";
 import { GameTimer } from "./GameTimer";
 import { SwapTileModal } from "./SwapTileModal";
@@ -22,9 +24,11 @@ export function GameScreen() {
   const atStation = useAtStation();
   const eventLog = useEventLog();
   const { state: outboxState, pushToast } = useOutbox();
+  const isAdmin = useIsAdmin();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [eventLogOpen, setEventLogOpen] = useState(false);
   const [swapOpen, setSwapOpen] = useState(false);
+  const [ending, setEnding] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -134,18 +138,43 @@ export function GameScreen() {
     });
   }
 
+  async function handleLeave() {
+    leaveGame();
+    navigate("/lobbies");
+  }
+
+  async function handleEndGame() {
+    if (!id) return;
+    setEnding(true);
+    try {
+      await restClient.endGame(id);
+      leaveGame();
+      navigate("/lobbies");
+    } catch (error) {
+      const message =
+        error instanceof HttpError ? error.message : "Could not end game — try again";
+      pushToast(message);
+    } finally {
+      setEnding(false);
+    }
+  }
+
   return (
     <div className="app game-screen">
       <header className="app__header game-screen__header">
         <button
           type="button"
           className="btn btn--ghost"
+          disabled={ending}
           onClick={() => {
-            leaveGame();
-            navigate("/lobbies");
+            if (gameEnded || !isAdmin) {
+              void handleLeave();
+              return;
+            }
+            void handleEndGame();
           }}
         >
-          {gameEnded ? "Back to lobbies" : "End game"}
+          {gameEnded ? "Back to lobbies" : isAdmin ? (ending ? "Ending…" : "End game") : "Leave"}
         </button>
         <h1 className="app__title">Mingmei&apos;s Mahjong Mania</h1>
         <Legend lines={network.lines} />

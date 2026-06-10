@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { HttpError } from "../../transport/httpError";
-import { useAuth } from "../../state/auth/hooks";
+import { useAuth, useIsAdmin } from "../../state/auth/hooks";
 import { useIsHost, useLobby, useLobbyMembers, useLobbyNotifications } from "../../state/lobby/hooks";
 import { ConfigForm, type ConfigFormHandle } from "./ConfigForm";
 import { MemberList } from "./MemberList";
@@ -26,6 +26,7 @@ export function LobbyRoomScreen() {
     startLobby,
   } = useLobby();
   const isHost = useIsHost();
+  const isAdmin = useIsAdmin();
   const members = useLobbyMembers();
   const notifications = useLobbyNotifications();
   const [starting, setStarting] = useState(false);
@@ -35,11 +36,15 @@ export function LobbyRoomScreen() {
   useEffect(() => {
     if (!id) return;
     if (id === "new") {
+      if (authState.status !== "authenticated" || !authState.user.isAdmin) {
+        navigate("/lobbies", { replace: true });
+        return;
+      }
       void createLobby().then((lobby) => navigate(`/lobbies/${lobby.id}`, { replace: true }));
       return;
     }
     void loadLobby(id);
-  }, [id, loadLobby, createLobby, navigate]);
+  }, [id, loadLobby, createLobby, navigate, authState]);
 
   const myTeamSlot = useMemo(() => {
     if (authState.status !== "authenticated" || state.status !== "ready") return null;
@@ -122,17 +127,19 @@ export function LobbyRoomScreen() {
             onUpdate={updateNotification}
             onRemove={removeNotification}
           />
-          <button
-            type="button"
-            className="btn btn--primary btn--block"
-            disabled={!lobby.readiness.ready || starting}
-            onClick={handleStart}
-          >
-            {starting ? "Starting…" : "Start game"}
-          </button>
         </>
+      ) : null}
+      {isAdmin ? (
+        <button
+          type="button"
+          className="btn btn--primary btn--block"
+          disabled={!lobby.readiness.ready || starting}
+          onClick={handleStart}
+        >
+          {starting ? "Starting…" : "Start game"}
+        </button>
       ) : (
-        <p className="screen__subtitle">Waiting for host…</p>
+        <p className="screen__subtitle">Waiting for an admin to start the game…</p>
       )}
       {!lobby.readiness.ready && (
         <p className="form__error">{lobby.readiness.reasons.join(" · ")}</p>

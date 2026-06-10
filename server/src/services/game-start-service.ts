@@ -15,6 +15,7 @@ import { scheduleGameJobs } from "./game-schedule-service.ts";
 import { dealTilesForGame } from "./tile-deal-service.ts";
 import { isRelaxLobbyStart } from "../lib/dev-flags.ts";
 import { HttpError } from "../lib/http-error.ts";
+import { assertIsAdmin } from "./auth-service.ts";
 import { Game } from "../models/game.ts";
 import { GameParticipant } from "../models/game-participant.ts";
 import { GameTeam } from "../models/game-team.ts";
@@ -37,14 +38,13 @@ export interface StartGameResult {
  */
 export async function startFromLobby(
   lobbyId: string,
-  hostUserId: string,
+  userId: string,
 ): Promise<StartGameResult> {
+  await assertIsAdmin(userId);
+
   const lobby = await Lobby.findByPk(lobbyId);
   if (!lobby) {
     throw new HttpError(404, "not_found", "Lobby not found");
-  }
-  if (lobby.hostUserId !== hostUserId) {
-    throw new HttpError(403, "forbidden", "Only the host can start the game");
   }
   if (lobby.status !== "waiting") {
     throw new HttpError(
@@ -65,7 +65,7 @@ export async function startFromLobby(
       LobbyTeamAssignment.findAll({ where: { lobbyId } }),
       TeamDefinition.findAll({ order: [["sortOrder", "ASC"]] }),
       MapTemplate.findByPk(lobby.mapTemplateId),
-      User.findByPk(hostUserId),
+      User.findByPk(lobby.hostUserId),
     ]);
   const relaxLobbyStart = isRelaxLobbyStart(host?.username);
 

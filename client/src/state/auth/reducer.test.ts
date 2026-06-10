@@ -5,6 +5,7 @@ const user = {
   id: "u1",
   email: "a@b.c",
   username: "alice",
+  isAdmin: false,
   createdAt: "2026-01-01",
 };
 
