@@ -45,6 +45,20 @@ export interface RecentEventDto {
    */
   challengeId?: string;
   instanceId?: string;
+  /**
+   * Phase J: lifted on `CLAIM_WIN` events only, and only on the
+   * **claiming team's** projection (`selectRecentEvents` strips the
+   * field from rows whose `actor_game_team_id` doesn't match the
+   * requesting team). Other teams see the `CLAIM_WIN` row but without
+   * the score — the full breakdown lands in the per-team `handCompleted`
+   * DTO and at game end via `GET /api/games/:id/summary`.
+   *
+   * The live `game.event` socket channel never carries `finalPoints` at
+   * all (`serializeGameEvent` does not lift the field) so a non-claiming
+   * team's projection refresh isn't a vehicle for leaking points
+   * between the redaction-aware `recentEvents[]` snapshots.
+   */
+  finalPoints?: number;
 }
 
 const DEFAULT_LIMIT = 50;
@@ -55,6 +69,20 @@ interface Row {
   payload: Record<string, unknown> | null;
   created_at: Date;
   team_code: string | null;
+  actor_game_team_id: string | null;
+}
+
+export interface SelectRecentEventsOptions {
+  limit?: number;
+  /**
+   * Phase J: requesting team scope for per-team payload redaction. When
+   * provided, `CLAIM_WIN` rows whose `actor_game_team_id` differs from
+   * `requestingGameTeamId` have `finalPoints` stripped from the DTO.
+   * Other CLAIM_WIN fields (`nodeCode`, `slotIndex`) are public and
+   * still lifted. Pass `null` (or omit) to skip the lift entirely (e.g.
+   * `serializeGameEvent`, which broadcasts to all teams at once).
+   */
+  requestingGameTeamId?: string | null;
 }
 
 /**
@@ -66,11 +94,15 @@ interface Row {
  *
  * Pure read; intended for use from the projection and not as part of any
  * command-handling transaction.
+ *
+ * `options.requestingGameTeamId` enables per-team redaction on `CLAIM_WIN`
+ * rows: only the claiming team's projection has `finalPoints` populated.
  */
 export async function selectRecentEvents(
   gameId: string,
-  limit: number = DEFAULT_LIMIT,
+  options: SelectRecentEventsOptions = {},
 ): Promise<RecentEventDto[]> {
+  const { limit = DEFAULT_LIMIT, requestingGameTeamId = null } = options;
   const safeLimit =
     Number.isInteger(limit) && limit > 0 ? limit : DEFAULT_LIMIT;
 
@@ -90,6 +122,7 @@ export async function selectRecentEvents(
             r.event_type,
             r.payload,
             r.created_at,
+            r.actor_game_team_id,
             td.code AS team_code
      FROM recent r
      LEFT JOIN game_teams gt ON gt.id = r.actor_game_team_id
@@ -101,7 +134,7 @@ export async function selectRecentEvents(
     },
   );
 
-  return rows.map(rowToDto);
+  return rows.map((row) => rowToDto(row, requestingGameTeamId));
 }
 
 /**
@@ -125,16 +158,24 @@ export async function serializeGameEvent(
     );
     teamCode = rows[0]?.code ?? null;
   }
-  return rowToDto({
-    sequence: String(event.sequence),
-    event_type: event.eventType,
-    payload: event.payload ?? null,
-    created_at: event.createdAt,
-    team_code: teamCode,
-  });
+  // `serializeGameEvent` fans out to every socket in the game room,
+  // so we deliberately pass `requestingGameTeamId: null`. The
+  // resulting DTO never carries `finalPoints` — only the per-team
+  // projection's `recentEvents[]` exposes it to the claiming team.
+  return rowToDto(
+    {
+      sequence: String(event.sequence),
+      event_type: event.eventType,
+      payload: event.payload ?? null,
+      created_at: event.createdAt,
+      team_code: teamCode,
+      actor_game_team_id: event.actorGameTeamId ?? null,
+    },
+    null,
+  );
 }
 
-function rowToDto(row: Row): RecentEventDto {
+function rowToDto(row: Row, requestingGameTeamId: string | null): RecentEventDto {
   const dto: RecentEventDto = {
     sequence: Number(row.sequence),
     type: row.event_type,
@@ -173,6 +214,20 @@ function rowToDto(row: Row): RecentEventDto {
   const instanceId = payload.instanceId;
   if (typeof instanceId === "string") {
     dto.instanceId = instanceId;
+  }
+  // Phase J: lift `finalPoints` on CLAIM_WIN rows only for the
+  // claiming team. Other teams' projections (and the public live
+  // `game.event` channel) see the row without the score.
+  if (
+    row.event_type === "CLAIM_WIN" &&
+    requestingGameTeamId != null &&
+    row.actor_game_team_id != null &&
+    row.actor_game_team_id === requestingGameTeamId
+  ) {
+    const finalPoints = payload.finalPoints;
+    if (typeof finalPoints === "number" && Number.isFinite(finalPoints)) {
+      dto.finalPoints = finalPoints;
+    }
   }
   return dto;
 }

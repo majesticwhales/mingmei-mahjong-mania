@@ -9,6 +9,7 @@ import {
   GameScheduledJob,
   type ScheduledJobType,
 } from "../../../src/models/game-scheduled-job.ts";
+import { GameTeam } from "../../../src/models/game-team.ts";
 import { runSchedulerTick } from "../../../src/scheduler/run-tick.ts";
 import { builtinSchedulerHandlers } from "../../../src/scheduler/handlers/index.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
@@ -208,8 +209,10 @@ describe("GAME_END handler", () => {
     await truncateMutableTables(await getSequelize());
   });
 
-  it("flips an active game to ended and emits GAME_ENDED", async () => {
-    const { gameId } = await setupLightweightGame({ participantCount: 0 });
+  it("flips an active game to ended, stamps noten teams, and emits GAME_ENDED with timer reason", async () => {
+    const { gameId, gameTeamIdBySlot } = await setupLightweightGame({
+      participantCount: 0,
+    });
     await clearJobs(gameId);
     await insertJob(gameId, "GAME_END", null);
 
@@ -224,13 +227,135 @@ describe("GAME_END handler", () => {
     const events = await GameEvent.findAll({ where: { gameId } });
     expect(events).toHaveLength(1);
     expect(events[0]!.eventType).toBe("GAME_ENDED");
-    expect(events[0]!.payload).toEqual({ endedAt: now.toISOString() });
+    expect(events[0]!.payload).toEqual({
+      endedAt: now.toISOString(),
+      endReason: "timer",
+      winningGameTeamId: null,
+    });
+
+    // All four teams get final_* = 0 stamped; hand_completed_at stays NULL.
+    for (const teamId of gameTeamIdBySlot.values()) {
+      const team = await GameTeam.findByPk(teamId);
+      expect(team?.handCompletedAt).toBeNull();
+      expect(team?.finalHan).toBe(0);
+      expect(team?.finalFu).toBe(0);
+      expect(team?.finalPoints).toBe(0);
+      expect(team?.finalYakuKeys).toBeNull();
+    }
 
     expect(broadcaster.emitEvent).toHaveBeenCalledWith(
       gameId,
       expect.objectContaining({ eventType: "GAME_ENDED" }),
     );
     expect(broadcaster.emitState).toHaveBeenCalledWith(gameId);
+  });
+
+  it("emits all_teams_completed + the strict winner when every team has a snapshot", async () => {
+    const { gameId, gameTeamIdBySlot } = await setupLightweightGame({
+      participantCount: 0,
+      nodeCodes: ["x"],
+      handTilesBySlot: { 1: 1, 2: 1, 3: 1, 4: 1 },
+      markTeamHandCompleted: [
+        { slot: 1, finalPoints: 3000 },
+        { slot: 2, finalPoints: 8000 },
+        { slot: 3, finalPoints: 4000 },
+        { slot: 4, finalPoints: 5000 },
+      ],
+    });
+    await clearJobs(gameId);
+    await insertJob(gameId, "GAME_END", null);
+
+    const broadcaster = mockBroadcaster();
+    const now = new Date();
+    const result = await runSchedulerTick({ broadcaster, now });
+    expect(result).toEqual({ processed: 1, failed: 0 });
+
+    const events = await GameEvent.findAll({ where: { gameId } });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toEqual({
+      endedAt: now.toISOString(),
+      endReason: "all_teams_completed",
+      winningGameTeamId: gameTeamIdBySlot.get(2)!,
+    });
+  });
+
+  it("returns winningGameTeamId=null when two teams tie for top points", async () => {
+    const { gameId } = await setupLightweightGame({
+      participantCount: 0,
+      nodeCodes: ["x"],
+      handTilesBySlot: { 1: 1, 2: 1, 3: 1, 4: 1 },
+      markTeamHandCompleted: [
+        { slot: 1, finalPoints: 5000 },
+        { slot: 2, finalPoints: 5000 },
+        { slot: 3, finalPoints: 3000 },
+        { slot: 4, finalPoints: 2000 },
+      ],
+    });
+    await clearJobs(gameId);
+    await insertJob(gameId, "GAME_END", null);
+
+    const broadcaster = mockBroadcaster();
+    const result = await runSchedulerTick({ broadcaster });
+    expect(result).toEqual({ processed: 1, failed: 0 });
+
+    const events = await GameEvent.findAll({ where: { gameId } });
+    expect((events[0]!.payload as { endReason: string }).endReason).toBe(
+      "all_teams_completed",
+    );
+    expect(
+      (events[0]!.payload as { winningGameTeamId: string | null }).winningGameTeamId,
+    ).toBeNull();
+  });
+
+  it("mixed-completion path: 1 completed + 3 noten -> timer end, winner = the lone completed team", async () => {
+    const { gameId, gameTeamIdBySlot } = await setupLightweightGame({
+      participantCount: 0,
+      nodeCodes: ["x"],
+      handTilesBySlot: { 3: 1 },
+      markTeamHandCompleted: [
+        {
+          slot: 3,
+          finalHan: 4,
+          finalFu: 30,
+          finalPoints: 7700,
+          finalYakuKeys: [
+            { name: "Tanyao", han: 1 },
+            { name: "Sanshoku", han: 2 },
+          ],
+        },
+      ],
+    });
+    await clearJobs(gameId);
+    await insertJob(gameId, "GAME_END", null);
+
+    const broadcaster = mockBroadcaster();
+    const now = new Date();
+    const result = await runSchedulerTick({ broadcaster, now });
+    expect(result).toEqual({ processed: 1, failed: 0 });
+
+    const events = await GameEvent.findAll({ where: { gameId } });
+    expect(events[0]!.payload).toEqual({
+      endedAt: now.toISOString(),
+      endReason: "timer",
+      winningGameTeamId: gameTeamIdBySlot.get(3)!,
+    });
+
+    // The three noten teams get final_* = 0; the winner keeps its snapshot.
+    for (const [slot, teamId] of gameTeamIdBySlot.entries()) {
+      const team = await GameTeam.findByPk(teamId);
+      if (slot === 3) {
+        expect(team?.finalPoints).toBe(7700);
+        expect(team?.finalYakuKeys).toEqual([
+          { name: "Tanyao", han: 1 },
+          { name: "Sanshoku", han: 2 },
+        ]);
+        expect(team?.handCompletedAt).toBeInstanceOf(Date);
+      } else {
+        expect(team?.finalPoints).toBe(0);
+        expect(team?.finalYakuKeys).toBeNull();
+        expect(team?.handCompletedAt).toBeNull();
+      }
+    }
   });
 
   it("is idempotent on an already-ended game (no event, no failure)", async () => {

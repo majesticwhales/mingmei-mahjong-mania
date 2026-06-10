@@ -25,6 +25,7 @@ import { LobbyNotification } from "../models/lobby-notification.ts";
 import { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import { MapTemplate } from "../models/map-template.ts";
 import { TeamDefinition } from "../models/team-definition.ts";
+import { getBroadcaster } from "../socket/broadcaster-registry.ts";
 import { User } from "../models/user.ts";
 
 export interface StartGameResult {
@@ -265,6 +266,18 @@ export async function startFromLobby(
 
     return game.id;
   });
+
+  // Fan the post-start lobby DTO out to every member sitting in
+  // `lobby:{lobbyId}`. The DTO now carries `gameId`, so non-host
+  // clients can navigate to the freshly-created game in response to
+  // the `status: "closed"` transition. Best-effort: a broadcast
+  // failure must not block returning the gameId to the host, which
+  // already has its own REST-derived navigation path.
+  try {
+    await getBroadcaster().emitLobbyConfig(lobbyId);
+  } catch {
+    // swallow — see comment above
+  }
 
   return { gameId, status: "active" };
 }

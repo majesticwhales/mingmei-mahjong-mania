@@ -19,6 +19,8 @@ const projection: GameStateProjection = {
   roundWind: 1,
   seatWind: 1,
   doraIndicator: null,
+  handCompleted: null,
+  teamsCompleted: [],
 };
 
 describe("gameReducer", () => {

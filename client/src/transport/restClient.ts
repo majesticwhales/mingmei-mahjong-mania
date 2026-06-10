@@ -9,6 +9,7 @@ import type {
   MapTemplateSummary,
   StartLobbyResponse,
 } from "../wire/lobby";
+import type { GameSummaryDto } from "../wire/summary";
 import { HttpError } from "./httpError";
 
 const AUTH_STORAGE_KEY = "mmm.auth.v1";
@@ -210,6 +211,12 @@ export const restClient = {
       method: "POST",
       path: `/api/games/${gameId}/end`,
       body: {},
+    });
+  },
+  getGameSummary(gameId: string) {
+    return request<GameSummaryDto>({
+      method: "GET",
+      path: `/api/games/${gameId}/summary`,
     });
   },
 };

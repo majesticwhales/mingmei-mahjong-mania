@@ -6,6 +6,7 @@ const lobby: LobbyDetailDto = {
   id: "l1",
   status: "waiting",
   hostUserId: "host",
+  gameId: null,
   config: {
     mapTemplateId: "m1",
     gameDurationSeconds: 3600,

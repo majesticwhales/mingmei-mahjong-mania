@@ -1,4 +1,4 @@
-import { QueryTypes, type Transaction } from "sequelize";
+import { Op, QueryTypes, type Transaction } from "sequelize";
 import type { VisibilityMode } from "../../src/game/visibility-mode.ts";
 import { GAME_TEAM_SLOTS, type GameTeamSlot } from "../../src/services/even-team-assignment.ts";
 import { cloneMapTemplateToGame } from "../../src/services/map-clone-service.ts";
@@ -256,6 +256,25 @@ export async function createGameShellWithParticipants(
 const NORTH_AMERICA_EAST_OFFSET_SECONDS = 60 * 60;
 const ONE_HOUR_SECONDS = 60 * 60;
 
+interface MarkTeamHandCompletedEntry {
+  slot: GameTeamSlot;
+  finalHan?: number;
+  finalFu?: number;
+  finalPoints?: number;
+  finalYakuKeys?: { name: string; han: number }[];
+}
+
+function normalizeMarkTeamHandCompleted(
+  input:
+    | GameTeamSlot
+    | ReadonlyArray<MarkTeamHandCompletedEntry>
+    | undefined,
+): ReadonlyArray<MarkTeamHandCompletedEntry> {
+  if (input == null) return [];
+  if (typeof input === "number") return [{ slot: input }];
+  return input;
+}
+
 interface LightweightLobbyParams {
   hostUserId: string;
 }
@@ -416,6 +435,52 @@ export interface LightweightGameOptions {
    * through the lobby surface.
    */
   visibilityMode?: VisibilityMode;
+  /**
+   * Phase J — pre-mark one or more team slots as hand-completed by
+   * stamping `game_teams.hand_completed_at` plus the snapshot columns
+   * (`final_han / final_fu / final_points / final_yaku_keys`). Used by
+   * tests that exercise the hand-completed lock or the
+   * `GAME_END` end-reason / winner selection without going through a
+   * real `CLAIM_WIN`.
+   *
+   * Each entry is `{ slot, finalPoints?, finalHan?, finalFu?, finalYakuKeys? }`.
+   * Omitted scoring fields fall back to sentinel defaults
+   * (`finalHan=1, finalFu=30, finalPoints=1000,
+   * finalYakuKeys=[{name:"Riichi", han:1}]`). The `winning_tile_id`
+   * is pinned to the team's first hand tile and `winning_node_id` to
+   * the first cloned node, so the multi-column CHECK is satisfied
+   * without the caller having to build a fully realistic completion
+   * snapshot. Callers must pair this with
+   * `handTilesBySlot[slot] >= 1` and at least one `nodeCodes` entry.
+   *
+   * Pass a single slot number for the common "lock this one team"
+   * fixture; pass an array of entries when seeding GAME_END selection
+   * tests where every team's points matter.
+   */
+  markTeamHandCompleted?:
+    | GameTeamSlot
+    | ReadonlyArray<{
+        slot: GameTeamSlot;
+        finalHan?: number;
+        finalFu?: number;
+        finalPoints?: number;
+        finalYakuKeys?: { name: string; han: number }[];
+      }>;
+  /**
+   * Tile-types (specified as `[suit, rank, copyIndex]` triples) the
+   * caller plans to mint by hand later (e.g. via a test-local
+   * `placeHandTiles` helper that builds a deterministic tenpai shape).
+   * Filtered out of the auto-deal pool used by `handTilesBySlot` and
+   * `nodeTilesByCode` so the caller's subsequent `GameTile.create`
+   * calls don't collide with the fixture on
+   * `game_tiles_game_type_copy_unique`.
+   *
+   * Note: the pool ordering still puts the remaining tile-types in
+   * `id ASC`; this option only thins it. Callers reserving more rows
+   * than `tile_types.length - (sum of handTilesBySlot + nodeTilesByCode)`
+   * will trip the catalog-size check below.
+   */
+  reservedTileTypes?: ReadonlyArray<readonly [string, number, number]>;
 }
 
 export interface LightweightGameFixture {
@@ -465,6 +530,8 @@ export async function setupLightweightGame(
   const slotMapVisible =
     options.slotMapVisible ?? new Array(slotsPerNode).fill(true);
   const visibilityMode = options.visibilityMode ?? "both";
+  const markTeamHandCompleted = options.markTeamHandCompleted;
+  const reservedTileTypes = options.reservedTileTypes ?? [];
 
   if (slotUnlockOffsetsSeconds.length !== slotsPerNode) {
     throw new Error(
@@ -509,6 +576,27 @@ export async function setupLightweightGame(
   }
   if (new Set(nodeCodes).size !== nodeCodes.length) {
     throw new Error("setupLightweightGame: nodeCodes must be unique");
+  }
+  const markEntries: ReadonlyArray<{
+    slot: GameTeamSlot;
+    finalHan?: number;
+    finalFu?: number;
+    finalPoints?: number;
+    finalYakuKeys?: { name: string; han: number }[];
+  }> = normalizeMarkTeamHandCompleted(markTeamHandCompleted);
+  if (markEntries.length > 0) {
+    for (const entry of markEntries) {
+      if ((handTilesBySlot[entry.slot] ?? 0) < 1) {
+        throw new Error(
+          `setupLightweightGame: markTeamHandCompleted requires handTilesBySlot[${entry.slot}] >= 1 to provide a winning_tile_id target`,
+        );
+      }
+    }
+    if (nodeCodes.length === 0) {
+      throw new Error(
+        "setupLightweightGame: markTeamHandCompleted requires at least one nodeCode to provide a winning_node_id target",
+      );
+    }
   }
 
   const host = await registerUser();
@@ -624,7 +712,37 @@ export async function setupLightweightGame(
     }
 
     let tileTypeOffset = 0;
-    const tileTypeIds = await getTileTypeIds();
+    const fullTileTypeIds = await getTileTypeIds();
+    // Phase J — when the caller plans to manually mint tiles for a
+    // specific `(suit, rank, copyIndex)` set (e.g. `seedShanponTenpai`
+    // for the claim-win + summary suites), thin the auto-deal pool so
+    // the fixture's `handTilesBySlot` / `nodeTilesByCode` rows don't
+    // collide with those manual inserts on
+    // `game_tiles_game_type_copy_unique`. The reservation is by
+    // tile-type id, looked up by `(suit, rank, copyIndex)` against the
+    // catalog inside the same transaction so the WHERE-clause matches
+    // existing rows exactly.
+    let reservedIds = new Set<string>();
+    if (reservedTileTypes.length > 0) {
+      const reservedRows = await TileType.findAll({
+        where: {
+          [Op.or]: reservedTileTypes.map(([suit, rank, copyIndex]) => ({
+            suit,
+            rank,
+            copyIndex,
+          })),
+        },
+        attributes: ["id"],
+        transaction,
+      });
+      reservedIds = new Set(reservedRows.map((r) => r.id));
+      if (reservedRows.length !== reservedTileTypes.length) {
+        throw new Error(
+          `setupLightweightGame: reservedTileTypes asked for ${reservedTileTypes.length} tile-type rows but the catalog only matched ${reservedRows.length}; did the seed run?`,
+        );
+      }
+    }
+    const tileTypeIds = fullTileTypeIds.filter((id) => !reservedIds.has(id));
     const totalRequested =
       Object.values(handTilesBySlot).reduce<number>(
         (sum, n) => sum + (n ?? 0),
@@ -633,7 +751,7 @@ export async function setupLightweightGame(
       Object.values(nodeTilesByCode).reduce<number>((sum, n) => sum + n, 0);
     if (totalRequested > tileTypeIds.length) {
       throw new Error(
-        `setupLightweightGame: requested ${totalRequested} tiles but the catalog only has ${tileTypeIds.length}`,
+        `setupLightweightGame: requested ${totalRequested} tiles but the catalog only has ${tileTypeIds.length} (after reserving ${reservedIds.size})`,
       );
     }
 
@@ -705,6 +823,53 @@ export async function setupLightweightGame(
           tileTypeId,
           placementId: placement.id,
         });
+      }
+    }
+
+    // Phase J — pre-mark teams as hand-completed. Pins
+    // `winning_tile_id` to each team's first hand tile and
+    // `winning_node_id` to the first cloned node, so the multi-column
+    // CHECK on `game_teams` is satisfied without the caller having to
+    // build a fully realistic completion snapshot. `completedAt` is
+    // staggered across the entries by 1ms so the `(finalPoints DESC,
+    // handCompletedAt ASC)` selection in the GAME_END handler is
+    // deterministic.
+    if (markEntries.length > 0) {
+      const [winningNodeId] = nodeIdByCode.values();
+      if (!winningNodeId) {
+        throw new Error(
+          "setupLightweightGame: markTeamHandCompleted requires at least one cloned node",
+        );
+      }
+      const stampedAtBase = Date.now();
+      for (let i = 0; i < markEntries.length; i += 1) {
+        const entry = markEntries[i]!;
+        const gameTeamId = gameTeamIdBySlot.get(entry.slot);
+        if (!gameTeamId) {
+          throw new Error(
+            `setupLightweightGame: no game team for slot ${entry.slot}`,
+          );
+        }
+        const winningTile = handTiles.find((t) => t.teamSlot === entry.slot);
+        if (!winningTile) {
+          throw new Error(
+            `setupLightweightGame: markTeamHandCompleted slot ${entry.slot} has no hand tile to use as winning_tile_id`,
+          );
+        }
+        await GameTeam.update(
+          {
+            handCompletedAt: new Date(stampedAtBase + i),
+            winningTileId: winningTile.gameTileId,
+            winningNodeId,
+            finalHan: entry.finalHan ?? 1,
+            finalFu: entry.finalFu ?? 30,
+            finalPoints: entry.finalPoints ?? 1000,
+            finalYakuKeys: entry.finalYakuKeys ?? [
+              { name: "Riichi", han: 1 },
+            ],
+          },
+          { where: { id: gameTeamId }, transaction },
+        );
       }
     }
 

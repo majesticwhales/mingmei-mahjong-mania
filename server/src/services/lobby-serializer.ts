@@ -79,6 +79,15 @@ export interface LobbyDetailDto {
   id: string;
   status: LobbyStatus;
   hostUserId: string;
+  /**
+   * Id of the `games` row spawned from this lobby, once the host has
+   * started it. `null` while the lobby is still `waiting`. Surfaced
+   * here so the `lobby.config` broadcast that fires when status flips
+   * to `closed` also tells every member where to navigate — without
+   * this field, non-host clients would receive the status change but
+   * have no way to look up the new game.
+   */
+  gameId: string | null;
   config: LobbyConfigDto;
   members: LobbyMemberDto[];
   readiness: LobbyReadinessDto;
@@ -209,6 +218,7 @@ export function serializeLobbyDetail(
   teamAssignments: LobbyTeamAssignment[],
   usersById: Map<string, User>,
   notifications: LobbyNotificationDto[],
+  gameId: string | null,
 ): LobbyDetailDto {
   const assignmentByUser = new Map(
     teamAssignments.map((a) => [a.userId, a.teamSlot]),
@@ -232,6 +242,7 @@ export function serializeLobbyDetail(
     id: lobby.id,
     status: lobby.status,
     hostUserId: lobby.hostUserId,
+    gameId,
     config: {
       mapTemplateId: lobby.mapTemplateId,
       gameDurationSeconds: lobby.gameDurationSeconds,

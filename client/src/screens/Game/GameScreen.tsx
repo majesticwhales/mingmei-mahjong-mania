@@ -7,12 +7,21 @@ import { StationPanel } from "../../components/StationPanel";
 import { captureGeolocationForCheckIn } from "../../hooks/useGeolocation";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useIsAdmin } from "../../state/auth/hooks";
-import { useAtStation, useEventLog, useGame, useGameProjection } from "../../state/game/hooks";
+import {
+  useAtStation,
+  useClaimWin,
+  useEventLog,
+  useGame,
+  useGameProjection,
+  useHandCompleted,
+} from "../../state/game/hooks";
 import { useOutbox } from "../../state/outbox/hooks";
 import { HttpError } from "../../transport/httpError";
 import { restClient } from "../../transport/restClient";
+import { ClaimWinModal } from "./ClaimWinModal";
 import { EventLogDrawer } from "./EventLogDrawer";
 import { GameTimer } from "./GameTimer";
+import { HandCompletedBanner } from "./HandCompletedBanner";
 import { SwapTileModal } from "./SwapTileModal";
 import { VisibilityCountdown } from "./VisibilityCountdown";
 
@@ -22,6 +31,8 @@ export function GameScreen() {
   const { state, joinGame, resyncGame, submitCommand, leaveGame } = useGame();
   const projection = useGameProjection();
   const atStation = useAtStation();
+  const handCompleted = useHandCompleted();
+  const claimWin = useClaimWin();
   const eventLog = useEventLog();
   const { state: outboxState, pushToast } = useOutbox();
   const isAdmin = useIsAdmin();
@@ -32,6 +43,8 @@ export function GameScreen() {
   const [trackedGameId, setTrackedGameId] = useState<string | null>(null);
   const [eventLogUnseenBoundary, setEventLogUnseenBoundary] = useState<number | null>(null);
   const [swapOpen, setSwapOpen] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [claimPending, setClaimPending] = useState(false);
   const [ending, setEnding] = useState(false);
   const [checkInPending, setCheckInPending] = useState(false);
 
@@ -43,6 +56,17 @@ export function GameScreen() {
   }, [id, joinGame, state.status, state]);
 
   const gameEnded = projection?.status === "ended";
+
+  // Phase J — once the game flips to `ended`, send everyone to the
+  // summary. The game screen is read-only at this point (the projection
+  // already locked every action via `commandsDisabled={gameEnded}`), so
+  // there's no in-progress UI to interrupt. The "Back to lobbies" header
+  // button still works because the summary screen exposes the same exit.
+  useEffect(() => {
+    if (gameEnded && id) {
+      navigate(`/games/${id}/summary`, { replace: true });
+    }
+  }, [gameEnded, id, navigate]);
 
   const handleVisibilityPhaseElapsed = useCallback(() => {
     if (!gameEnded) {
@@ -95,6 +119,35 @@ export function GameScreen() {
       (row) => row.status === "pending" || row.status === "in_flight",
     );
   }, [id, outboxState.byGame]);
+
+  // Phase J — claim affordance: tenpai AND at least one station tile
+  // matches a wait by (suit, rank, copyIndex). We do the match here
+  // (rather than inside StationPanel) so the panel stays a pure
+  // presentational component, mirroring the swap-tile data-flow.
+  const claimWinWaits = useMemo(() => {
+    if (!projection || handCompleted) return null;
+    const analysis = projection.handAnalysis;
+    if (!analysis || analysis.shanten !== 0) return null;
+    if (!analysis.waits || analysis.waits.length === 0) return null;
+    return analysis.waits;
+  }, [projection, handCompleted]);
+
+  const canClaimWin = useMemo(() => {
+    if (!claimWinWaits || !atStation) return false;
+    const slots = atStation.tiles?.length
+      ? atStation.tiles
+      : atStation.tile
+        ? [{ slotIndex: 0, tile: atStation.tile }]
+        : [];
+    return slots.some((slot) =>
+      claimWinWaits!.some(
+        (wait) =>
+          wait.tile.suit === slot.tile.suit &&
+          wait.tile.rank === slot.tile.rank &&
+          wait.tile.copyIndex === slot.tile.copyIndex,
+      ),
+    );
+  }, [claimWinWaits, atStation]);
 
   const latestEventSequence = useMemo(() => {
     if (eventLog.length === 0) return 0;
@@ -187,6 +240,18 @@ export function GameScreen() {
     });
   }
 
+  async function handleClaimWin(stationTileId: string) {
+    setClaimPending(true);
+    try {
+      await runCommand(async () => {
+        await claimWin(stationTileId);
+        setClaimOpen(false);
+      });
+    } finally {
+      setClaimPending(false);
+    }
+  }
+
   async function handleLeave() {
     leaveGame();
     navigate("/lobbies");
@@ -267,6 +332,12 @@ export function GameScreen() {
           onMapBackgroundClick={viewingNode ? handleClosePanel : undefined}
         />
       </main>
+      {handCompleted && (
+        <HandCompletedBanner
+          handCompleted={handCompleted}
+          teamsCompletedCount={projection.teamsCompleted.length}
+        />
+      )}
       <StationPanel
         atStation={atStation}
         viewingNode={viewingNode}
@@ -275,11 +346,13 @@ export function GameScreen() {
         handTiles={projection.handTiles}
         commandsPending={commandsPending}
         checkInPending={checkInPending}
-        commandsDisabled={gameEnded}
+        commandsDisabled={gameEnded || Boolean(handCompleted)}
+        canClaimWin={canClaimWin}
         onClose={handleClosePanel}
         onCheckIn={handleCheckIn}
         onCheckOut={handleCheckOut}
         onSwapTile={() => setSwapOpen(true)}
+        onClaimWin={() => setClaimOpen(true)}
       />
       <EventLogDrawer
         events={eventLog}
@@ -294,6 +367,15 @@ export function GameScreen() {
           stationTile={atStation.tile}
           onConfirm={handleSwap}
           onClose={() => setSwapOpen(false)}
+        />
+      )}
+      {claimOpen && atStation && claimWinWaits && (
+        <ClaimWinModal
+          atStation={atStation}
+          waits={claimWinWaits}
+          onConfirm={handleClaimWin}
+          onClose={() => setClaimOpen(false)}
+          pending={claimPending}
         />
       )}
     </div>

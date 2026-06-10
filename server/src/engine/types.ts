@@ -6,6 +6,13 @@
  * commands described in TDD §3.4. The three `*_CHALLENGE` commands wire
  * the honor-system challenge gate (TDD §3.8); they reuse the same command
  * name as their emitted event, matching `CHECK_IN` / `SWAP_TILE` style.
+ *
+ * `CLAIM_WIN` is the Phase J end-game mechanic (TDD §3.10): a tenpai team
+ * claims a station tile as their 14th tile, stamps the per-team
+ * completion snapshot, and locks out further mutation commands. Emits a
+ * `CLAIM_WIN` event (auto-included in `EVENT_TYPES` via the spread); the
+ * scheduler-driven `GAME_ENDED` notification stays the canonical
+ * end-of-game broadcast.
  */
 export const COMMAND_TYPES = [
   "CHECK_IN",
@@ -15,6 +22,7 @@ export const COMMAND_TYPES = [
   "START_CHALLENGE",
   "CHALLENGE_COMPLETED",
   "CHALLENGE_FORFEITED",
+  "CLAIM_WIN",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];

@@ -11,6 +11,7 @@ import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { GameTilePlacement } from "../../models/game-tile-placement.ts";
 import { swapPlacements } from "../tile-swap-service.ts";
 import { assertSlotUnlocked } from "../../services/slot-visibility.ts";
+import { assertNotHandCompleted } from "../hand-completed-lock.ts";
 
 interface SwapTilePayload {
   /** `game_tiles.id` of a tile currently in the issuing team's hand. */
@@ -56,6 +57,11 @@ function parsePayload(payload: Record<string, unknown>): SwapTilePayload {
 export const swapTileHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
     const { handTileId, stationTileId } = parsePayload(ctx.payload);
+
+    await assertNotHandCompleted({
+      gameTeamId: ctx.gameTeamId,
+      transaction: ctx.transaction,
+    });
 
     const position = await GameTeamPosition.findOne({
       where: { gameTeamId: ctx.gameTeamId },

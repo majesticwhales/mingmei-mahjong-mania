@@ -18,6 +18,8 @@ export function makeProjection(overrides: Partial<GameStateProjection> = {}): Ga
     roundWind: 1,
     seatWind: 1,
     doraIndicator: null,
+    handCompleted: null,
+    teamsCompleted: [],
     ...overrides,
   };
 }
