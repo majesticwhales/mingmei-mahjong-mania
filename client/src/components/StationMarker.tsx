@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent, type MouseEvent } from "react";
 import { TILE_BACK_IMAGE_PATH } from "../data/riichiTiles";
 import type { LabelAnchor, Station } from "../data/types";
 
@@ -115,6 +115,11 @@ export function StationMarker({
     }
   };
 
+  const handleClick = (event: MouseEvent<SVGGElement>) => {
+    event.stopPropagation();
+    onSelect(station.id);
+  };
+
   return (
     <g
       ref={markerRef}
@@ -125,7 +130,7 @@ export function StationMarker({
       tabIndex={0}
       aria-label={`${station.name}${tileLabel ? `, ${tileLabel}` : ""}${isInterchange ? " (interchange)" : ""}`}
       aria-pressed={isSelected}
-      onClick={() => onSelect(station.id)}
+      onClick={handleClick}
       onKeyDown={handleKey}
     >
       <circle cx={station.x} cy={station.y} r={14} fill="transparent" />
