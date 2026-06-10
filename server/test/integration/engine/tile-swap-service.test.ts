@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Op } from "sequelize";
 import { beforeEach, describe, expect, it } from "vitest";
 import { swapPlacements } from "../../../src/engine/tile-swap-service.ts";
 import { GameTilePlacement } from "../../../src/models/game-tile-placement.ts";
@@ -143,7 +144,7 @@ describe("swapPlacements", () => {
 
   it("preserves placement counts (no tiles created or destroyed)", async () => {
     // Keeps `setupStartedGame` because this test asserts the full
-    // 84-station + 4×13-hand deal-time invariant, which only the real
+    // 23×3 station + 4×13 hand + 15 dead-wall deal, which only the real
     // start flow produces.
     const fixture = await setupStartedGame({ defaultStartNodeCode: null });
     const team = fixture.participants[0]!.gameTeamId;
@@ -159,14 +160,21 @@ describe("swapPlacements", () => {
       swapPlacements(tx, handPlacement!.gameTileId, nodePlacement!.gameTileId),
     );
 
-    const [nodePlacements, handPlacements] = await Promise.all([
-      GameTilePlacement.count({ where: { gameTeamId: null } }),
-      GameTilePlacement.count({
-        where: { gameNodeId: null },
-      }),
-    ]);
-    expect(nodePlacements).toBe(84);
+    const [stationPlacements, handPlacements, deadWallPlacements] =
+      await Promise.all([
+        GameTilePlacement.count({
+          where: { gameNodeId: { [Op.ne]: null } },
+        }),
+        GameTilePlacement.count({
+          where: { gameTeamId: { [Op.ne]: null } },
+        }),
+        GameTilePlacement.count({
+          where: { gameNodeId: null, gameTeamId: null },
+        }),
+      ]);
+    expect(stationPlacements).toBe(69);
     expect(handPlacements).toBe(13 * 4);
+    expect(deadWallPlacements).toBe(15);
   });
 
   it("rejects with tile_not_found when one tile id has no placement", async () => {

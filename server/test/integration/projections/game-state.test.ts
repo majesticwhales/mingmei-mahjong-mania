@@ -307,6 +307,7 @@ describe("buildGameStateProjection", () => {
       startNodeCodeBySlot: { 1: "a" },
       nodeTilesByCode: { a: 2 },
       slotsPerNode: 2,
+      visibilityMode: "slot",
       slotUnlockOffsetsSeconds: [0, 60 * 60],
     });
     const participant = fixture.participants[0]!;

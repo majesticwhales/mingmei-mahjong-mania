@@ -140,10 +140,16 @@ export interface StartedGameFixture {
  * initial check-in without going through `CHECK_IN`.
  */
 export async function setupStartedGame(
-  options: { defaultStartNodeCode?: string | null } = {},
+  options: {
+    defaultStartNodeCode?: string | null;
+    visibilityMode?: import("../../src/game/visibility-mode.ts").VisibilityMode;
+    visibilityPhaseCount?: number;
+  } = {},
 ): Promise<StartedGameFixture> {
   const { lobbyId, hostId, userIds } = await createLobbyWithFourPlayers({
     defaultStartNodeCode: options.defaultStartNodeCode,
+    visibilityMode: options.visibilityMode,
+    visibilityPhaseCount: options.visibilityPhaseCount,
   });
   const { gameId } = await startFromLobby(lobbyId, hostId);
 
