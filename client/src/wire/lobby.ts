@@ -16,6 +16,7 @@ export interface LobbyReadinessDto {
   reasons: string[];
   memberCount: number;
   minPlayersToStart: number;
+  soloStartAllowed: boolean;
   playersPerTeam: Record<string, number>;
   missingTeams: number[];
   unassignedCount: number;
