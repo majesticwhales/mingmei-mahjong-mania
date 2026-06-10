@@ -53,4 +53,18 @@ describe("lobbyConfig", () => {
       ),
     ).toBe(true);
   });
+
+  it("omits phase knobs from the patch when visibility mode excludes phase", () => {
+    const patch = lobbyConfigPatchFromDto({ ...baseConfig, visibilityMode: "slot" });
+    expect(patch).not.toHaveProperty("visibilityPhaseCount");
+    expect(patch).not.toHaveProperty("visibilityPhaseIntervalSeconds");
+    expect(patch.slotUnlockOffsetsSeconds).toEqual([0]);
+  });
+
+  it("omits slot knobs from the patch when visibility mode excludes slot", () => {
+    const patch = lobbyConfigPatchFromDto({ ...baseConfig, visibilityMode: "phase" });
+    expect(patch).not.toHaveProperty("slotUnlockOffsetsSeconds");
+    expect(patch).not.toHaveProperty("slotMapVisible");
+    expect(patch.visibilityPhaseCount).toBe(4);
+  });
 });

@@ -227,12 +227,12 @@ export async function startFromLobby(
         startedAt,
         game.visibilityPhaseCount,
         transaction,
+        { slotsPerNode: game.slotsPerNode },
       );
     }
     await bootstrapGameTeamPositionsAndRules(
       game.id,
       gameTeamIdBySlot,
-      lobby.defaultStartNodeCode,
       transaction,
     );
 

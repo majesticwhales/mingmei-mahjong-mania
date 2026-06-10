@@ -34,34 +34,13 @@ function teamIdsBySlotOrder(
   });
 }
 
-async function resolveStartNodeId(
-  gameId: string,
-  defaultStartNodeCode: string | null,
-  transaction: Transaction,
-): Promise<string | null> {
-  if (defaultStartNodeCode == null) return null;
-  const startNode = await GameNode.findOne({
-    where: { gameId, code: defaultStartNodeCode },
-    attributes: ["id"],
-    transaction,
-  });
-  if (!startNode) {
-    throw new HttpError(
-      500,
-      "internal_error",
-      `Default start station "${defaultStartNodeCode}" not found on game map`,
-    );
-  }
-  return startNode.id;
-}
-
 /**
  * Always-needed game-start setup, independent of the phase-reveal layer:
  *
- *  - `game_team_positions`: one row per team, pointing at the lobby's
- *    `defaultStartNodeCode` (or NULL when the lobby starts teams
- *    unchecked). CHECK_IN / CHECK_OUT handlers throw a 500 if this row
- *    is missing, so it must seed regardless of `visibility_mode`.
+ *  - `game_team_positions`: one row per team with `current_game_node_id =
+ *    NULL` (teams are not checked in until they issue `CHECK_IN`).
+ *    CHECK_IN / CHECK_OUT handlers throw a 500 if this row is missing,
+ *    so it must seed regardless of `visibility_mode`.
  *  - `game_rule_flags` red-fives row: scoring catalog flag consumed by
  *    `analyzeHand`; not phase-related.
  *
@@ -73,20 +52,14 @@ async function resolveStartNodeId(
 export async function bootstrapGameTeamPositionsAndRules(
   gameId: string,
   gameTeamIdBySlot: Map<GameTeamSlot, string>,
-  defaultStartNodeCode: string | null,
   transaction: Transaction,
 ): Promise<void> {
   const teamIdsInSlotOrder = teamIdsBySlotOrder(gameTeamIdBySlot);
-  const startGameNodeId = await resolveStartNodeId(
-    gameId,
-    defaultStartNodeCode,
-    transaction,
-  );
 
   await GameTeamPosition.bulkCreate(
     teamIdsInSlotOrder.map((gameTeamId) => ({
       gameTeamId,
-      currentGameNodeId: startGameNodeId,
+      currentGameNodeId: null,
     })),
     { transaction },
   );
@@ -114,12 +87,24 @@ export async function bootstrapGameTeamPositionsAndRules(
  * reveals everything (same row count as a phase-off game, but the
  * tables are populated so engine code that joins on them keeps working).
  */
+export interface BootstrapGameVisibilityGroupsOptions {
+  /**
+   * When `slotsPerNode === visibilityPhaseCount`, visibility phases reveal
+   * one tile slot per phase on the map rather than station groups. Every
+   * node stays in group 0 and every team gets home group 0 so all
+   * stations remain face-up while `games.visibility_phase` drives the
+   * slot index exposed in the projection.
+   */
+  slotsPerNode?: number;
+}
+
 export async function bootstrapGameVisibilityGroups(
   gameId: string,
   gameTeamIdBySlot: Map<GameTeamSlot, string>,
   startedAt: Date,
   visibilityPhaseCount: number,
   transaction: Transaction,
+  options: BootstrapGameVisibilityGroupsOptions = {},
 ): Promise<void> {
   const teamIdsInSlotOrder = teamIdsBySlotOrder(gameTeamIdBySlot);
 
@@ -130,7 +115,14 @@ export async function bootstrapGameVisibilityGroups(
   });
   const nodeIds = nodes.map((node) => node.id);
 
-  const groupsByIndex = partitionNodesIntoGroups(nodeIds, visibilityPhaseCount);
+  const slotPhaseMode =
+    options.slotsPerNode != null &&
+    options.slotsPerNode > 1 &&
+    visibilityPhaseCount === options.slotsPerNode;
+
+  const groupsByIndex = slotPhaseMode
+    ? new Map<VisibilityGroupIndex, string[]>([[0, nodeIds]])
+    : partitionNodesIntoGroups(nodeIds, visibilityPhaseCount);
   const nodeIdToGroupIndex = new Map<string, VisibilityGroupIndex>();
   for (const [groupIndex, groupNodeIds] of groupsByIndex) {
     for (const nodeId of groupNodeIds) {
@@ -146,10 +138,9 @@ export async function bootstrapGameVisibilityGroups(
     { transaction },
   );
 
-  const homeGroupByTeamId = assignHomeGroupsToTeams(
-    teamIdsInSlotOrder,
-    visibilityPhaseCount,
-  );
+  const homeGroupByTeamId = slotPhaseMode
+    ? new Map(teamIdsInSlotOrder.map((gameTeamId) => [gameTeamId, 0]))
+    : assignHomeGroupsToTeams(teamIdsInSlotOrder, visibilityPhaseCount);
 
   await GameTeamHomeGroup.bulkCreate(
     teamIdsInSlotOrder.map((gameTeamId) => ({
@@ -218,7 +209,6 @@ export async function bootstrapGameVisibility(
   await bootstrapGameTeamPositionsAndRules(
     gameId,
     gameTeamIdBySlot,
-    defaultStartNodeCode,
     transaction,
   );
 }

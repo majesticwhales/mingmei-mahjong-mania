@@ -25,6 +25,14 @@ function renderMetadataJson(line) {
   });
 }
 
+function deriveAutoDistributedOffsets(slotsPerNode, gameDurationSeconds) {
+  const out = [];
+  for (let k = 0; k < slotsPerNode; k += 1) {
+    out.push(Math.round((gameDurationSeconds * k) / slotsPerNode));
+  }
+  return out;
+}
+
 function buildUndirectedEdges(lines, stationCodes) {
   const edges = new Map();
   for (const line of lines) {
@@ -41,6 +49,10 @@ function buildUndirectedEdges(lines, stationCodes) {
 async function updateExistingTemplate(queryInterface, templateId) {
   const now = new Date();
   const { template, stations, lines } = network;
+  const slotUnlockOffsetsSeconds = deriveAutoDistributedOffsets(
+    3,
+    template.defaultDurationSeconds,
+  );
 
   await queryInterface.bulkUpdate(
     'map_templates',
@@ -49,6 +61,12 @@ async function updateExistingTemplate(queryInterface, templateId) {
       default_duration_seconds: template.defaultDurationSeconds,
       default_hand_size: template.defaultHandSize,
       node_count: template.nodeCount,
+      default_visibility_phase_count: 3,
+      default_slots_per_node: 3,
+      default_dead_wall_size: 15,
+      default_visibility_mode: 'slot',
+      default_slot_unlock_offsets_seconds: slotUnlockOffsetsSeconds,
+      default_slot_map_visible: [true, true, true],
       default_start_node_code: 'bay',
       updated_at: now,
     },
@@ -101,6 +119,10 @@ module.exports = {
     const now = new Date();
     const templateId = randomUUID();
     const { template, stations, lines } = network;
+    const slotUnlockOffsetsSeconds = deriveAutoDistributedOffsets(
+      3,
+      template.defaultDurationSeconds,
+    );
 
     await queryInterface.bulkInsert('map_templates', [
       {
@@ -110,6 +132,12 @@ module.exports = {
         default_duration_seconds: template.defaultDurationSeconds,
         default_hand_size: template.defaultHandSize,
         node_count: template.nodeCount,
+        default_visibility_phase_count: 3,
+        default_slots_per_node: 3,
+        default_dead_wall_size: 15,
+        default_visibility_mode: 'slot',
+        default_slot_unlock_offsets_seconds: slotUnlockOffsetsSeconds,
+        default_slot_map_visible: [true, true, true],
         default_start_node_code: 'bay',
         created_at: now,
         updated_at: now,

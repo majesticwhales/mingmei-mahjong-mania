@@ -32,6 +32,8 @@ export interface SubwayLine {
 
 export interface Station {
   id: string;
+  /** Slug from the map template (e.g. `bloor-yonge`). */
+  code: string;
   name: string;
   /** X coordinate in the SVG viewBox (0..1200). */
   x: number;

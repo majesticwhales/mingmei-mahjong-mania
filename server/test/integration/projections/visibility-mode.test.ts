@@ -62,7 +62,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
   });
 
   describe("mode = 'both' (baseline)", () => {
-    it("respects phase fog on the map and locks slot 1 at atStation", async () => {
+    it("respects phase fog on the map while exposing every tile at the checked-in station", async () => {
       const fixture = await setupLightweightGame({
         nodeCodes: ["a", "b"],
         startNodeCodeBySlot: { 1: "a" },
@@ -93,9 +93,9 @@ describe("buildGameStateProjection (visibility mode)", () => {
       expect(aNode.tiles![0]!.slotIndex).toBe(0);
       expect(bNode.tiles).toBeUndefined();
 
-      // Slot fog at the station: only the unlocked slot 0 is exposed.
-      expect(projection.atStation?.tiles).toHaveLength(1);
-      expect(projection.atStation?.tiles![0]!.slotIndex).toBe(0);
+      expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
+        0, 1,
+      ]);
 
       expect(projection.nextVisibilityChangeAt).not.toBeNull();
     });
@@ -180,9 +180,9 @@ describe("buildGameStateProjection (visibility mode)", () => {
       expect(aNode.tiles?.map((t) => t.slotIndex)).toEqual([0]);
       expect(bNode.tiles?.map((t) => t.slotIndex)).toEqual([0]);
 
-      // Slot at atStation: slot 1 still locked (offset 60min > now).
+      // Checked in at `a`: every station tile is visible in the sidebar.
       expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
-        0,
+        0, 1,
       ]);
 
       expect(projection.nextVisibilityChangeAt).toBeNull();

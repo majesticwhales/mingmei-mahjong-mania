@@ -1,12 +1,18 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { TILE_BACK_IMAGE_PATH } from "../data/riichiTiles";
+import { TILES_PER_STATION } from "../data/tileStations";
 import type { LabelAnchor, Station } from "../data/types";
+
+export interface TileSlotDisplay {
+  imagePath: string;
+  label?: string;
+  visible: boolean;
+}
 
 interface Props {
   station: Station;
-  tileImagePath?: string;
-  tileLabel?: string;
-  isTileVisible: boolean;
+  variant: "tiles" | "dot";
+  tileSlots?: readonly TileSlotDisplay[];
   isSelected: boolean;
   onSelect: (id: string) => void;
 }
@@ -28,6 +34,36 @@ const LABEL_OFFSETS: Record<LabelAnchor, LabelPlacement> = {
   sw: { dx: -10, dy: 18, textAnchor: "end" },
 };
 
+const SLOT_WIDTH = 11;
+const SLOT_HEIGHT = 15;
+const SLOT_GAP = 1;
+const SLOT_GROUP_WIDTH = SLOT_WIDTH * TILES_PER_STATION + SLOT_GAP * (TILES_PER_STATION - 1);
+const TILE_LABEL_GAP = 6;
+const TILE_HALF_WIDTH = SLOT_GROUP_WIDTH / 2;
+
+function horizontalTileLabelInset(variant: "tiles" | "dot") {
+  return variant === "tiles" ? TILE_HALF_WIDTH + TILE_LABEL_GAP : 0;
+}
+
+function resolveLabelPlacement(
+  anchor: LabelAnchor,
+  variant: "tiles" | "dot",
+): LabelPlacement {
+  const base = LABEL_OFFSETS[anchor];
+  const inset = horizontalTileLabelInset(variant);
+  if (inset === 0) {
+    return base;
+  }
+  switch (anchor) {
+    case "w":
+      return { ...base, dx: base.dx - inset };
+    case "e":
+      return { ...base, dx: base.dx + inset };
+    default:
+      return base;
+  }
+}
+
 function defaultAnchor(station: Station): LabelAnchor {
   if (station.isInterchange) return "n";
   if (station.lineIds.includes("1")) return "e";
@@ -43,22 +79,36 @@ function defaultRotate(station: Station, anchor: LabelAnchor): number {
   return 0;
 }
 
-const TILE_WIDTH = 16;
-const TILE_HEIGHT = 22;
+function markerAriaLabel(
+  station: Station,
+  variant: Props["variant"],
+  tileSlots: readonly TileSlotDisplay[] | undefined,
+) {
+  const parts = [station.name];
+  if (variant === "tiles" && tileSlots) {
+    const visibleLabels = tileSlots
+      .map((slot, index) => (slot.visible && slot.label ? `slot ${index + 1}: ${slot.label}` : null))
+      .filter((label): label is string => label != null);
+    if (visibleLabels.length > 0) {
+      parts.push(visibleLabels.join(", "));
+    } else {
+      parts.push("3 tile slots");
+    }
+  }
+  if (station.isInterchange) parts.push("(interchange)");
+  return parts.join(", ");
+}
 
 export function StationMarker({
   station,
-  tileImagePath,
-  tileLabel,
-  isTileVisible,
+  variant,
+  tileSlots,
   isSelected,
   onSelect,
 }: Props) {
   const markerRef = useRef<SVGGElement>(null);
-  const isInterchange = station.isInterchange;
-  const imagePath = isTileVisible ? tileImagePath ?? TILE_BACK_IMAGE_PATH : TILE_BACK_IMAGE_PATH;
   const anchor = station.labelAnchor ?? defaultAnchor(station);
-  const placement = LABEL_OFFSETS[anchor];
+  const placement = resolveLabelPlacement(anchor, variant);
   let labelX = station.x + placement.dx;
   let labelY = station.y + placement.dy;
   let textAnchor = placement.textAnchor;
@@ -115,57 +165,107 @@ export function StationMarker({
     }
   };
 
+  const anyTileVisible = tileSlots?.some((slot) => slot.visible) ?? false;
+  const markerClassName = [
+    "station-marker",
+    variant === "dot" ? "station-marker--dot" : "station-marker--tiles",
+    isSelected ? "station-marker--selected" : "",
+    variant === "tiles" && !anyTileVisible ? "station-marker--hidden-tile" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const haloBounds =
+    variant === "dot"
+      ? {
+          x: station.x - 7,
+          y: station.y - 7,
+          width: 14,
+          height: 14,
+          rx: 7,
+        }
+      : {
+          x: station.x - SLOT_GROUP_WIDTH / 2 - 3,
+          y: station.y - SLOT_HEIGHT / 2 - 3,
+          width: SLOT_GROUP_WIDTH + 6,
+          height: SLOT_HEIGHT + 6,
+          rx: 4,
+        };
+
   return (
     <g
       ref={markerRef}
-      className={`station-marker${isSelected ? " station-marker--selected" : ""}${
-        isTileVisible ? "" : " station-marker--hidden-tile"
-      }`}
+      className={markerClassName}
       role="button"
       tabIndex={0}
-      aria-label={`${station.name}${tileLabel ? `, ${tileLabel}` : ""}${isInterchange ? " (interchange)" : ""}`}
+      aria-label={markerAriaLabel(station, variant, tileSlots)}
       aria-pressed={isSelected}
       onClick={() => onSelect(station.id)}
       onKeyDown={handleKey}
     >
       <circle cx={station.x} cy={station.y} r={14} fill="transparent" />
-      <g
-        className="station-marker__tile-node"
-        transform={`translate(${station.x - TILE_WIDTH / 2} ${station.y - TILE_HEIGHT / 2})`}
-      >
-        <rect
-          className="station-marker__tile-shadow"
-          x={1.2}
-          y={1.6}
-          width={TILE_WIDTH}
-          height={TILE_HEIGHT}
-          rx={2.6}
+      {variant === "dot" ? (
+        <circle
+          className="station-marker__dot"
+          cx={station.x}
+          cy={station.y}
+          r={station.isInterchange ? 5 : 4.25}
           aria-hidden="true"
         />
-        <rect
-          className="station-marker__tile-frame"
-          width={TILE_WIDTH}
-          height={TILE_HEIGHT}
-          rx={2.6}
-          aria-hidden="true"
-        />
-        <image
-          href={imagePath}
-          x={2}
-          y={2.25}
-          width={TILE_WIDTH - 4}
-          height={TILE_HEIGHT - 4.5}
-          preserveAspectRatio="xMidYMid meet"
-          aria-hidden="true"
-        />
-      </g>
+      ) : (
+        <g
+          className="station-marker__tile-slots"
+          transform={`translate(${station.x - SLOT_GROUP_WIDTH / 2} ${station.y - SLOT_HEIGHT / 2})`}
+        >
+          {Array.from({ length: TILES_PER_STATION }, (_, slotIndex) => {
+            const slot = tileSlots?.[slotIndex];
+            const imagePath = slot?.imagePath ?? TILE_BACK_IMAGE_PATH;
+            const x = slotIndex * (SLOT_WIDTH + SLOT_GAP);
+            return (
+              <g
+                key={slotIndex}
+                className={`station-marker__tile-slot${
+                  slot?.visible ? "" : " station-marker__tile-slot--hidden"
+                }`}
+                transform={`translate(${x} 0)`}
+              >
+                <rect
+                  className="station-marker__tile-shadow"
+                  x={0.8}
+                  y={1.1}
+                  width={SLOT_WIDTH}
+                  height={SLOT_HEIGHT}
+                  rx={1.8}
+                  aria-hidden="true"
+                />
+                <rect
+                  className="station-marker__tile-frame"
+                  width={SLOT_WIDTH}
+                  height={SLOT_HEIGHT}
+                  rx={1.8}
+                  aria-hidden="true"
+                />
+                <image
+                  href={imagePath}
+                  x={1.2}
+                  y={1.5}
+                  width={SLOT_WIDTH - 2.4}
+                  height={SLOT_HEIGHT - 3}
+                  preserveAspectRatio="xMidYMid meet"
+                  aria-hidden="true"
+                />
+              </g>
+            );
+          })}
+        </g>
+      )}
       {isSelected && (
         <rect
-          x={station.x - TILE_WIDTH / 2 - 3}
-          y={station.y - TILE_HEIGHT / 2 - 3}
-          width={TILE_WIDTH + 6}
-          height={TILE_HEIGHT + 6}
-          rx={4}
+          x={haloBounds.x}
+          y={haloBounds.y}
+          width={haloBounds.width}
+          height={haloBounds.height}
+          rx={haloBounds.rx}
           fill="none"
           stroke="#2563eb"
           strokeWidth={2.2}
