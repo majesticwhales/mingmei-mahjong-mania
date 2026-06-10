@@ -2,7 +2,11 @@ import { UniqueConstraintError } from "sequelize";
 import { hashPassword, verifyPassword } from "../auth/password.ts";
 import { signAccessToken } from "../auth/jwt.ts";
 import { HttpError } from "../lib/http-error.ts";
-import { User } from "../models/user.ts";
+import { User, type UserRole } from "../models/user.ts";
+
+function isUserAdmin(user: { role: UserRole }): boolean {
+  return user.role === "admin";
+}
 
 export interface PublicUser {
   id: string;
@@ -36,10 +40,13 @@ function adminEmailsFromEnv(): Set<string> {
 }
 
 async function applyAdminEmailGrant(user: User): Promise<User> {
-  if (user.isAdmin || !adminEmailsFromEnv().has(user.email.toLowerCase())) {
+  if (
+    isUserAdmin(user) ||
+    !adminEmailsFromEnv().has(user.email.toLowerCase())
+  ) {
     return user;
   }
-  user.isAdmin = true;
+  user.role = "admin";
   await user.save();
   return user;
 }
@@ -49,7 +56,7 @@ function toPublicUser(user: User): PublicUser {
     id: user.id,
     email: user.email,
     username: user.username,
-    isAdmin: user.isAdmin,
+    isAdmin: isUserAdmin(user),
     createdAt: user.createdAt,
   };
 }
@@ -59,7 +66,7 @@ export async function assertIsAdmin(userId: string): Promise<User> {
   if (!user) {
     throw new HttpError(404, "not_found", "User not found");
   }
-  if (!user.isAdmin) {
+  if (!isUserAdmin(user)) {
     throw new HttpError(403, "forbidden", "Admin permission required");
   }
   return user;

@@ -4,7 +4,7 @@ import { User } from "../../src/models/user.ts";
 import type { ApiAgent } from "./http.ts";
 
 export async function setUserAdmin(userId: string): Promise<void> {
-  await User.update({ isAdmin: true }, { where: { id: userId } });
+  await User.update({ role: "admin" }, { where: { id: userId } });
 }
 
 export function uniqueEmail(): string {
