@@ -14,12 +14,13 @@ interface Props {
   phaseDrivenSlotMap: boolean;
   selectedStationId: string | null;
   onSelectStation: (id: string) => void;
+  onMapBackgroundClick?: () => void;
 }
 
 export const VIEW_BOX_MIN_X = -125;
 export const VIEW_BOX_MIN_Y = -35;
 export const VIEW_BOX_WIDTH = 1320;
-export const VIEW_BOX_HEIGHT = 870;
+export const VIEW_BOX_HEIGHT = 920;
 
 function emptyTileSlots(): TileSlotDisplay[] {
   return Array.from({ length: TILES_PER_STATION }, () => ({
@@ -97,6 +98,7 @@ export function SubwaySvg({
   phaseDrivenSlotMap,
   selectedStationId,
   onSelectStation,
+  onMapBackgroundClick,
 }: Props) {
   const nodesById = new Map((mapNodes ?? []).map((node) => [node.id, node]));
 
@@ -108,6 +110,7 @@ export function SubwaySvg({
       xmlns="http://www.w3.org/2000/svg"
       role="img"
       aria-label="Subway map"
+      onClick={onMapBackgroundClick}
     >
       <LineLayer network={network} />
       <g>

@@ -11,6 +11,7 @@ interface Props {
   stationLines?: SubwayLine[];
   handTiles: HandTileDto[];
   commandsPending?: boolean;
+  checkInPending?: boolean;
   commandsDisabled?: boolean;
   onClose: () => void;
   onCheckIn: (nodeId: string) => void;
@@ -111,6 +112,7 @@ export function StationPanel({
   stationLines = [],
   handTiles,
   commandsPending = false,
+  checkInPending = false,
   commandsDisabled = false,
   onClose,
   onCheckIn,
@@ -129,7 +131,7 @@ export function StationPanel({
     ? stationTilesForView(viewingNode, atStation, isViewingCheckedInStation)
     : null;
   const stationSlotsTriple = Boolean(viewingNode && isTileStation(viewingNode.code));
-  const actionsDisabled = commandsPending || commandsDisabled;
+  const actionsDisabled = commandsPending || commandsDisabled || checkInPending;
 
   return (
     <aside
@@ -195,7 +197,11 @@ export function StationPanel({
             disabled={actionsDisabled}
             onClick={() => onCheckIn(viewingId!)}
           >
-            {isBrowsingElsewhere ? "Move here" : "Check in here"}
+            {checkInPending
+              ? "Checking in…"
+              : isBrowsingElsewhere
+                ? "Move here"
+                : "Check in here"}
           </button>
         )}
         {isViewingCheckedInStation && atStation && (

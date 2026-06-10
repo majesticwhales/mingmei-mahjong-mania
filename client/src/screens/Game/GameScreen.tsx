@@ -4,7 +4,7 @@ import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { Legend } from "../../components/Legend";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
-import { captureGeolocation } from "../../hooks/useGeolocation";
+import { captureGeolocationForCheckIn } from "../../hooks/useGeolocation";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useIsAdmin } from "../../state/auth/hooks";
 import { useAtStation, useEventLog, useGame, useGameProjection } from "../../state/game/hooks";
@@ -26,9 +26,14 @@ export function GameScreen() {
   const { state: outboxState, pushToast } = useOutbox();
   const isAdmin = useIsAdmin();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [panelDismissed, setPanelDismissed] = useState(false);
   const [eventLogOpen, setEventLogOpen] = useState(false);
+  const [lastSeenEventSequence, setLastSeenEventSequence] = useState(0);
+  const [trackedGameId, setTrackedGameId] = useState<string | null>(null);
+  const [eventLogUnseenBoundary, setEventLogUnseenBoundary] = useState<number | null>(null);
   const [swapOpen, setSwapOpen] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [checkInPending, setCheckInPending] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -58,10 +63,21 @@ export function GameScreen() {
 
   const viewingNode = useMemo(() => {
     if (!projection) return null;
+    if (panelDismissed && !selectedNodeId) return null;
     const nodeId = selectedNodeId ?? atStation?.nodeId ?? null;
     if (!nodeId) return null;
     return projection.mapNodes.find((node) => node.id === nodeId) ?? null;
-  }, [projection, selectedNodeId, atStation]);
+  }, [projection, selectedNodeId, atStation, panelDismissed]);
+
+  function handleSelectStation(nodeId: string) {
+    setSelectedNodeId(nodeId);
+    setPanelDismissed(false);
+  }
+
+  function handleClosePanel() {
+    setSelectedNodeId(null);
+    setPanelDismissed(true);
+  }
 
   const checkedInNodeName = useMemo(() => {
     if (!projection || !atStation) return null;
@@ -79,6 +95,33 @@ export function GameScreen() {
       (row) => row.status === "pending" || row.status === "in_flight",
     );
   }, [id, outboxState.byGame]);
+
+  const latestEventSequence = useMemo(() => {
+    if (eventLog.length === 0) return 0;
+    return Math.max(...eventLog.map((event) => event.sequence));
+  }, [eventLog]);
+
+  const activeGameId = state.status === "active" ? state.id : null;
+
+  if (activeGameId !== trackedGameId) {
+    setTrackedGameId(activeGameId);
+    setLastSeenEventSequence(activeGameId == null ? 0 : latestEventSequence);
+  }
+
+  const hasUnseenEvents =
+    !eventLogOpen && latestEventSequence > lastSeenEventSequence;
+
+  function handleOpenEventLog() {
+    setEventLogUnseenBoundary(lastSeenEventSequence);
+    setLastSeenEventSequence(latestEventSequence);
+    setEventLogOpen(true);
+  }
+
+  function handleCloseEventLog() {
+    setLastSeenEventSequence(latestEventSequence);
+    setEventLogOpen(false);
+    setEventLogUnseenBoundary(null);
+  }
 
   if (!id) return null;
 
@@ -110,14 +153,20 @@ export function GameScreen() {
   }
 
   async function handleCheckIn(nodeId: string) {
-    await runCommand(async () => {
-      const geo = await captureGeolocation();
-      await submitCommand("CHECK_IN", {
-        nodeId,
-        ...(geo ? { geo } : {}),
+    setCheckInPending(true);
+    try {
+      await runCommand(async () => {
+        const geo = await captureGeolocationForCheckIn();
+        await submitCommand("CHECK_IN", {
+          nodeId,
+          ...(geo ? { geo } : {}),
+        });
+        setSelectedNodeId(null);
+        setPanelDismissed(false);
       });
-      setSelectedNodeId(null);
-    });
+    } finally {
+      setCheckInPending(false);
+    }
   }
 
   async function handleCheckOut() {
@@ -193,18 +242,20 @@ export function GameScreen() {
               Summary
             </Link>
           )}
-          <button type="button" className="btn btn--secondary" onClick={() => setEventLogOpen(true)}>
+          <button
+            type="button"
+            className="btn btn--secondary game-screen__event-log-btn"
+            onClick={handleOpenEventLog}
+          >
             Event log
+            {hasUnseenEvents && (
+              <span className="game-screen__event-log-badge" aria-label="New events" />
+            )}
           </button>
           <ConnectionBadge />
         </div>
       </header>
       <main className="app__map">
-        <p className="app__keyboard-hint">
-          {gameEnded
-            ? "Game over — browse the map or open the summary."
-            : "Tap a station to check in. Use the sidebar for swaps and your hand."}
-        </p>
         <MapShell
           network={network}
           mapNodes={projection.mapNodes}
@@ -212,7 +263,8 @@ export function GameScreen() {
           visibilityPhaseCount={projection.visibilityPhaseCount}
           phaseDrivenSlotMap={projection.phaseDrivenSlotMap}
           selectedStationId={mapSelectedNodeId}
-          onSelectStation={setSelectedNodeId}
+          onSelectStation={handleSelectStation}
+          onMapBackgroundClick={viewingNode ? handleClosePanel : undefined}
         />
       </main>
       <StationPanel
@@ -222,13 +274,19 @@ export function GameScreen() {
         stationLines={stationLines}
         handTiles={projection.handTiles}
         commandsPending={commandsPending}
+        checkInPending={checkInPending}
         commandsDisabled={gameEnded}
-        onClose={() => setSelectedNodeId(null)}
+        onClose={handleClosePanel}
         onCheckIn={handleCheckIn}
         onCheckOut={handleCheckOut}
         onSwapTile={() => setSwapOpen(true)}
       />
-      <EventLogDrawer events={eventLog} open={eventLogOpen} onClose={() => setEventLogOpen(false)} />
+      <EventLogDrawer
+        events={eventLog}
+        open={eventLogOpen}
+        onClose={handleCloseEventLog}
+        unseenBoundarySequence={eventLogUnseenBoundary}
+      />
       {swapOpen && atStation && (
         <SwapTileModal
           handTiles={projection.handTiles}
