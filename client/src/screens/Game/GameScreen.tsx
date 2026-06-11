@@ -128,19 +128,25 @@ export function GameScreen() {
     );
   }, [projection]);
 
+  const isCheckInSynced = Boolean(
+    pendingCheckInNodeId && atStation?.nodeId === pendingCheckInNodeId,
+  );
+  const navigatingToNodeId = isCheckInSynced ? null : pendingCheckInNodeId;
+  const panelSelectedNodeId = isCheckInSynced ? null : selectedNodeId;
+
   const mapSelectedNodeId =
-    selectedNodeId ?? pendingCheckInNodeId ?? atStation?.nodeId ?? null;
+    panelSelectedNodeId ?? navigatingToNodeId ?? atStation?.nodeId ?? null;
 
   const viewingNode = useMemo(() => {
     if (!projection) return null;
-    if (panelDismissed && !selectedNodeId && !pendingCheckInNodeId) return null;
+    if (panelDismissed && !panelSelectedNodeId && !navigatingToNodeId) return null;
     const nodeId = mapSelectedNodeId;
     if (!nodeId) return null;
     return projection.mapNodes.find((node) => node.id === nodeId) ?? null;
-  }, [projection, mapSelectedNodeId, panelDismissed, selectedNodeId, pendingCheckInNodeId]);
+  }, [projection, mapSelectedNodeId, panelDismissed, panelSelectedNodeId, navigatingToNodeId]);
 
   const isSyncingCheckIn = Boolean(
-    pendingCheckInNodeId && atStation?.nodeId !== pendingCheckInNodeId,
+    navigatingToNodeId && atStation?.nodeId !== navigatingToNodeId,
   );
 
   function handleSelectStation(nodeId: string) {
@@ -228,13 +234,6 @@ export function GameScreen() {
       setChallengeOpen(false);
     }
   }, [atStation?.nodeId]);
-
-  useEffect(() => {
-    if (pendingCheckInNodeId && atStation?.nodeId === pendingCheckInNodeId) {
-      setPendingCheckInNodeId(null);
-      setSelectedNodeId(null);
-    }
-  }, [atStation?.nodeId, pendingCheckInNodeId]);
 
   useEffect(() => {
     if (!atStation) {
