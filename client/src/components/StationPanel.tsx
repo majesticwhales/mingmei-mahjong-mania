@@ -26,10 +26,14 @@ interface Props {
    * station tile matches a wait)`; the panel only renders.
    */
   canClaimWin?: boolean;
+  showSwapTile?: boolean;
+  showChallenge?: boolean;
+  challengeCooldownUntil?: string;
   onClose: () => void;
   onCheckIn: (nodeId: string) => void;
   onCheckOut: () => void;
   onSwapTile: () => void;
+  onOpenChallenge?: () => void;
   onClaimWin?: () => void;
 }
 
@@ -157,10 +161,14 @@ export function StationPanel({
   checkInPending = false,
   commandsDisabled = false,
   canClaimWin = false,
+  showSwapTile = true,
+  showChallenge = false,
+  challengeCooldownUntil,
   onClose,
   onCheckIn,
   onCheckOut,
   onSwapTile,
+  onOpenChallenge,
   onClaimWin,
 }: Props) {
   const isOpen = Boolean(viewingNode);
@@ -226,9 +234,8 @@ export function StationPanel({
           <section>
             <h3 className="station-panel__section-title">Station tiles</h3>
             <div
-              className={`station-panel__slots${
-                stationSlotsTriple ? " station-panel__slots--triple" : ""
-              }`}
+              className={`station-panel__slots${stationSlotsTriple ? " station-panel__slots--triple" : ""
+                }`}
             >
               {stationTiles}
             </div>
@@ -250,14 +257,37 @@ export function StationPanel({
         )}
         {isViewingCheckedInStation && atStation && (
           <div className="station-panel__actions">
-            <button
-              type="button"
-              className="btn btn--secondary"
-              disabled={actionsDisabled}
-              onClick={onSwapTile}
-            >
-              Swap tile
-            </button>
+            {showChallenge && onOpenChallenge && (
+              <button
+                type="button"
+                className="btn btn--secondary"
+                disabled={actionsDisabled}
+                onClick={onOpenChallenge}
+              >
+                View challenge
+              </button>
+            )}
+            {showSwapTile && (
+              <button
+                type="button"
+                className="btn btn--secondary"
+                disabled={actionsDisabled}
+                onClick={onSwapTile}
+              >
+                Swap tile
+              </button>
+            )}
+            {challengeCooldownUntil && (
+              <p className="station-panel__challenge-cooldown">
+                Challenge on cooldown until{" "}
+                <time dateTime={challengeCooldownUntil}>
+                  {new Date(challengeCooldownUntil).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </p>
+            )}
             {canClaimWin && onClaimWin && (
               <button
                 type="button"

@@ -80,11 +80,26 @@ export interface MapEdgeDto {
   toNodeId: string;
 }
 
+export interface AtStationChallengeDto {
+  challengeId: string;
+  title: string;
+  description: string | null;
+  flavorText: string | null;
+  status: "available" | "in_progress" | "cooldown";
+  instanceId?: string;
+  cooldownUntil?: string;
+  /** Optional illustration URL — reserved for future backend support. */
+  imageUrl?: string | null;
+}
+
 export interface AtStationDto {
   nodeId: string;
   code: string;
   tile?: TileDto;
   tiles?: SlotTileDto[];
+  currentChallenge?: AtStationChallengeDto | null;
+  pendingSwapCredit?: boolean;
+  creditEarnedInSession?: boolean;
 }
 
 export interface HandTileDto extends TileDto {

@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { Legend } from "../../components/Legend";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
 import { stationHasClaimableWait } from "../../lib/claimWin";
+import {
+  isChallengeOnCooldown,
+  isScaffoldChallenge,
+  needsChallengeBeforeSwap,
+  resolveCheckedInChallenge,
+} from "../../lib/challengeContext";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useIsAdmin } from "../../state/auth/hooks";
 import {
@@ -19,6 +25,7 @@ import {
 import { useOutbox } from "../../state/outbox/hooks";
 import { HttpError } from "../../transport/httpError";
 import { restClient } from "../../transport/restClient";
+import { ChallengeModal } from "./ChallengeModal";
 import { ClaimWinModal } from "./ClaimWinModal";
 import { EventLogDrawer } from "./EventLogDrawer";
 import { GameTimer } from "./GameTimer";
@@ -41,6 +48,9 @@ export function GameScreen() {
   const checkInCommand = useCommandWithGeo("CHECK_IN");
   const checkOutCommand = useCommandWithGeo("CHECK_OUT");
   const swapTileCommand = useCommandWithGeo("SWAP_TILE");
+  const startChallengeCommand = useCommandWithGeo("START_CHALLENGE");
+  const completeChallengeCommand = useCommandWithGeo("CHALLENGE_COMPLETED");
+  const forfeitChallengeCommand = useCommandWithGeo("CHALLENGE_FORFEITED");
   const { state: outboxState, pushToast } = useOutbox();
   const isAdmin = useIsAdmin();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -50,6 +60,11 @@ export function GameScreen() {
   const [trackedGameId, setTrackedGameId] = useState<string | null>(null);
   const [eventLogUnseenBoundary, setEventLogUnseenBoundary] = useState<number | null>(null);
   const [swapOpen, setSwapOpen] = useState(false);
+  const [challengeOpen, setChallengeOpen] = useState(false);
+  const [challengePending, setChallengePending] = useState(false);
+  const [scaffoldChallengeComplete, setScaffoldChallengeComplete] = useState(false);
+  const startedChallengeRef = useRef<string | null>(null);
+  const trackedCheckInNodeIdRef = useRef<string | null>(null);
   const [claimOpen, setClaimOpen] = useState(false);
   const [claimPending, setClaimPending] = useState(false);
   const [handCompletedDismissed, setHandCompletedDismissed] = useState(false);
@@ -58,6 +73,7 @@ export function GameScreen() {
   );
   const [ending, setEnding] = useState(false);
   const [checkInPending, setCheckInPending] = useState(false);
+  const [pendingCheckInNodeId, setPendingCheckInNodeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -112,15 +128,26 @@ export function GameScreen() {
     );
   }, [projection]);
 
-  const mapSelectedNodeId = selectedNodeId ?? atStation?.nodeId ?? null;
+  const isCheckInSynced = Boolean(
+    pendingCheckInNodeId && atStation?.nodeId === pendingCheckInNodeId,
+  );
+  const navigatingToNodeId = isCheckInSynced ? null : pendingCheckInNodeId;
+  const panelSelectedNodeId = isCheckInSynced ? null : selectedNodeId;
+
+  const mapSelectedNodeId =
+    panelSelectedNodeId ?? navigatingToNodeId ?? atStation?.nodeId ?? null;
 
   const viewingNode = useMemo(() => {
     if (!projection) return null;
-    if (panelDismissed && !selectedNodeId) return null;
-    const nodeId = selectedNodeId ?? atStation?.nodeId ?? null;
+    if (panelDismissed && !panelSelectedNodeId && !navigatingToNodeId) return null;
+    const nodeId = mapSelectedNodeId;
     if (!nodeId) return null;
     return projection.mapNodes.find((node) => node.id === nodeId) ?? null;
-  }, [projection, selectedNodeId, atStation, panelDismissed]);
+  }, [projection, mapSelectedNodeId, panelDismissed, panelSelectedNodeId, navigatingToNodeId]);
+
+  const isSyncingCheckIn = Boolean(
+    navigatingToNodeId && atStation?.nodeId !== navigatingToNodeId,
+  );
 
   function handleSelectStation(nodeId: string) {
     setSelectedNodeId(nodeId);
@@ -171,6 +198,63 @@ export function GameScreen() {
     return stationHasClaimableWait(slots, claimWinWaits);
   }, [claimWinWaits, atStation]);
 
+  const challengeGateActive = useMemo(
+    () => needsChallengeBeforeSwap(atStation, scaffoldChallengeComplete),
+    [atStation, scaffoldChallengeComplete],
+  );
+  const activeChallenge = useMemo(
+    () => resolveCheckedInChallenge(atStation, checkedInNodeName, scaffoldChallengeComplete),
+    [atStation, checkedInNodeName, scaffoldChallengeComplete],
+  );
+  const challengeOnCooldown = useMemo(
+    () => isChallengeOnCooldown(atStation),
+    [atStation],
+  );
+  const showSwapTile = !challengeGateActive;
+  const showChallenge = challengeGateActive;
+  const challengeCooldownUntil = challengeOnCooldown
+    ? atStation?.currentChallenge?.cooldownUntil
+    : undefined;
+
+  const runCommand = useCallback(async (task: () => Promise<void>) => {
+    try {
+      await task();
+    } catch (error) {
+      const message =
+        error instanceof HttpError ? error.message : "Command failed — try again";
+      pushToast(message);
+    }
+  }, [pushToast]);
+
+  useEffect(() => {
+    const nodeId = atStation?.nodeId ?? null;
+    if (nodeId !== trackedCheckInNodeIdRef.current) {
+      trackedCheckInNodeIdRef.current = nodeId;
+      setScaffoldChallengeComplete(false);
+      setChallengeOpen(false);
+    }
+  }, [atStation?.nodeId]);
+
+  useEffect(() => {
+    if (!atStation) {
+      startedChallengeRef.current = null;
+    }
+  }, [atStation?.nodeId, atStation]);
+
+  useEffect(() => {
+    const challenge = atStation?.currentChallenge;
+    if (!challengeOpen || !challenge || !atStation) return;
+    if (challenge.status !== "available") return;
+
+    const key = `${atStation.nodeId}:${challenge.challengeId}`;
+    if (startedChallengeRef.current === key) return;
+    startedChallengeRef.current = key;
+
+    void runCommand(async () => {
+      await startChallengeCommand({ nodeId: atStation.nodeId });
+    });
+  }, [challengeOpen, atStation, runCommand, startChallengeCommand]);
+
   const latestEventSequence = useMemo(() => {
     if (eventLog.length === 0) return 0;
     return Math.max(...eventLog.map((event) => event.sequence));
@@ -217,18 +301,12 @@ export function GameScreen() {
     );
   }
 
-  async function runCommand(task: () => Promise<void>) {
-    try {
-      await task();
-    } catch (error) {
-      const message =
-        error instanceof HttpError ? error.message : "Command failed — try again";
-      pushToast(message);
-    }
-  }
-
   async function handleCheckIn(nodeId: string) {
     setCheckInPending(true);
+    setPendingCheckInNodeId(nodeId);
+    setSelectedNodeId(nodeId);
+    setPanelDismissed(false);
+    let succeeded = false;
     try {
       await runCommand(async () => {
         // Phase L: `checkInCommand` internally captures geo (2 s timeout,
@@ -236,11 +314,59 @@ export function GameScreen() {
         // capture never throws — a null result just means the command
         // ships without a sample.
         await checkInCommand({ nodeId });
-        setSelectedNodeId(null);
-        setPanelDismissed(false);
+        succeeded = true;
       });
     } finally {
       setCheckInPending(false);
+      if (!succeeded) {
+        setPendingCheckInNodeId(null);
+      }
+    }
+  }
+
+  async function handleCompleteChallenge() {
+    if (isScaffoldChallenge(activeChallenge)) {
+      setScaffoldChallengeComplete(true);
+      setChallengeOpen(false);
+      setSwapOpen(true);
+      return;
+    }
+
+    const instanceId = atStation?.currentChallenge?.instanceId;
+    if (!instanceId) return;
+
+    setChallengePending(true);
+    try {
+      await runCommand(async () => {
+        await completeChallengeCommand({ instanceId });
+        setChallengeOpen(false);
+        setSwapOpen(true);
+      });
+    } finally {
+      setChallengePending(false);
+    }
+  }
+
+  async function handleAbandonChallenge() {
+    if (isScaffoldChallenge(activeChallenge)) {
+      setChallengeOpen(false);
+      return;
+    }
+
+    const instanceId = atStation?.currentChallenge?.instanceId;
+    if (!instanceId) {
+      setChallengeOpen(false);
+      return;
+    }
+
+    setChallengePending(true);
+    try {
+      await runCommand(async () => {
+        await forfeitChallengeCommand({ instanceId });
+        setChallengeOpen(false);
+      });
+    } finally {
+      setChallengePending(false);
     }
   }
 
@@ -377,13 +503,17 @@ export function GameScreen() {
         stationLines={stationLines}
         handTiles={projection.handTiles}
         commandsPending={commandsPending}
-        checkInPending={checkInPending}
+        checkInPending={checkInPending || isSyncingCheckIn}
         commandsDisabled={gameEnded || Boolean(handCompleted)}
         canClaimWin={canClaimWin}
+        showSwapTile={showSwapTile}
+        showChallenge={showChallenge}
+        challengeCooldownUntil={challengeCooldownUntil}
         onClose={handleClosePanel}
         onCheckIn={handleCheckIn}
         onCheckOut={handleCheckOut}
         onSwapTile={() => setSwapOpen(true)}
+        onOpenChallenge={() => setChallengeOpen(true)}
         onClaimWin={() => setClaimOpen(true)}
       />
       <EventLogDrawer
@@ -392,6 +522,22 @@ export function GameScreen() {
         onClose={handleCloseEventLog}
         unseenBoundarySequence={eventLogUnseenBoundary}
       />
+      {challengeOpen && activeChallenge && (
+        <ChallengeModal
+          title={activeChallenge.title}
+          description={activeChallenge.description}
+          flavorText={activeChallenge.flavorText}
+          imageUrl={activeChallenge.imageUrl}
+          pending={challengePending}
+          completeDisabled={
+            !isScaffoldChallenge(activeChallenge) &&
+            (activeChallenge.status !== "in_progress" || !activeChallenge.instanceId)
+          }
+          onComplete={() => void handleCompleteChallenge()}
+          onAbandon={() => void handleAbandonChallenge()}
+          onClose={() => setChallengeOpen(false)}
+        />
+      )}
       {swapOpen && atStation && (
         <SwapTileModal
           handTiles={projection.handTiles}
