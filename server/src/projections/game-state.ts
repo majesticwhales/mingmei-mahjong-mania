@@ -926,9 +926,12 @@ function buildAtStation(params: {
  *      node-challenge, used to derive the three observable states.
  *
  * Returns `null` when the station has no challenges configured (the
- * back-compat path). Pure read — never mutates state.
+ * back-compat path). Pure read — never mutates state. Exported so the
+ * Phase L `buildNodeView` helper ([§3.14](../docs/TDD_server.md#314-node-view-endpoint))
+ * emits the same per-team challenge shape `atStation` does — the two
+ * surfaces share a single source of truth.
  */
-async function buildCurrentChallenge(params: {
+export async function buildCurrentChallenge(params: {
   gameNodeId: string;
   gameTeamId: string;
   nowMs: number;
