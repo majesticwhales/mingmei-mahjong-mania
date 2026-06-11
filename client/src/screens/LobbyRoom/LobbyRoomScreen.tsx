@@ -7,13 +7,14 @@ import { useGame } from "../../state/game/hooks";
 import { useIsHost, useLobby, useLobbyMembers } from "../../state/lobby/hooks";
 import { MemberList } from "./MemberList";
 import { TeamPicker } from "./TeamPicker";
+import { lobbyJoinErrorMessage } from "./useLobbyAutoJoin";
 
 export function LobbyRoomScreen() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
   const { state: authState } = useAuth();
-  const { state, loadLobby, createLobby, joinLobby, pickTeam, startLobby } = useLobby();
+  const { state, loadLobby, createLobby, pickTeam, startLobby } = useLobby();
   const { leaveGame } = useGame();
   const isHost = useIsHost();
   const isAdmin = useIsAdmin();
@@ -80,10 +81,10 @@ export function LobbyRoomScreen() {
   if (state.status === "error") {
     return (
       <main className="screen">
-        <p>{state.error.message}</p>
-        <button type="button" className="btn btn--secondary" onClick={() => void joinLobby(id)}>
-          Try join
-        </button>
+        <p>{lobbyJoinErrorMessage(state.error)}</p>
+        <Link to="/lobbies" className="btn btn--secondary">
+          Back to lobbies
+        </Link>
       </main>
     );
   }
