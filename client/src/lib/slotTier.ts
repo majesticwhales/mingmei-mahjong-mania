@@ -75,8 +75,10 @@ export function resizeSlotMapUnlockOffsets(
   for (let k = 0; k < slotsPerNode; k += 1) {
     if (k === 0) {
       out.push(0);
+    } else if (k < prev.length) {
+      out.push(prev[k]);
     } else {
-      out.push(prev[k] ?? 0);
+      out.push(0);
     }
   }
   return out;
