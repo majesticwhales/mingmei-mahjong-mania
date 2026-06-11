@@ -1,24 +1,28 @@
 /**
- * Pure per-slot visibility rules (per-slot rollout chunk 6).
+ * Pure per-slot visibility rules. Single source of truth for the three
+ * questions every engine handler / scheduler / projection callsite needs
+ * to answer:
  *
- * Single source of truth for two questions every engine handler and
- * projection callsite needs to answer:
- *
- *   1. **Is slot `k` at a node currently unlocked?** Wall-clock-based,
+ *   1. **Is slot `k` at a node currently claim-unlocked?** Wall-clock-based,
  *      independent of whether the `SLOT_UNLOCKED` scheduled job for slot
- *      `k` has actually fired. The scheduler-emitted event exists for
- *      replay / broadcast — gameplay never waits on it. See TDD §3.3
- *      `canSwapSlot` and §3.4 / §11 chunk 4.
+ *      `k` has actually fired. Drives `SWAP_TILE` / `CLAIM_WIN` validation
+ *      and the station-side reveal (`atStation.tiles[k].visible`). See
+ *      TDD §3.3 `canSwapSlot` and §3.13 station rule.
  *
- *   2. **Is slot `k` allowed to be face-up on the map projection?** Pure
- *      lookup of `games.slot_map_visible[k]`. Slot 0 is always `true` by
- *      column-level invariant. Higher slots may be `false`, meaning their
- *      tile is *never* exposed in `mapNodes[].tiles[]` regardless of fog
- *      phase. Checked-in teams still see every tile at their station via
- *      `atStation` (see §6.3); swap eligibility uses `isSlotUnlocked`.
+ *   2. **Is slot `k` currently map-revealed?** Phase L §3.13: a separate
+ *      timer column `slot_map_unlock_offsets_seconds[k]`. Returns false
+ *      when the offset is `NULL` (slot is never on the map regardless of
+ *      timer — the "out of play on map" tier). When non-null, returns
+ *      `nowMs >= startedAt + offset * 1000`. Independent of the claim
+ *      timer above; the only DB-enforced relationship is
+ *      `mapOffset[k] IS NULL OR mapOffset[k] >= claimOffset[k]`.
+ *
+ *   3. **Indices set** versions of both questions, used by the projection
+ *      to fold the per-slot booleans into `mapNodes[].tiles[].visible`
+ *      and `atStation.tiles[k].visible` in one pass.
  *
  * No DB access here; callers pass the snapshot arrays from `games`. This
- * makes the helper trivially unit-testable and keeps the visibility rules
+ * makes the helpers trivially unit-testable and keeps the visibility rules
  * out of the projection layer's hot path.
  */
 
@@ -116,39 +120,77 @@ export function unlockedSlotIndices(
 }
 
 /**
- * Whether slot `slotIndex` is allowed to be exposed in
- * `mapNodes[].tiles[]` *if* the node is otherwise phase-visible. Slot 0
- * is always `true` (column-level invariant). Pure lookup — no time
- * dependency. Out-of-range indices throw `500 internal_error` (same
- * rationale as `slotUnlockAtMs`).
+ * Phase L map-reveal timer view. Decoupled from `SlotUnlockGameView`
+ * because callers may have only the claim-timer subset loaded (engine
+ * handlers reading `game.slotUnlockOffsetsSeconds` for swap validation),
+ * and pulling in the map-timer column there would be dead weight.
+ *
+ * `slotMapUnlockOffsetsSeconds[k]` is `null` when slot `k` is never on
+ * the map (the static "out of play on map" tier), or a non-negative
+ * integer seconds offset from `startedAt` otherwise.
  */
-export function isSlotMapVisible(
-  slotMapVisible: boolean[],
-  slotIndex: number,
-): boolean {
-  const v = slotMapVisible[slotIndex];
-  if (v == null) {
-    throw new HttpError(
-      500,
-      "internal_error",
-      `Missing slotMapVisible entry for slot ${slotIndex} (array length=${slotMapVisible.length})`,
-    );
-  }
-  return v;
+export interface SlotMapUnlockGameView {
+  id: string;
+  startedAt: Date;
+  slotMapUnlockOffsetsSeconds: Array<number | null>;
 }
 
 /**
- * Indices `[0, slotsPerNode)` flagged as map-visible. Useful as a
- * one-shot filter applied to a node's per-slot tile array before any
- * phase / team-visibility filtering.
+ * Wall-clock time at which slot `slotIndex` reveals on the map for the
+ * given game. Returns `null` when the offset is `null` (slot is never on
+ * the map regardless of clock). Slot 0 evaluates to `startedAt.getTime()`
+ * (immediately on-map at start by column-level invariant).
+ *
+ * Throws `500 internal_error` if `slotIndex` is out of range — the chunk-1
+ * cardinality CHECK guarantees the array lines up with `slots_per_node`,
+ * so an out-of-range index reaching this helper is a bug, not user input.
  */
-export function mapVisibleSlotIndices(
-  slotMapVisible: boolean[],
+export function slotMapUnlockAtMs(
+  game: SlotMapUnlockGameView,
+  slotIndex: number,
+): number | null {
+  if (slotIndex < 0 || slotIndex >= game.slotMapUnlockOffsetsSeconds.length) {
+    throw new HttpError(
+      500,
+      "internal_error",
+      `Game ${game.id} has no map-unlock offset for slot ${slotIndex} (array length=${game.slotMapUnlockOffsetsSeconds.length})`,
+    );
+  }
+  const offset = game.slotMapUnlockOffsetsSeconds[slotIndex];
+  if (offset == null) return null;
+  return game.startedAt.getTime() + offset * 1000;
+}
+
+/**
+ * Has slot `slotIndex` revealed on the map at `nowMs`? Returns `false`
+ * for `null` offsets (slot is never on the map). Defaults `nowMs` to
+ * `Date.now()` so most callers can omit it.
+ */
+export function isSlotMapUnlocked(
+  game: SlotMapUnlockGameView,
+  slotIndex: number,
+  nowMs: number = Date.now(),
+): boolean {
+  const at = slotMapUnlockAtMs(game, slotIndex);
+  if (at == null) return false;
+  return nowMs >= at;
+}
+
+/**
+ * Indices `[0, slotsPerNode)` whose tiles are currently map-revealed at
+ * `nowMs`. Skips slots whose offset is `null` (never on the map).
+ * Companion to `unlockedSlotIndices`; the projection layer uses both to
+ * fold map-side and station-side visibility into the
+ * `mapNodes[].tiles[].visible` / `atStation.tiles[].visible` booleans.
+ */
+export function mapUnlockedSlotIndices(
+  game: SlotMapUnlockGameView,
   slotsPerNode: number,
+  nowMs: number = Date.now(),
 ): number[] {
   const out: number[] = [];
   for (let k = 0; k < slotsPerNode; k += 1) {
-    if (isSlotMapVisible(slotMapVisible, k)) out.push(k);
+    if (isSlotMapUnlocked(game, k, nowMs)) out.push(k);
   }
   return out;
 }
@@ -156,7 +198,8 @@ export function mapVisibleSlotIndices(
 /**
  * When `visibilityPhaseCount === slotsPerNode`, each visibility phase
  * reveals exactly one station tile on the map: phase `k` shows slot `k`.
- * Returns `null` when the static `slot_map_visible` flags should apply.
+ * Returns `null` when the static `slot_map_unlock_offsets_seconds`
+ * timeline should apply instead.
  */
 export function phaseDrivenMapVisibleSlotIndices(
   visibilityPhase: number,

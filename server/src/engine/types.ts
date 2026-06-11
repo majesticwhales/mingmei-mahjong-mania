@@ -39,6 +39,7 @@ export const NOTIFICATION_TYPES = [
   "GAME_ENDED",
   "NOTIFICATION",
   "SLOT_UNLOCKED",
+  "SLOT_MAP_UNLOCKED",
 ] as const;
 
 

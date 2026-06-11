@@ -22,6 +22,7 @@ describe("scheduleGameJobs", () => {
           visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
           visibilityPhaseCount: 4,
           slotUnlockOffsetsSeconds: [0],
+          slotMapUnlockOffsetsSeconds: [0],
           notifications: [],
           visibilityMode: "both",
         },
@@ -66,6 +67,7 @@ describe("scheduleGameJobs", () => {
           visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
           visibilityPhaseCount: 1,
           slotUnlockOffsetsSeconds: [0],
+          slotMapUnlockOffsetsSeconds: [0],
           notifications: [],
           visibilityMode: "both",
         },
@@ -96,6 +98,7 @@ describe("scheduleGameJobs", () => {
           visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
           visibilityPhaseCount: 6,
           slotUnlockOffsetsSeconds: [0],
+          slotMapUnlockOffsetsSeconds: [0],
           notifications: [],
           visibilityMode: "both",
         },
@@ -136,6 +139,7 @@ describe("scheduleGameJobs", () => {
             visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
             visibilityPhaseCount: 0,
             slotUnlockOffsetsSeconds: [0],
+            slotMapUnlockOffsetsSeconds: [0],
             notifications: [],
             visibilityMode: "both",
           },
@@ -157,6 +161,7 @@ describe("scheduleGameJobs", () => {
           visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
           visibilityPhaseCount: 1,
           slotUnlockOffsetsSeconds: [0],
+          slotMapUnlockOffsetsSeconds: [0],
           notifications: [
             { atSeconds: 0, template: "game_start", data: null },
             {
@@ -206,6 +211,7 @@ describe("scheduleGameJobs", () => {
             visibilityPhaseIntervalSeconds: shell.visibilityPhaseIntervalSeconds,
             visibilityPhaseCount: 1,
             slotUnlockOffsetsSeconds: [0],
+            slotMapUnlockOffsetsSeconds: [0],
             notifications: [{ atSeconds: -1, template: "bad", data: null }],
             visibilityMode: "both",
           },
@@ -223,7 +229,9 @@ describe("scheduleGameJobs", () => {
 
       await withGameShell(lobbyId, async (shell, transaction) => {
         // Three slots: slot 0 always 0, slot 1 unlocks at +300s,
-        // slot 2 unlocks at +900s.
+        // slot 2 unlocks at +900s. Map offsets match claim — exercises
+        // the SLOT_MAP_UNLOCKED dedupe path (no map job seeded when the
+        // timer coincides with claim).
         await scheduleGameJobs(
           {
             gameId: shell.gameId,
@@ -233,6 +241,7 @@ describe("scheduleGameJobs", () => {
               shell.visibilityPhaseIntervalSeconds,
             visibilityPhaseCount: 1,
             slotUnlockOffsetsSeconds: [0, 300, 900],
+            slotMapUnlockOffsetsSeconds: [0, 300, 900],
             notifications: [],
             visibilityMode: "both",
           },
@@ -254,6 +263,13 @@ describe("scheduleGameJobs", () => {
         expect(unlocks[1]!.runAt.getTime()).toBe(
           shell.startedAt.getTime() + 900 * 1000,
         );
+
+        // Coincident map offsets dedupe to a single SLOT_UNLOCKED event.
+        const mapUnlocks = await GameScheduledJob.findAll({
+          where: { gameId: shell.gameId, jobType: "SLOT_MAP_UNLOCKED" },
+          transaction,
+        });
+        expect(mapUnlocks).toHaveLength(0);
       });
     });
 
@@ -272,6 +288,7 @@ describe("scheduleGameJobs", () => {
               shell.visibilityPhaseIntervalSeconds,
             visibilityPhaseCount: 1,
             slotUnlockOffsetsSeconds: [0, 0, 120],
+            slotMapUnlockOffsetsSeconds: [0, 0, 120],
             notifications: [],
             visibilityMode: "both",
           },
@@ -303,6 +320,7 @@ describe("scheduleGameJobs", () => {
                 shell.visibilityPhaseIntervalSeconds,
               visibilityPhaseCount: 1,
               slotUnlockOffsetsSeconds: [60, 0],
+              slotMapUnlockOffsetsSeconds: [60, 0],
               notifications: [],
               visibilityMode: "both",
             },
@@ -328,12 +346,149 @@ describe("scheduleGameJobs", () => {
                 shell.visibilityPhaseIntervalSeconds,
               visibilityPhaseCount: 1,
               slotUnlockOffsetsSeconds: [0, -10],
+              slotMapUnlockOffsetsSeconds: [0, 0],
               notifications: [],
               visibilityMode: "both",
             },
             transaction,
           ),
         ).rejects.toThrow(/slotUnlockOffsetsSeconds\[1\]/);
+      });
+    });
+  });
+
+  describe("SLOT_MAP_UNLOCKED jobs (Phase L §3.13)", () => {
+    it("seeds a SLOT_MAP_UNLOCKED job per slot whose map offset differs from the claim offset", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        await scheduleGameJobs(
+          {
+            gameId: shell.gameId,
+            startedAt: shell.startedAt,
+            endsAt: shell.endsAt,
+            visibilityPhaseIntervalSeconds:
+              shell.visibilityPhaseIntervalSeconds,
+            visibilityPhaseCount: 1,
+            // Tier-2 (slot 1): claim immediately, map at 3600s.
+            // Tier-3 (slot 2): claim at 3600s, map at 7200s.
+            slotUnlockOffsetsSeconds: [0, 0, 3600],
+            slotMapUnlockOffsetsSeconds: [0, 3600, 7200],
+            notifications: [],
+            visibilityMode: "both",
+          },
+          transaction,
+        );
+
+        const claimJobs = await GameScheduledJob.findAll({
+          where: { gameId: shell.gameId, jobType: "SLOT_UNLOCKED" },
+          order: [["runAt", "ASC"]],
+          transaction,
+        });
+        // Slot 1 claim is at t=0 (skipped); slot 2 claim at 3600s.
+        expect(claimJobs).toHaveLength(1);
+        expect(claimJobs[0]!.payload).toEqual({ slotIndex: 2 });
+
+        const mapJobs = await GameScheduledJob.findAll({
+          where: { gameId: shell.gameId, jobType: "SLOT_MAP_UNLOCKED" },
+          order: [["runAt", "ASC"]],
+          transaction,
+        });
+        // Slot 1 map at 3600s; slot 2 map at 7200s (differs from claim).
+        expect(mapJobs).toHaveLength(2);
+        expect(mapJobs[0]!.payload).toEqual({ slotIndex: 1 });
+        expect(mapJobs[0]!.runAt.getTime()).toBe(
+          shell.startedAt.getTime() + 3600 * 1000,
+        );
+        expect(mapJobs[1]!.payload).toEqual({ slotIndex: 2 });
+        expect(mapJobs[1]!.runAt.getTime()).toBe(
+          shell.startedAt.getTime() + 7200 * 1000,
+        );
+      });
+    });
+
+    it("skips slots whose map offset is null (never on map)", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        await scheduleGameJobs(
+          {
+            gameId: shell.gameId,
+            startedAt: shell.startedAt,
+            endsAt: shell.endsAt,
+            visibilityPhaseIntervalSeconds:
+              shell.visibilityPhaseIntervalSeconds,
+            visibilityPhaseCount: 1,
+            slotUnlockOffsetsSeconds: [0, 60, 120],
+            slotMapUnlockOffsetsSeconds: [0, null, 240],
+            notifications: [],
+            visibilityMode: "both",
+          },
+          transaction,
+        );
+
+        const mapJobs = await GameScheduledJob.findAll({
+          where: { gameId: shell.gameId, jobType: "SLOT_MAP_UNLOCKED" },
+          transaction,
+        });
+        expect(mapJobs).toHaveLength(1);
+        expect(mapJobs[0]!.payload).toEqual({ slotIndex: 2 });
+      });
+    });
+
+    it("rejects slot 0 with a non-zero map offset", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        await expect(
+          scheduleGameJobs(
+            {
+              gameId: shell.gameId,
+              startedAt: shell.startedAt,
+              endsAt: shell.endsAt,
+              visibilityPhaseIntervalSeconds:
+                shell.visibilityPhaseIntervalSeconds,
+              visibilityPhaseCount: 1,
+              slotUnlockOffsetsSeconds: [0, 0],
+              slotMapUnlockOffsetsSeconds: [60, 60],
+              notifications: [],
+              visibilityMode: "both",
+            },
+            transaction,
+          ),
+        ).rejects.toThrow(/slotMapUnlockOffsetsSeconds\[0\]/);
+      });
+    });
+
+    it("rejects a map offset that precedes the claim offset", async () => {
+      const { lobbyId } = await createLobbyWithFourPlayers({
+        assignTeams: false,
+      });
+
+      await withGameShell(lobbyId, async (shell, transaction) => {
+        await expect(
+          scheduleGameJobs(
+            {
+              gameId: shell.gameId,
+              startedAt: shell.startedAt,
+              endsAt: shell.endsAt,
+              visibilityPhaseIntervalSeconds:
+                shell.visibilityPhaseIntervalSeconds,
+              visibilityPhaseCount: 1,
+              slotUnlockOffsetsSeconds: [0, 600],
+              slotMapUnlockOffsetsSeconds: [0, 300],
+              notifications: [],
+              visibilityMode: "both",
+            },
+            transaction,
+          ),
+        ).rejects.toThrow(/slotMapUnlockOffsetsSeconds\[1\]/);
       });
     });
   });
@@ -354,6 +509,7 @@ describe("scheduleGameJobs", () => {
               shell.visibilityPhaseIntervalSeconds,
             visibilityPhaseCount: 4,
             slotUnlockOffsetsSeconds: [0, 60],
+            slotMapUnlockOffsetsSeconds: [0, 60],
             notifications: [],
             visibilityMode: "slot",
           },
@@ -369,7 +525,7 @@ describe("scheduleGameJobs", () => {
       });
     });
 
-    it("skips SLOT_UNLOCKED jobs when mode is 'phase' (slot off)", async () => {
+    it("skips SLOT_UNLOCKED / SLOT_MAP_UNLOCKED jobs when mode is 'phase' (slot off)", async () => {
       const { lobbyId } = await createLobbyWithFourPlayers({
         assignTeams: false,
       });
@@ -386,6 +542,7 @@ describe("scheduleGameJobs", () => {
             // Non-zero offsets at k>0 would normally each emit a job;
             // the slot gate skips them entirely.
             slotUnlockOffsetsSeconds: [0, 30, 90],
+            slotMapUnlockOffsetsSeconds: [0, 60, 120],
             notifications: [],
             visibilityMode: "phase",
           },
@@ -401,6 +558,7 @@ describe("scheduleGameJobs", () => {
           counts.set(j.jobType, (counts.get(j.jobType) ?? 0) + 1);
         }
         expect(counts.get("SLOT_UNLOCKED") ?? 0).toBe(0);
+        expect(counts.get("SLOT_MAP_UNLOCKED") ?? 0).toBe(0);
         expect(counts.get("VISIBILITY_PHASE_ADVANCE") ?? 0).toBe(2);
         expect(counts.get("GAME_END") ?? 0).toBe(1);
       });
@@ -421,6 +579,7 @@ describe("scheduleGameJobs", () => {
               shell.visibilityPhaseIntervalSeconds,
             visibilityPhaseCount: 4,
             slotUnlockOffsetsSeconds: [0, 30],
+            slotMapUnlockOffsetsSeconds: [0, 30],
             notifications: [
               { atSeconds: 60, template: "tick", data: null },
             ],

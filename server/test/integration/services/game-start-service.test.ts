@@ -65,7 +65,11 @@ describe("startFromLobby", () => {
     expect(lobby?.status).toBe("closed");
     expect(tileCount).toBe(136);
     expect(nodeCount).toBe(84);
-    expect(jobCount).toBe(3);
+    // 1 GAME_END + 2 SLOT_UNLOCKED (slots 1, 2 with positive claim offsets)
+    // + 2 SLOT_MAP_UNLOCKED (TTC2026's map-reveal timeline [0, 3600, 7200]
+    // differs from the claim timeline [0, 2400, 4800] on slots 1 and 2, so
+    // each slot needs both jobs to fire — Phase L §3.13).
+    expect(jobCount).toBe(5);
 
     const game = await Game.findByPk(result.gameId);
     expect(game?.status).toBe("active");

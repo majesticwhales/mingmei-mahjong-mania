@@ -807,10 +807,10 @@ Host view:
 |    > Slot tier                               |
 |      slots/node [ 4 ]                        |
 |      [x] auto-distribute unlock times        |
-|      slot 0:    0s   map visible: (on)       |  <- slot 0 always locked
-|      slot 1: 1800s   map visible: [x]        |  <- offset disabled while auto on
-|      slot 2: 3600s   map visible: [x]        |
-|      slot 3: 5400s   map visible: [x]        |
+|      slot 0: 0s    map: 0s    never: (lock)  |  <- slot 0 always 0 / on map
+|      slot 1: 1800s map: 1800s never: [ ]     |  <- offset disabled while auto on
+|      slot 2: 3600s map: ----- never: [x]     |  <- "never on map" → numeric input disabled
+|      slot 3: 5400s map: 7200s never: [ ]     |  <- map reveal lags claim unlock
 |    visibility  [ both    v]                  |
 |    team mode   [ pick    v]                  |
 |    start at    [-----    v]                  |
@@ -835,6 +835,8 @@ The **visibility** dropdown picks one of `both | phase | slot | none`. The lock 
 - `none` / `phase` → the whole `Slot tier` sub-block (auto-distribute toggle + per-slot rows) greys out. `slots/node` stays editable because it's the count, not a slot-layer config.
 
 The **Auto-distribute** checkbox is a pure UI affordance — there's no persisted "auto-distribute" field on the server. On form mount the toggle reads `true` when the saved `slotUnlockOffsetsSeconds` equal `round(gameDurationSeconds * k / slotsPerNode)` for every `k` (±1s tolerance to absorb rounding), and `false` otherwise. While on, the form recomputes the offsets array on every change to `slots/node` or `duration`. Toggling it back on from a custom array snaps the offsets to the formula. See `client/src/lib/slotTier.ts` for the helper module.
+
+**Per-slot map reveal.** The right-hand column on each slot row is the **map-reveal timer** — `LobbyConfigDto.slotMapUnlockOffsetsSeconds[k]` (Phase L §3.13 server-side). Each row carries two affordances: a `number` input for the offset in seconds, and a `never on map` checkbox. Checking `never on map` substitutes `null` into the array (the "out of play on map" tier) and disables the numeric input; unchecking restores the input with a default copied from the same slot's claim-unlock offset (`slotUnlockOffsetsSeconds[k]`). Slot 0 is force-pinned to `map: 0`, `never: off` (server invariant). The form does not validate `map[k] >= claim[k]` client-side — the server rejects bad patches with the same `400` shape used by other lobby config validators (see `client/src/lib/slotTier.ts::resizeSlotMapUnlockOffsets` for the resize semantics on `slotsPerNode` changes).
 
 **Phase K — Discord channels checkbox.** Toggles `LobbyConfigPatch.discordEnabled`. Sub-text under the checkbox renders the readiness state for the host: if any current lobby member has `discordLinkStatus !== "linked"`, the form shows "Some members aren't linked yet (@bob, @carol). Their team channels will skip them until they link." The toggle is independently editable from every other knob — it's not visibility-gated and is never reset on `visibilityMode` changes.
 
@@ -1296,7 +1298,7 @@ The client side of server Phase L ([docs/TDD_server.md §3.12–§3.14](TDD_serv
 
 **Goal:** the projection emits the new exhaustive `mapNodes[].tiles[]` shape ([§3.13](TDD_server.md#313-server-authoritative-tile-visibility)); the client mirrors the wire type.
 
-**Server work:** projection emits `{ slotIndex, tile, visible, locked }`; the singular `tile` field is dropped from `MapNodeDto`. `visibilityPhase` etc. survive as telemetry. Integration tests assert the per-team `visible` / `locked` matrix against the existing `resolveMapVisibleSlotIndices` + slot-offset helpers.
+**Server work:** projection emits `{ slotIndex, tile, visible, locked }`; the singular `tile` field is dropped from `MapNodeDto`. `visibilityPhase` etc. survive as telemetry. Integration tests assert the per-team `visible` / `locked` matrix against the new `mapUnlockedSlotIndices` (driven by `slot_map_unlock_offsets_seconds[]`, replacing the legacy `slot_map_visible` boolean cap) + the claim-unlock helpers.
 
 **Files added (client):** none.
 

@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { HttpError } from "../../../src/lib/http-error.ts";
 import {
   assertSlotUnlocked,
-  isSlotMapVisible,
+  isSlotMapUnlocked,
   isSlotUnlocked,
-  mapVisibleSlotIndices,
+  mapUnlockedSlotIndices,
   phaseDrivenMapVisibleSlotIndices,
+  slotMapUnlockAtMs,
   slotUnlockAtMs,
   unlockedSlotIndices,
 } from "../../../src/services/slot-visibility.ts";
@@ -17,6 +18,12 @@ const game = (offsets: number[]) => ({
   id: "game-1",
   startedAt: T0,
   slotUnlockOffsetsSeconds: offsets,
+});
+
+const mapGame = (mapOffsets: Array<number | null>) => ({
+  id: "game-1",
+  startedAt: T0,
+  slotMapUnlockOffsetsSeconds: mapOffsets,
 });
 
 describe("slot-visibility", () => {
@@ -100,23 +107,61 @@ describe("slot-visibility", () => {
     });
   });
 
-  describe("isSlotMapVisible", () => {
-    it("returns the flag at the requested index", () => {
-      expect(isSlotMapVisible([true, false, true], 0)).toBe(true);
-      expect(isSlotMapVisible([true, false, true], 1)).toBe(false);
-      expect(isSlotMapVisible([true, false, true], 2)).toBe(true);
+  describe("slotMapUnlockAtMs", () => {
+    it("returns startedAt for slot 0 (always immediately on-map)", () => {
+      expect(slotMapUnlockAtMs(mapGame([0, 60, 600]), 0)).toBe(T0_MS);
+    });
+
+    it("returns startedAt + offset*1000 for non-zero slots", () => {
+      expect(slotMapUnlockAtMs(mapGame([0, 60, 600]), 1)).toBe(T0_MS + 60_000);
+      expect(slotMapUnlockAtMs(mapGame([0, 60, 600]), 2)).toBe(T0_MS + 600_000);
+    });
+
+    it("returns null when the offset is null (slot never on map)", () => {
+      expect(slotMapUnlockAtMs(mapGame([0, null, 60]), 1)).toBeNull();
     });
 
     it("throws 500 when slotIndex is out of range", () => {
-      expect(() => isSlotMapVisible([true], 1)).toThrow(HttpError);
+      expect(() => slotMapUnlockAtMs(mapGame([0, 60]), 3)).toThrow(HttpError);
     });
   });
 
-  describe("mapVisibleSlotIndices", () => {
-    it("returns only the map-visible indices", () => {
-      expect(mapVisibleSlotIndices([true, false, false], 3)).toEqual([0]);
-      expect(mapVisibleSlotIndices([true, false, true], 3)).toEqual([0, 2]);
-      expect(mapVisibleSlotIndices([true, true, true], 3)).toEqual([0, 1, 2]);
+  describe("isSlotMapUnlocked", () => {
+    it("returns true for slot 0 at any time at or after startedAt", () => {
+      expect(isSlotMapUnlocked(mapGame([0, 60]), 0, T0_MS)).toBe(true);
+      expect(isSlotMapUnlocked(mapGame([0, 60]), 0, T0_MS + 5_000)).toBe(true);
+    });
+
+    it("returns false before unlock time and true at/after", () => {
+      const g = mapGame([0, 60]);
+      expect(isSlotMapUnlocked(g, 1, T0_MS + 59_999)).toBe(false);
+      expect(isSlotMapUnlocked(g, 1, T0_MS + 60_000)).toBe(true);
+    });
+
+    it("always returns false for null offsets (never on map)", () => {
+      const g = mapGame([0, null, 60]);
+      expect(isSlotMapUnlocked(g, 1, T0_MS)).toBe(false);
+      expect(isSlotMapUnlocked(g, 1, T0_MS + 1_000_000)).toBe(false);
+    });
+  });
+
+  describe("mapUnlockedSlotIndices", () => {
+    it("returns only the slots whose map-unlock has elapsed", () => {
+      expect(
+        mapUnlockedSlotIndices(mapGame([0, 60, 120]), 3, T0_MS + 90_000),
+      ).toEqual([0, 1]);
+    });
+
+    it("skips null offsets (never on map)", () => {
+      expect(
+        mapUnlockedSlotIndices(mapGame([0, null, 60]), 3, T0_MS + 1_000_000),
+      ).toEqual([0, 2]);
+    });
+
+    it("returns only slot 0 at game start", () => {
+      expect(mapUnlockedSlotIndices(mapGame([0, 60, 120]), 3, T0_MS)).toEqual([
+        0,
+      ]);
     });
   });
 

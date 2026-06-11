@@ -83,18 +83,25 @@ export class Game extends BaseModel {
   declare slotUnlockOffsetsSeconds: number[];
 
   /**
-   * Per-slot map-visibility flags, snapshotted from `lobby.slotMapVisible` at
-   * start. Length === `slotsPerNode`; first entry is `true`. When false, the
-   * projection layer omits that slot's tile from map output regardless of
-   * phase visibility; the slot is still revealed via `atStation` once
-   * unlocked. Phase E enforces this at projection time.
+   * Per-slot map-reveal offsets in seconds from `startedAt`, snapshotted
+   * from `lobby.slotMapUnlockOffsetsSeconds` at start. Length ===
+   * `slotsPerNode`; first entry is `0` (slot 0 always immediately on the
+   * map); each entry must either be `>= slotUnlockOffsetsSeconds[k]` or
+   * `NULL` (slot is never on the map regardless of timer). Phase L (§3.13)
+   * uses this for the **map**-surface reveal — engine claimability +
+   * station-surface reveal still come from `slotUnlockOffsetsSeconds`.
+   *
+   * The scheduler seeds one `SLOT_MAP_UNLOCKED` job per slot whose offset
+   * is non-null, positive, AND differs from the claim offset (dedupe
+   * coincident timers). The projection derives `mapNodes[].tiles[].visible`
+   * from this column via `isSlotMapUnlocked` / `mapUnlockedSlotIndices`.
    */
   @Column({
-    type: DataType.ARRAY(DataType.BOOLEAN),
+    type: DataType.ARRAY(DataType.INTEGER),
     allowNull: false,
-    defaultValue: [true],
+    defaultValue: [0],
   })
-  declare slotMapVisible: boolean[];
+  declare slotMapUnlockOffsetsSeconds: Array<number | null>;
 
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   declare visibilityPhase: number;

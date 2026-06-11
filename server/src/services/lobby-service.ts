@@ -42,12 +42,15 @@ export interface CreateLobbyOptions {
    */
   slotUnlockOffsetsSeconds?: number[];
   /**
-   * Per-slot map-visibility flags. Length must equal the final
-   * `slotsPerNode`; entry `[0]` must be `true` (slot 0 follows phase rules).
-   * When `false`, slot k's tile is never face-up on the map regardless of
-   * phase. Defaults to the template's `defaultSlotMapVisible`.
+   * Per-slot map-reveal offsets in seconds from game start (Phase L
+   * §3.13). Length must equal the final `slotsPerNode`; entry `[0]` must
+   * be `0` (slot 0 always immediately on-map). Each entry is either a
+   * non-negative integer `>= slotUnlockOffsetsSeconds[k]` (map reveal at
+   * that offset) or `null` (slot is never on the map regardless of
+   * timer — the "out of play on map" tier). Defaults to the template's
+   * `defaultSlotMapUnlockOffsetsSeconds`. See TDD §3.3 / §3.13.
    */
-  slotMapVisible?: boolean[];
+  slotMapUnlockOffsetsSeconds?: Array<number | null>;
   /**
    * Size of the per-game dead wall, snapshotted to `games.dead_wall_size`
    * at start. Non-negative integer; defaults to the template's
@@ -65,8 +68,8 @@ export interface CreateLobbyOptions {
    * that excludes the phase layer locks `visibilityPhaseCount` /
    * `visibilityPhaseIntervalSeconds`; picking one that excludes the
    * slot layer locks non-zero `slotUnlockOffsetsSeconds[k>0]` and any
-   * `false` in `slotMapVisible[k>0]`. See TDD §3.2 / §3.3 and
-   * `server/src/game/visibility-mode.ts`.
+   * non-zero / null entry in `slotMapUnlockOffsetsSeconds[k>0]`. See
+   * TDD §3.2 / §3.3 and `server/src/game/visibility-mode.ts`.
    */
   visibilityMode?: VisibilityMode;
   teamAssignmentMode?: TeamAssignmentMode;
@@ -82,8 +85,8 @@ export interface UpdateLobbyConfigPatch {
   slotsPerNode?: number;
   /** See `CreateLobbyOptions.slotUnlockOffsetsSeconds`. */
   slotUnlockOffsetsSeconds?: number[];
-  /** See `CreateLobbyOptions.slotMapVisible`. */
-  slotMapVisible?: boolean[];
+  /** See `CreateLobbyOptions.slotMapUnlockOffsetsSeconds`. */
+  slotMapUnlockOffsetsSeconds?: Array<number | null>;
   /** See `CreateLobbyOptions.deadWallSize`. */
   deadWallSize?: number;
   /** See `CreateLobbyOptions.visibilityMode`. */
@@ -257,37 +260,57 @@ function validateSlotUnlockOffsetsSeconds(
   }
 }
 
-function validateSlotMapVisible(
-  arr: boolean[],
+/**
+ * Validate the Phase L map-reveal offsets array (`slot_map_unlock_offsets_seconds`).
+ * Mirrors the DB CHECK constraints from `20260611120000-add-slot-map-unlock-offsets.cjs`
+ * so the host gets a useful 400 rather than a Postgres 500. The
+ * `claimOffsets` argument is the resolved `slotUnlockOffsetsSeconds` for
+ * the same lobby/config so we can enforce the per-element
+ * `mapOffset[i] IS NULL OR mapOffset[i] >= claimOffset[i]` rule
+ * (the CHECK on the row itself can't see across columns from JS land).
+ */
+function validateSlotMapUnlockOffsetsSeconds(
+  arr: Array<number | null>,
   slotsPerNode: number,
+  claimOffsets: number[],
 ): void {
   if (!Array.isArray(arr)) {
     throw new HttpError(
       400,
       "validation_error",
-      "slotMapVisible must be an array",
+      "slotMapUnlockOffsetsSeconds must be an array",
     );
   }
   if (arr.length !== slotsPerNode) {
     throw new HttpError(
       400,
       "validation_error",
-      `slotMapVisible length (${arr.length}) must equal slotsPerNode (${slotsPerNode})`,
+      `slotMapUnlockOffsetsSeconds length (${arr.length}) must equal slotsPerNode (${slotsPerNode})`,
     );
   }
-  if (arr[0] !== true) {
+  if (arr[0] !== 0) {
     throw new HttpError(
       400,
       "validation_error",
-      "slotMapVisible[0] must be true (slot 0 follows phase rules)",
+      "slotMapUnlockOffsetsSeconds[0] must be 0 (slot 0 is always immediately on the map)",
     );
   }
   for (let i = 0; i < arr.length; i += 1) {
-    if (typeof arr[i] !== "boolean") {
+    const v = arr[i];
+    if (v === null) continue;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 0) {
       throw new HttpError(
         400,
         "validation_error",
-        `slotMapVisible[${i}] must be a boolean`,
+        `slotMapUnlockOffsetsSeconds[${i}] must be a non-negative integer or null`,
+      );
+    }
+    const claim = claimOffsets[i];
+    if (claim != null && v < claim) {
+      throw new HttpError(
+        400,
+        "validation_error",
+        `slotMapUnlockOffsetsSeconds[${i}] (${v}) must be >= slotUnlockOffsetsSeconds[${i}] (${claim}) — map reveal cannot precede claim reveal`,
       );
     }
   }
@@ -296,12 +319,15 @@ function validateSlotMapVisible(
 /**
  * Resize a slot-shaped array to `slotsPerNode`. Used when `slotsPerNode`
  * changes via patch and the host didn't supply replacement arrays — pads
- * with `padValue` (0 for offsets, true for map-visibility) when growing
- * and truncates when shrinking, preserving any host-set entries inside the
- * new bounds. Slot 0 is always kept as `padValue`'s "always-unlocked" /
- * "always-map-visible" semantics by construction (the source array has
- * `[0]` already pinned to the right value, and we never touch index 0
- * during resize).
+ * with `padValue` when growing and truncates when shrinking. Slot 0 is
+ * always kept as the source's `[0]` (which is itself pinned to the
+ * always-on-map / always-claimable invariant).
+ *
+ * The pad value depends on the column: `0` for claim offsets, `0` for
+ * map offsets (mirrors the always-immediately-on-map semantics of slot 0
+ * — extending into newly-added slots with `0` is a safe no-op since map
+ * reveal at t=0 also satisfies the `map[k] >= claim[k]` CHECK whenever
+ * claim is at most 0).
  */
 function resizeSlotArray<T>(source: T[], slotsPerNode: number, padValue: T): T[] {
   if (source.length === slotsPerNode) return source.slice();
@@ -317,11 +343,11 @@ function resizeSlotArray<T>(source: T[], slotsPerNode: number, padValue: T): T[]
  *
  * - `phase` off  -> reject any `visibilityPhaseCount` /
  *                   `visibilityPhaseIntervalSeconds` in the patch.
- * - `slot`  off  -> reject `slotUnlockOffsetsSeconds` whose `k>0`
- *                   entry is non-zero, or `slotMapVisible` whose `k>0`
- *                   entry is `false`. Setting either array to its
- *                   trivial value (all-zero / all-true) is still fine
- *                   because that's a no-op.
+ * - `slot`  off  -> reject `slotUnlockOffsetsSeconds[k>0]` non-zero,
+ *                   `slotMapUnlockOffsetsSeconds[k>0]` non-zero, or
+ *                   `slotMapUnlockOffsetsSeconds[k>0]` null. Setting
+ *                   either array to its trivial value (all-zero, no
+ *                   nulls) is still fine because that's a no-op.
  *
  * The check runs after array length validation so the `k>0` indexing
  * is guaranteed safe. Returns nothing; throws on the first violation.
@@ -332,7 +358,7 @@ function assertPatchObeysVisibilityLock(
     visibilityPhaseCount?: number;
     visibilityPhaseIntervalSeconds?: number;
     slotUnlockOffsetsSeconds?: number[];
-    slotMapVisible?: boolean[];
+    slotMapUnlockOffsetsSeconds?: Array<number | null>;
   },
 ): void {
   if (!visibilityIncludes(mode, "phase")) {
@@ -364,14 +390,22 @@ function assertPatchObeysVisibilityLock(
         }
       }
     }
-    const visible = patch.slotMapVisible;
-    if (visible !== undefined) {
-      for (let i = 1; i < visible.length; i += 1) {
-        if (visible[i] === false) {
+    const mapOffsets = patch.slotMapUnlockOffsetsSeconds;
+    if (mapOffsets !== undefined) {
+      for (let i = 1; i < mapOffsets.length; i += 1) {
+        const v = mapOffsets[i];
+        if (v === null) {
           throw new HttpError(
             400,
             "visibility_knob_locked",
-            `slotMapVisible[${i}] must be true when visibilityMode is "${mode}" (slot layer disabled)`,
+            `slotMapUnlockOffsetsSeconds[${i}] cannot be null when visibilityMode is "${mode}" (slot layer disabled; "never on map" only meaningful with slot tier active)`,
+          );
+        }
+        if (v !== 0) {
+          throw new HttpError(
+            400,
+            "visibility_knob_locked",
+            `slotMapUnlockOffsetsSeconds[${i}] must be 0 when visibilityMode is "${mode}" (slot layer disabled)`,
           );
         }
       }
@@ -380,20 +414,20 @@ function assertPatchObeysVisibilityLock(
 }
 
 /**
- * Coerce slot-layer arrays to their trivial values (all unlocked at
- * t=0, every slot map-visible). Called by `updateConfig` when the host
- * transitions the lobby into a mode that excludes the slot layer:
- * leftover non-zero offsets / `false` visibility flags would be silently
+ * Coerce slot-layer arrays to their trivial values (everything unlocked
+ * at t=0, every slot immediately on-map). Called by `updateConfig` when
+ * the host transitions the lobby into a mode that excludes the slot
+ * layer: leftover non-zero offsets / null map entries would be silently
  * ignored by the engine but visible in the DTO, which is worse than
  * just zeroing them.
  */
 function resetSlotKnobsToTrivial(slotsPerNode: number): {
   offsets: number[];
-  visible: boolean[];
+  mapOffsets: Array<number | null>;
 } {
   return {
     offsets: new Array<number>(slotsPerNode).fill(0),
-    visible: new Array<boolean>(slotsPerNode).fill(true),
+    mapOffsets: new Array<number | null>(slotsPerNode).fill(0),
   };
 }
 
@@ -458,12 +492,16 @@ export async function createLobby(
     ?? (template.defaultSlotUnlockOffsetsSeconds.length === slotsPerNode
       ? template.defaultSlotUnlockOffsetsSeconds
       : (new Array<number>(slotsPerNode).fill(0)));
-  const slotMapVisible = options.slotMapVisible
-    ?? (template.defaultSlotMapVisible.length === slotsPerNode
-      ? template.defaultSlotMapVisible
-      : (new Array<boolean>(slotsPerNode).fill(true)));
+  const slotMapUnlockOffsetsSeconds = options.slotMapUnlockOffsetsSeconds
+    ?? (template.defaultSlotMapUnlockOffsetsSeconds.length === slotsPerNode
+      ? template.defaultSlotMapUnlockOffsetsSeconds
+      : (new Array<number | null>(slotsPerNode).fill(0)));
   validateSlotUnlockOffsetsSeconds(slotUnlockOffsetsSeconds, slotsPerNode);
-  validateSlotMapVisible(slotMapVisible, slotsPerNode);
+  validateSlotMapUnlockOffsetsSeconds(
+    slotMapUnlockOffsetsSeconds,
+    slotsPerNode,
+    slotUnlockOffsetsSeconds,
+  );
 
   // Enforce the per-mode knob lock against whatever the host actually
   // supplied (template-derived defaults are exempt by construction —
@@ -473,7 +511,7 @@ export async function createLobby(
     visibilityPhaseCount: options.visibilityPhaseCount,
     visibilityPhaseIntervalSeconds: options.visibilityPhaseIntervalSeconds,
     slotUnlockOffsetsSeconds: options.slotUnlockOffsetsSeconds,
-    slotMapVisible: options.slotMapVisible,
+    slotMapUnlockOffsetsSeconds: options.slotMapUnlockOffsetsSeconds,
   });
 
   let defaultStartNodeCode =
@@ -498,7 +536,7 @@ export async function createLobby(
         visibilityPhaseCount,
         slotsPerNode,
         slotUnlockOffsetsSeconds,
-        slotMapVisible,
+        slotMapUnlockOffsetsSeconds,
         deadWallSize,
         visibilityMode,
         teamAssignmentMode,
@@ -695,8 +733,9 @@ export async function updateConfig(
     if (patch.slotUnlockOffsetsSeconds == null) {
       lobby.slotUnlockOffsetsSeconds = template.defaultSlotUnlockOffsetsSeconds;
     }
-    if (patch.slotMapVisible == null) {
-      lobby.slotMapVisible = template.defaultSlotMapVisible;
+    if (patch.slotMapUnlockOffsetsSeconds == null) {
+      lobby.slotMapUnlockOffsetsSeconds =
+        template.defaultSlotMapUnlockOffsetsSeconds;
     }
     if (patch.deadWallSize == null) {
       lobby.deadWallSize = template.defaultDeadWallSize;
@@ -753,31 +792,35 @@ export async function updateConfig(
       0,
     );
   }
-  if (patch.slotMapVisible != null) {
-    lobby.slotMapVisible = patch.slotMapVisible;
-  } else if (lobby.slotMapVisible.length !== lobby.slotsPerNode) {
-    lobby.slotMapVisible = resizeSlotArray(
-      lobby.slotMapVisible,
+  if (patch.slotMapUnlockOffsetsSeconds != null) {
+    lobby.slotMapUnlockOffsetsSeconds = patch.slotMapUnlockOffsetsSeconds;
+  } else if (lobby.slotMapUnlockOffsetsSeconds.length !== lobby.slotsPerNode) {
+    lobby.slotMapUnlockOffsetsSeconds = resizeSlotArray<number | null>(
+      lobby.slotMapUnlockOffsetsSeconds,
       lobby.slotsPerNode,
-      true,
+      0,
     );
   }
   validateSlotUnlockOffsetsSeconds(
     lobby.slotUnlockOffsetsSeconds,
     lobby.slotsPerNode,
   );
-  validateSlotMapVisible(lobby.slotMapVisible, lobby.slotsPerNode);
+  validateSlotMapUnlockOffsetsSeconds(
+    lobby.slotMapUnlockOffsetsSeconds,
+    lobby.slotsPerNode,
+    lobby.slotUnlockOffsetsSeconds,
+  );
 
   // Visibility-mode lock: applied here (post array-resize, post
   // slotsPerNode validation) so the lock check sees the host's *new*
   // arrays and the effective `slotsPerNode`. The lock only rejects
   // explicit patch fields; the auto-resize path is exempt by design
-  // (auto-padding to zeros / trues is a no-op for slot-off games).
+  // (auto-padding to zeros is a no-op for slot-off games).
   assertPatchObeysVisibilityLock(lobby.visibilityMode, {
     visibilityPhaseCount: patch.visibilityPhaseCount,
     visibilityPhaseIntervalSeconds: patch.visibilityPhaseIntervalSeconds,
     slotUnlockOffsetsSeconds: patch.slotUnlockOffsetsSeconds,
-    slotMapVisible: patch.slotMapVisible,
+    slotMapUnlockOffsetsSeconds: patch.slotMapUnlockOffsetsSeconds,
   });
 
   // Mode transition cleanup: if the host just turned off a layer, force
@@ -808,8 +851,8 @@ export async function updateConfig(
       if (patch.slotUnlockOffsetsSeconds == null) {
         lobby.slotUnlockOffsetsSeconds = trivial.offsets;
       }
-      if (patch.slotMapVisible == null) {
-        lobby.slotMapVisible = trivial.visible;
+      if (patch.slotMapUnlockOffsetsSeconds == null) {
+        lobby.slotMapUnlockOffsetsSeconds = trivial.mapOffsets;
       }
     }
   }

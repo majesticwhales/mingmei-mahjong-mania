@@ -162,13 +162,15 @@ describe("lobby-service", () => {
     } satisfies Partial<HttpError>);
   });
 
-  describe("per-slot rules arrays (chunk 5)", () => {
-    it("defaults slotUnlockOffsetsSeconds and slotMapVisible from the template", async () => {
+  describe("per-slot rules arrays (chunk 5 + Phase L)", () => {
+    it("defaults slotUnlockOffsetsSeconds and slotMapUnlockOffsetsSeconds from the template", async () => {
       const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
 
       expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 2400, 4800]);
-      expect(lobby.config.slotMapVisible).toEqual([true, true, true]);
+      // TTC 2026 Phase L map-reveal defaults; see migration
+      // `20260611120000-add-slot-map-unlock-offsets.cjs`.
+      expect(lobby.config.slotMapUnlockOffsetsSeconds).toEqual([0, 3600, 7200]);
     });
 
     it("accepts host overrides on create when length matches slotsPerNode", async () => {
@@ -176,12 +178,14 @@ describe("lobby-service", () => {
       const lobby = await lobbyService.createLobby(host.user.id, {
         slotsPerNode: 3,
         slotUnlockOffsetsSeconds: [0, 300, 900],
-        slotMapVisible: [true, false, false],
+        // Tier-3 example: slot 2 is claimable at 300s but only on the map
+        // after 1200s; slot 1 is never on the map.
+        slotMapUnlockOffsetsSeconds: [0, null, 1200],
       });
 
       expect(lobby.config.slotsPerNode).toBe(3);
       expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 300, 900]);
-      expect(lobby.config.slotMapVisible).toEqual([true, false, false]);
+      expect(lobby.config.slotMapUnlockOffsetsSeconds).toEqual([0, null, 1200]);
     });
 
     it("rejects on create when arrays mismatch slotsPerNode", async () => {
@@ -204,12 +208,35 @@ describe("lobby-service", () => {
       ).rejects.toMatchObject({ status: 400, code: "validation_error" });
     });
 
-    it("rejects slot 0 with map_visible = false", async () => {
+    it("rejects slot 0 with non-zero slotMapUnlockOffsetsSeconds", async () => {
       const host = await registerAdminUser();
       await expect(
         lobbyService.createLobby(host.user.id, {
           slotsPerNode: 2,
-          slotMapVisible: [false, true],
+          slotMapUnlockOffsetsSeconds: [60, 60],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+
+    it("rejects slot 0 with a null slotMapUnlockOffsetsSeconds", async () => {
+      const host = await registerAdminUser();
+      await expect(
+        lobbyService.createLobby(host.user.id, {
+          slotsPerNode: 2,
+          slotMapUnlockOffsetsSeconds: [null, 60],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: "validation_error" });
+    });
+
+    it("rejects slotMapUnlockOffsetsSeconds[k] < slotUnlockOffsetsSeconds[k]", async () => {
+      const host = await registerAdminUser();
+      await expect(
+        lobbyService.createLobby(host.user.id, {
+          slotsPerNode: 2,
+          slotUnlockOffsetsSeconds: [0, 600],
+          // Map offset would reveal at 300s but claim isn't until 600s —
+          // the engine can't "claim before reveal" intuitively, so reject.
+          slotMapUnlockOffsetsSeconds: [0, 300],
         }),
       ).rejects.toMatchObject({ status: 400, code: "validation_error" });
     });
@@ -225,20 +252,20 @@ describe("lobby-service", () => {
         host.user.id,
         {
           slotUnlockOffsetsSeconds: [0, 600],
-          slotMapVisible: [true, false],
+          slotMapUnlockOffsetsSeconds: [0, 900],
         },
       );
 
       expect(updated.config.slotUnlockOffsetsSeconds).toEqual([0, 600]);
-      expect(updated.config.slotMapVisible).toEqual([true, false]);
+      expect(updated.config.slotMapUnlockOffsetsSeconds).toEqual([0, 900]);
     });
 
-    it("auto-pads arrays with 0 / true when slotsPerNode grows and arrays aren't repatched", async () => {
+    it("auto-pads arrays with 0 when slotsPerNode grows and arrays aren't repatched", async () => {
       const host = await registerAdminUser();
       const created = await lobbyService.createLobby(host.user.id, {
         slotsPerNode: 2,
         slotUnlockOffsetsSeconds: [0, 60],
-        slotMapVisible: [true, false],
+        slotMapUnlockOffsetsSeconds: [0, 120],
       });
 
       const updated = await lobbyService.updateConfig(
@@ -249,7 +276,7 @@ describe("lobby-service", () => {
 
       expect(updated.config.slotsPerNode).toBe(4);
       expect(updated.config.slotUnlockOffsetsSeconds).toEqual([0, 60, 0, 0]);
-      expect(updated.config.slotMapVisible).toEqual([true, false, true, true]);
+      expect(updated.config.slotMapUnlockOffsetsSeconds).toEqual([0, 120, 0, 0]);
     });
 
     it("auto-truncates arrays when slotsPerNode shrinks and arrays aren't repatched", async () => {
@@ -435,7 +462,7 @@ describe("lobby-service", () => {
         });
       });
 
-      it("rejects a `false` slotMapVisible entry when mode excludes slot", async () => {
+      it("rejects a null slotMapUnlockOffsetsSeconds entry when mode excludes slot", async () => {
         const host = await registerAdminUser();
         const created = await lobbyService.createLobby(host.user.id, {
           visibilityMode: "phase",
@@ -443,7 +470,23 @@ describe("lobby-service", () => {
         });
         await expect(
           lobbyService.updateConfig(created.id, host.user.id, {
-            slotMapVisible: [true, false],
+            slotMapUnlockOffsetsSeconds: [0, null],
+          }),
+        ).rejects.toMatchObject({
+          status: 400,
+          code: "visibility_knob_locked",
+        });
+      });
+
+      it("rejects a positive slotMapUnlockOffsetsSeconds entry when mode excludes slot", async () => {
+        const host = await registerAdminUser();
+        const created = await lobbyService.createLobby(host.user.id, {
+          visibilityMode: "phase",
+          slotsPerNode: 2,
+        });
+        await expect(
+          lobbyService.updateConfig(created.id, host.user.id, {
+            slotMapUnlockOffsetsSeconds: [0, 60],
           }),
         ).rejects.toMatchObject({
           status: 400,
@@ -488,7 +531,7 @@ describe("lobby-service", () => {
         const created = await lobbyService.createLobby(host.user.id, {
           slotsPerNode: 3,
           slotUnlockOffsetsSeconds: [0, 60, 300],
-          slotMapVisible: [true, false, true],
+          slotMapUnlockOffsetsSeconds: [0, null, 600],
         });
         expect(created.config.slotUnlockOffsetsSeconds).toEqual([0, 60, 300]);
 
@@ -499,7 +542,7 @@ describe("lobby-service", () => {
         );
         expect(updated.config.visibilityMode).toBe("phase");
         expect(updated.config.slotUnlockOffsetsSeconds).toEqual([0, 0, 0]);
-        expect(updated.config.slotMapVisible).toEqual([true, true, true]);
+        expect(updated.config.slotMapUnlockOffsetsSeconds).toEqual([0, 0, 0]);
       });
 
       it("resets phase knobs to template defaults when host switches to `slot`", async () => {
@@ -528,7 +571,7 @@ describe("lobby-service", () => {
           visibilityMode: "both",
           slotsPerNode: 2,
           slotUnlockOffsetsSeconds: [0, 60],
-          slotMapVisible: [true, false],
+          slotMapUnlockOffsetsSeconds: [0, null],
         });
 
         const updated = await lobbyService.updateConfig(
@@ -538,7 +581,7 @@ describe("lobby-service", () => {
         );
         expect(updated.config.visibilityMode).toBe("slot");
         expect(updated.config.slotUnlockOffsetsSeconds).toEqual([0, 60]);
-        expect(updated.config.slotMapVisible).toEqual([true, false]);
+        expect(updated.config.slotMapUnlockOffsetsSeconds).toEqual([0, null]);
       });
     });
   });

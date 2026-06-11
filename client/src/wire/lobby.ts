@@ -29,7 +29,15 @@ export interface LobbyConfigDto {
   visibilityPhaseCount: number;
   slotsPerNode: number;
   slotUnlockOffsetsSeconds: number[];
-  slotMapVisible: boolean[];
+  /**
+   * Per-slot map-reveal offsets in seconds from game start (Phase L
+   * §3.13). Length === `slotsPerNode`. Entry `[0]` is always `0`. Each
+   * entry is either a non-negative integer (map reveal at that offset)
+   * or `null` (slot is never on the map — the "out of play on map"
+   * tier). Independent of `slotUnlockOffsetsSeconds`, with the
+   * server-enforced relationship `map[i] === null || map[i] >= claim[i]`.
+   */
+  slotMapUnlockOffsetsSeconds: Array<number | null>;
   deadWallSize: number;
   teamAssignmentMode: TeamAssignmentMode;
   visibilityMode: VisibilityMode;

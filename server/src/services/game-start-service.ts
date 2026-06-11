@@ -147,7 +147,7 @@ export async function startFromLobby(
         visibilityPhaseCount: lobby.visibilityPhaseCount,
         visibilityPhaseIntervalSeconds: lobby.visibilityPhaseIntervalSeconds,
         slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
-        slotMapVisible: lobby.slotMapVisible,
+        slotMapUnlockOffsetsSeconds: lobby.slotMapUnlockOffsetsSeconds,
         roundWind,
         deadWallSize: lobby.deadWallSize,
         visibilityMode: lobby.visibilityMode,
@@ -251,6 +251,7 @@ export async function startFromLobby(
         visibilityPhaseIntervalSeconds: lobby.visibilityPhaseIntervalSeconds,
         visibilityPhaseCount: game.visibilityPhaseCount,
         slotUnlockOffsetsSeconds: game.slotUnlockOffsetsSeconds,
+        slotMapUnlockOffsetsSeconds: game.slotMapUnlockOffsetsSeconds,
         notifications: notifications.map((n) => ({
           atSeconds: n.atSeconds,
           template: n.template,

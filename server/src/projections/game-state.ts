@@ -23,9 +23,8 @@ import {
 } from "../scoring/index.ts";
 import { teamCodeToWindRank } from "../scoring/seat-wind.ts";
 import {
-  mapVisibleSlotIndices,
+  mapUnlockedSlotIndices,
   phaseDrivenMapVisibleSlotIndices,
-  unlockedSlotIndices,
 } from "../services/slot-visibility.ts";
 import {
   RED_FIVES_RULE_KEY,
@@ -44,7 +43,7 @@ import {
  *
  * No mutation. No transaction. No fog re-derivation inside callers — the
  * projection layer is the only place that applies team visibility, slot
- * unlock, and slot map-visibility rules to user-facing tile data.
+ * claim-unlock, and slot map-unlock rules to user-facing tile data.
  */
 
 export interface TileDto {
@@ -803,9 +802,11 @@ function resolveMapVisibleSlotIndices(params: {
     return Array.from({ length: slotsPerNode }, (_v, k) => k);
   }
 
-  const allowed = mapVisibleSlotIndices(game.slotMapVisible, slotsPerNode);
-  const unlocked = new Set(unlockedSlotIndices(game, slotsPerNode, nowMs));
-  return allowed.filter((slotIndex) => unlocked.has(slotIndex));
+  // Phase L: `slot_map_unlock_offsets_seconds[k]` carries both "ever
+  // on the map?" (`null` = never — the "out of play on map" tier) and
+  // "when?" (non-negative offset in seconds from `started_at`). See
+  // migration `20260611120000-add-slot-map-unlock-offsets.cjs`.
+  return mapUnlockedSlotIndices(game, slotsPerNode, nowMs);
 }
 
 function buildAtStation(params: {

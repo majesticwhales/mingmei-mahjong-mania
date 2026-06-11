@@ -12,7 +12,7 @@ const baseConfig: LobbyConfigDto = {
   visibilityPhaseCount: 4,
   slotsPerNode: 1,
   slotUnlockOffsetsSeconds: [0],
-  slotMapVisible: [true],
+  slotMapUnlockOffsetsSeconds: [0],
   deadWallSize: 14,
   teamAssignmentMode: "pick",
   visibilityMode: "both",
@@ -91,14 +91,17 @@ describe("ConfigForm — slot tier (chunk 7)", () => {
     ...baseConfig,
     slotsPerNode: 4,
     slotUnlockOffsetsSeconds: [0, 1800, 3600, 5400],
-    slotMapVisible: [true, true, true, true],
+    // Map reveals match claim reveals — the simplest non-trivial
+    // multi-slot config for auto-distribute tests (Phase L §3.13).
+    slotMapUnlockOffsetsSeconds: [0, 1800, 3600, 5400],
   };
 
   const fourSlotCustom: LobbyConfigDto = {
     ...baseConfig,
     slotsPerNode: 4,
     slotUnlockOffsetsSeconds: [0, 600, 1200, 1800],
-    slotMapVisible: [true, true, false, true],
+    // Slot 2 is the "never on map" tier (Phase L §3.13).
+    slotMapUnlockOffsetsSeconds: [0, 600, null, 1800],
   };
 
   it("derives auto-distribute = ON when saved offsets match the formula", async () => {
@@ -180,8 +183,10 @@ describe("ConfigForm — slot tier (chunk 7)", () => {
     expect(screen.getByLabelText("Auto-distribute unlock times")).toBeDisabled();
     expect(screen.getByLabelText("Slot 1 unlock (sec)")).toBeDisabled();
     expect(screen.getByLabelText("Slot 2 unlock (sec)")).toBeDisabled();
-    expect(screen.getByLabelText("Slot 1 map visible")).toBeDisabled();
-    expect(screen.getByLabelText("Slot 2 map visible")).toBeDisabled();
+    expect(screen.getByLabelText("Slot 1 map reveal (sec)")).toBeDisabled();
+    expect(screen.getByLabelText("Slot 2 map reveal (sec)")).toBeDisabled();
+    expect(screen.getByLabelText("Slot 1 never on map")).toBeDisabled();
+    expect(screen.getByLabelText("Slot 2 never on map")).toBeDisabled();
   });
 
   it("keeps slot tier editable but disables phase knobs when mode = slot", async () => {
@@ -197,7 +202,8 @@ describe("ConfigForm — slot tier (chunk 7)", () => {
     expect(screen.getByLabelText("Phase interval (sec)")).toBeDisabled();
     expect(screen.getByLabelText("Auto-distribute unlock times")).not.toBeDisabled();
     expect(screen.getByLabelText("Slot 1 unlock (sec)")).not.toBeDisabled();
-    expect(screen.getByLabelText("Slot 1 map visible")).not.toBeDisabled();
+    expect(screen.getByLabelText("Slot 1 map reveal (sec)")).not.toBeDisabled();
+    expect(screen.getByLabelText("Slot 1 never on map")).not.toBeDisabled();
   });
 
   it("keeps slot 0 controls locked even when slot layer is on", async () => {
@@ -205,6 +211,54 @@ describe("ConfigForm — slot tier (chunk 7)", () => {
     render(<ConfigForm config={fourSlotCustom} onSave={vi.fn()} />);
 
     expect(await screen.findByLabelText("Slot 0 unlock (sec)")).toBeDisabled();
-    expect(screen.getByLabelText("Slot 0 map visible")).toBeDisabled();
+    expect(screen.getByLabelText("Slot 0 map reveal (sec)")).toBeDisabled();
+    expect(screen.getByLabelText("Slot 0 never on map")).toBeDisabled();
+  });
+
+  it("disables the map-reveal input while 'never on map' is checked", async () => {
+    stubTemplates();
+    render(<ConfigForm config={fourSlotCustom} onSave={vi.fn()} />);
+
+    // Slot 2 starts with `slotMapUnlockOffsetsSeconds[2] === null`
+    // (the "never on map" tier from `fourSlotCustom`); the numeric
+    // input is read-only until the host unchecks the box.
+    expect(await screen.findByLabelText("Slot 2 never on map")).toBeChecked();
+    expect(screen.getByLabelText("Slot 2 map reveal (sec)")).toBeDisabled();
+
+    await userEvent.click(screen.getByLabelText("Slot 2 never on map"));
+    expect(screen.getByLabelText("Slot 2 never on map")).not.toBeChecked();
+    expect(screen.getByLabelText("Slot 2 map reveal (sec)")).not.toBeDisabled();
+  });
+
+  it("submits a numeric slot-map offset when the host edits it directly", async () => {
+    stubTemplates();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<ConfigForm config={fourSlotAuto} onSave={onSave} />);
+
+    const input = await screen.findByLabelText("Slot 1 map reveal (sec)");
+    await userEvent.clear(input);
+    await userEvent.type(input, "2400");
+    await userEvent.click(screen.getByRole("button", { name: /save config/i }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const patch = onSave.mock.calls[0]?.[0] as {
+      slotMapUnlockOffsetsSeconds: Array<number | null>;
+    };
+    expect(patch.slotMapUnlockOffsetsSeconds).toEqual([0, 2400, 3600, 5400]);
+  });
+
+  it("submits null for the slot-map offset when 'never on map' is toggled on", async () => {
+    stubTemplates();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<ConfigForm config={fourSlotAuto} onSave={onSave} />);
+
+    await userEvent.click(await screen.findByLabelText("Slot 3 never on map"));
+    await userEvent.click(screen.getByRole("button", { name: /save config/i }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const patch = onSave.mock.calls[0]?.[0] as {
+      slotMapUnlockOffsetsSeconds: Array<number | null>;
+    };
+    expect(patch.slotMapUnlockOffsetsSeconds).toEqual([0, 1800, 3600, null]);
   });
 });

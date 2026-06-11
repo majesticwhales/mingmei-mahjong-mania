@@ -14,7 +14,7 @@ const lobby: LobbyDetailDto = {
     visibilityPhaseCount: 4,
     slotsPerNode: 1,
     slotUnlockOffsetsSeconds: [0],
-    slotMapVisible: [true],
+    slotMapUnlockOffsetsSeconds: [0],
     deadWallSize: 14,
     teamAssignmentMode: "pick",
     visibilityMode: "both",

@@ -23,9 +23,9 @@ import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
  *     short-circuited to `null` when phase is off.
  *
  * The slot layer is exercised via `slotUnlockOffsetsSeconds` /
- * `slotMapVisible` snapshots passed at game creation; we then build
- * the projection at `t = startedAt` (before slot 1 unlocks) so the
- * on/off behaviour of the slot gate is observable in `atStation`.
+ * `slotMapUnlockOffsetsSeconds` snapshots passed at game creation; we
+ * then build the projection at `t = startedAt` (before slot 1 unlocks)
+ * so the on/off behaviour of the slot gate is observable in `atStation`.
  */
 
 async function seedFaceUp(
@@ -69,7 +69,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
         nodeTilesByCode: { a: 2, b: 2 },
         slotsPerNode: 2,
         slotUnlockOffsetsSeconds: [0, 60 * 60],
-        slotMapVisible: [true, false],
+        slotMapUnlockOffsetsSeconds: [0, null],
         visibilityMode: "both",
       });
       const participant = fixture.participants[0]!;
@@ -114,7 +114,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
         // reset both prevent it), but we test against a contrived
         // stale value to pin the projection's behaviour.
         slotUnlockOffsetsSeconds: [0, 60 * 60],
-        slotMapVisible: [true, true],
+        slotMapUnlockOffsetsSeconds: [0, 60 * 60],
         visibilityMode: "phase",
       });
       const participant = fixture.participants[0]!;
@@ -155,7 +155,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
         nodeTilesByCode: { a: 2, b: 2 },
         slotsPerNode: 2,
         slotUnlockOffsetsSeconds: [0, 60 * 60],
-        slotMapVisible: [true, false],
+        slotMapUnlockOffsetsSeconds: [0, null],
         visibilityMode: "slot",
       });
       const participant = fixture.participants[0]!;
@@ -197,7 +197,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
         nodeTilesByCode: { a: 2, b: 2 },
         slotsPerNode: 2,
         slotUnlockOffsetsSeconds: [0, 60 * 60],
-        slotMapVisible: [true, false],
+        slotMapUnlockOffsetsSeconds: [0, null],
         visibilityMode: "none",
       });
       const participant = fixture.participants[0]!;

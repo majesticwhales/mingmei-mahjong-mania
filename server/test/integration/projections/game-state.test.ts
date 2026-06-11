@@ -276,12 +276,14 @@ describe("buildGameStateProjection", () => {
     expect(plainInstance.isRedFive).toBe(false);
   });
 
-  it("multi-slot map: hides slots whose slot_map_visible[k] is false", async () => {
+  it("multi-slot map: hides slots whose slotMapUnlockOffsetsSeconds[k] is null", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["a"],
       nodeTilesByCode: { a: 2 },
       slotsPerNode: 2,
-      slotMapVisible: [true, false],
+      // Phase L: null = "never on the map", subsumes the legacy
+      // `slot_map_visible[k] = false` semantics.
+      slotMapUnlockOffsetsSeconds: [0, null],
     });
     const participant = fixture.participants[0]!;
     const aId = fixture.nodeIdByCode.get("a")!;

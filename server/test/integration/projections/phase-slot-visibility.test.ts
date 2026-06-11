@@ -30,7 +30,7 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
       visibilityPhaseCount: 3,
       visibilityMode: "phase",
       slotUnlockOffsetsSeconds: [0, 0, 0],
-      slotMapVisible: [true, true, true],
+      slotMapUnlockOffsetsSeconds: [0, 0, 0],
     });
     const participant = fixture.participants[0]!;
     const nodeIds = [...fixture.nodeIdByCode.values()];
@@ -65,7 +65,9 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
       visibilityPhaseCount: 3,
       visibilityMode: "slot",
       slotUnlockOffsetsSeconds: [0, 3600, 7200],
-      slotMapVisible: [true, true, true],
+      // Map reveal matches claim reveal — preserves the pre-Phase-L
+      // "tile reveals on map when it becomes claimable" semantics.
+      slotMapUnlockOffsetsSeconds: [0, 3600, 7200],
     });
 
     const projection = await buildGameStateProjection(
@@ -88,7 +90,7 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
       visibilityPhaseCount: 3,
       visibilityMode: "slot",
       slotUnlockOffsetsSeconds: [0, 3600, 7200],
-      slotMapVisible: [true, true, true],
+      slotMapUnlockOffsetsSeconds: [0, 3600, 7200],
     });
 
     const projection = await buildGameStateProjection(
@@ -113,7 +115,7 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
       visibilityPhaseCount: 3,
       visibilityMode: "slot",
       slotUnlockOffsetsSeconds: [0, 60, 120],
-      slotMapVisible: [true, true, true],
+      slotMapUnlockOffsetsSeconds: [0, 60, 120],
     });
     const game = await Game.findByPk(fixture.gameId);
     const startedAt = game!.startedAt;
