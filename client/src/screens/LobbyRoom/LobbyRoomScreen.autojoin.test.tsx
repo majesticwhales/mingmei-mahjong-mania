@@ -61,6 +61,7 @@ function renderProbe(lobbyId = "lobby-1") {
       value={{
         state: {
           status: "authenticated",
+          token: "test-token",
           user: {
             id: "user-1",
             username: "alice",
