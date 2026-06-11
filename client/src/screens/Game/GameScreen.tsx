@@ -4,6 +4,7 @@ import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { Legend } from "../../components/Legend";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
+import { stationHasClaimableWait } from "../../lib/claimWin";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useIsAdmin } from "../../state/auth/hooks";
 import {
@@ -21,7 +22,7 @@ import { restClient } from "../../transport/restClient";
 import { ClaimWinModal } from "./ClaimWinModal";
 import { EventLogDrawer } from "./EventLogDrawer";
 import { GameTimer } from "./GameTimer";
-import { HandCompletedBanner } from "./HandCompletedBanner";
+import { HandCompletedModal } from "./HandCompletedModal";
 import { SwapTileModal } from "./SwapTileModal";
 import { VisibilityCountdown } from "./VisibilityCountdown";
 
@@ -51,6 +52,10 @@ export function GameScreen() {
   const [swapOpen, setSwapOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [claimPending, setClaimPending] = useState(false);
+  const [handCompletedDismissed, setHandCompletedDismissed] = useState(false);
+  const [trackedHandCompletedAt, setTrackedHandCompletedAt] = useState<string | null>(
+    null,
+  );
   const [ending, setEnding] = useState(false);
   const [checkInPending, setCheckInPending] = useState(false);
 
@@ -61,7 +66,12 @@ export function GameScreen() {
     }
   }, [id, joinGame, state.status, state]);
 
-  const gameEnded = projection?.status === "ended";
+  // Only treat the game as ended when the loaded projection belongs to this
+  // route. Otherwise a prior session's ended game can still be in context
+  // for a frame after navigating to a freshly-started game, which wrongly
+  // bounced users to /summary before joinGame finished.
+  const gameEnded =
+    state.status === "active" && state.id === id && projection?.status === "ended";
 
   // Phase J — once the game flips to `ended`, send everyone to the
   // summary. The game screen is read-only at this point (the projection
@@ -73,6 +83,17 @@ export function GameScreen() {
       navigate(`/games/${id}/summary`, { replace: true });
     }
   }, [gameEnded, id, navigate]);
+
+  // Auto-open the hand-completed modal when a new win snapshot arrives.
+  // Adjust state during render (not in an effect) so eslint's
+  // react-hooks/set-state-in-effect rule stays satisfied.
+  if (handCompleted?.completedAt !== trackedHandCompletedAt) {
+    setTrackedHandCompletedAt(handCompleted?.completedAt ?? null);
+    if (handCompleted) {
+      setHandCompletedDismissed(false);
+    }
+  }
+  const handCompletedOpen = Boolean(handCompleted) && !handCompletedDismissed;
 
   const handleVisibilityPhaseElapsed = useCallback(() => {
     if (!gameEnded) {
@@ -127,7 +148,7 @@ export function GameScreen() {
   }, [id, outboxState.byGame]);
 
   // Phase J — claim affordance: tenpai AND at least one station tile
-  // matches a wait by (suit, rank, copyIndex). We do the match here
+  // matches a wait by (suit, rank). We do the match here
   // (rather than inside StationPanel) so the panel stays a pure
   // presentational component, mirroring the swap-tile data-flow.
   const claimWinWaits = useMemo(() => {
@@ -145,14 +166,7 @@ export function GameScreen() {
       : atStation.tile
         ? [{ slotIndex: 0, tile: atStation.tile }]
         : [];
-    return slots.some((slot) =>
-      claimWinWaits!.some(
-        (wait) =>
-          wait.tile.suit === slot.tile.suit &&
-          wait.tile.rank === slot.tile.rank &&
-          wait.tile.copyIndex === slot.tile.copyIndex,
-      ),
-    );
+    return stationHasClaimableWait(slots, claimWinWaits);
   }, [claimWinWaits, atStation]);
 
   const latestEventSequence = useMemo(() => {
@@ -313,6 +327,15 @@ export function GameScreen() {
               Summary
             </Link>
           )}
+          {handCompleted && !handCompletedOpen && (
+            <button
+              type="button"
+              className="btn btn--secondary game-screen__win-summary-btn"
+              onClick={() => setHandCompletedDismissed(false)}
+            >
+              Your win
+            </button>
+          )}
           <button
             type="button"
             className="btn btn--secondary game-screen__event-log-btn"
@@ -338,10 +361,11 @@ export function GameScreen() {
           onMapBackgroundClick={viewingNode ? handleClosePanel : undefined}
         />
       </main>
-      {handCompleted && (
-        <HandCompletedBanner
+      {handCompleted && handCompletedOpen && (
+        <HandCompletedModal
           handCompleted={handCompleted}
           teamsCompletedCount={projection.teamsCompleted.length}
+          onClose={() => setHandCompletedDismissed(true)}
         />
       )}
       <StationPanel

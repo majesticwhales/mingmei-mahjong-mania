@@ -28,7 +28,23 @@ describe("POST /api/lobbies", () => {
     expect(res.body.lobby.config.defaultStartNodeCode).toBe("bay");
     expect(res.body.lobby.config.slotsPerNode).toBe(3);
     expect(res.body.lobby.config.visibilityPhaseCount).toBe(3);
+    expect(res.body.lobby.config.gameDurationSeconds).toBe(14_400);
+    expect(res.body.lobby.notifications).toHaveLength(3);
     expect(res.body.lobby.readiness.ready).toBe(false);
+  });
+
+  it("creates a short test lobby when isTestGame is true", async () => {
+    const agent = await getAgent();
+    const host = await registerAdminViaApi(agent);
+
+    const res = await agent
+      .post("/api/lobbies")
+      .set(bearer(host.token))
+      .send({ isTestGame: true });
+
+    expect(res.status).toBe(201);
+    expect(res.body.lobby.config.gameDurationSeconds).toBe(240);
+    expect(res.body.lobby.config.visibilityPhaseIntervalSeconds).toBe(60);
   });
 
   it("accepts slotsPerNode and visibilityPhaseCount overrides on create", async () => {
@@ -153,7 +169,7 @@ describe("PATCH /api/lobbies/:id/config", () => {
       .set(bearer(host.token))
       .send({});
     const lobbyId = created.body.lobby.id as string;
-    expect(created.body.lobby.config.visibilityMode).toBe("slot");
+    expect(created.body.lobby.config.visibilityMode).toBe("both");
 
     const res = await agent
       .patch(`/api/lobbies/${lobbyId}/config`)

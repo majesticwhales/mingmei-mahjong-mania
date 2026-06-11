@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { PRODUCTION_LOBBY_PRESET } from "../../../src/game/lobby-presets.ts";
 import { registerAdminViaApi, registerViaApi } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 import { bearer, getAgent } from "../../setup/http.ts";
+
+const PRESET_NOTIFICATION_COUNT = PRODUCTION_LOBBY_PRESET.notifications.length;
 
 async function createLobby(token: string) {
   const agent = await getAgent();
@@ -57,7 +60,7 @@ describe("lobby notifications API", () => {
       .get(`/api/lobbies/${lobbyId}/notifications`)
       .set(bearer(host.token));
     expect(listed.status).toBe(200);
-    expect(listed.body.notifications).toHaveLength(2);
+    expect(listed.body.notifications).toHaveLength(2 + PRESET_NOTIFICATION_COUNT);
     expect(listed.body.notifications[0].template).toBe("game_start");
 
     const patched = await agent
@@ -77,7 +80,7 @@ describe("lobby notifications API", () => {
     const afterDelete = await agent
       .get(`/api/lobbies/${lobbyId}/notifications`)
       .set(bearer(host.token));
-    expect(afterDelete.body.notifications).toHaveLength(1);
+    expect(afterDelete.body.notifications).toHaveLength(1 + PRESET_NOTIFICATION_COUNT);
   });
 
   it("rejects mutation from non-host", async () => {

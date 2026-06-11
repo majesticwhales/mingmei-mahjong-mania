@@ -18,6 +18,9 @@ import {
   type SocketTestHarness,
 } from "../../setup/socket.ts";
 import * as lobbyService from "../../../src/services/lobby-service.ts";
+import { PRODUCTION_LOBBY_PRESET } from "../../../src/game/lobby-presets.ts";
+
+const PRESET_NOTIFICATION_COUNT = PRODUCTION_LOBBY_PRESET.notifications.length;
 
 interface UserToken {
   userId: string;
@@ -184,8 +187,11 @@ describe("socket lobby.config push", () => {
       expect(res.status).toBe(201);
 
       const [hostDto, memberDto] = await Promise.all([onHost, onMember]);
-      expect(hostDto.notifications).toHaveLength(1);
-      expect(hostDto.notifications[0]).toMatchObject({
+      expect(hostDto.notifications).toHaveLength(1 + PRESET_NOTIFICATION_COUNT);
+      const added = hostDto.notifications.find(
+        (n) => n.template === "ten_minute_warning",
+      );
+      expect(added).toMatchObject({
         atSeconds: 120,
         template: "ten_minute_warning",
         data: { hint: "tunnel" },
@@ -222,8 +228,8 @@ describe("socket lobby.config push", () => {
       expect(res.status).toBe(200);
 
       const [hostDto] = await Promise.all([onHost, onMember]);
-      expect(hostDto.notifications).toHaveLength(1);
-      expect(hostDto.notifications[0]).toMatchObject({
+      expect(hostDto.notifications).toHaveLength(1 + PRESET_NOTIFICATION_COUNT);
+      expect(hostDto.notifications.find((n) => n.id === notifId)).toMatchObject({
         id: notifId,
         atSeconds: 90,
         template: "renamed_warning",
@@ -234,7 +240,7 @@ describe("socket lobby.config push", () => {
     }
   });
 
-  it("DELETE .../notifications/:notifId pushes the now-empty notifications array", async () => {
+  it("DELETE .../notifications/:notifId pushes the preset notifications after removing a host-added one", async () => {
     const created = await agent
       .post(`/api/lobbies/${lobbyId}/notifications`)
       .set(bearer(host.token))
@@ -257,8 +263,11 @@ describe("socket lobby.config push", () => {
       expect(res.status).toBe(204);
 
       const [hostDto, memberDto] = await Promise.all([onHost, onMember]);
-      expect(hostDto.notifications).toEqual([]);
-      expect(memberDto.notifications).toEqual([]);
+      expect(hostDto.notifications).toHaveLength(PRESET_NOTIFICATION_COUNT);
+      expect(hostDto.notifications.map((n) => n.template)).toEqual(
+        PRODUCTION_LOBBY_PRESET.notifications.map((n) => n.template),
+      );
+      expect(memberDto.notifications).toEqual(hostDto.notifications);
     } finally {
       hostSocket.disconnect();
       memberSocket.disconnect();

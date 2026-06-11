@@ -66,6 +66,7 @@ export interface LobbyDetailDto {
 }
 
 export interface CreateLobbyInput {
+  isTestGame?: boolean;
   mapTemplateId?: string;
   gameDurationSeconds?: number;
   visibilityPhaseIntervalSeconds?: number;

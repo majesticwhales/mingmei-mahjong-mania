@@ -143,6 +143,16 @@ function parseOptionalNullableData(
   return value as Record<string, unknown>;
 }
 
+function parseOptionalBoolean(value: unknown): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw new HttpError(400, "validation_error", "Expected a boolean value");
+  }
+  return value;
+}
+
 function parseTeamSlot(value: unknown): number | null {
   if (value === null) {
     return null;
@@ -162,6 +172,7 @@ lobbiesRouter.post(
   asyncHandler(async (req, res) => {
     const body = req.body ?? {};
     const lobby = await lobbyService.createLobby(req.user!.id, {
+      isTestGame: parseOptionalBoolean(body.isTestGame),
       mapTemplateId: parseOptionalString(body.mapTemplateId),
       gameDurationSeconds: parseOptionalPositiveInt(
         body.gameDurationSeconds,
