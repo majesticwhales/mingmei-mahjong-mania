@@ -521,9 +521,9 @@ describe("builtinSchedulerHandlers end-to-end", () => {
     await truncateMutableTables(await getSequelize());
   });
 
-  it("drains the full set of jobs scheduled at game start (3 advances + 1 end)", async () => {
+  it("drains the full set of jobs scheduled at game start (3 advances + preset notifications + end)", async () => {
     // Intentionally uses `setupStartedGame` because this test asserts the
-    // 3 phase-advance + 1 game-end jobs that `startFromLobby` seeds.
+    // jobs that `startFromLobby` seeds for a phase-only lobby.
     const { gameId } = await setupStartedGame({
       visibilityMode: "phase",
       visibilityPhaseCount: 4,
@@ -541,7 +541,7 @@ describe("builtinSchedulerHandlers end-to-end", () => {
       broadcaster,
     });
 
-    expect(result).toEqual({ processed: 4, failed: 0 });
+    expect(result).toEqual({ processed: 7, failed: 0 });
 
     const game = await Game.findByPk(gameId);
     expect(game?.visibilityPhase).toBe(3);
@@ -556,6 +556,9 @@ describe("builtinSchedulerHandlers end-to-end", () => {
       "VISIBILITY_PHASE_ADVANCED",
       "VISIBILITY_PHASE_ADVANCED",
       "GAME_ENDED",
+      "NOTIFICATION",
+      "NOTIFICATION",
+      "NOTIFICATION",
     ]);
 
     const pending = await GameScheduledJob.count({

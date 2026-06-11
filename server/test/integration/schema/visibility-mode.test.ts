@@ -93,10 +93,10 @@ describe("visibility-mode schema (chunk 1)", () => {
       expect(template.defaultVisibilityMode).toBe("slot");
     });
 
-    it("a lobby created via the standard fixture inherits 'slot'", async () => {
+    it("a lobby created via the standard fixture inherits the production preset ('both')", async () => {
       const { lobbyId } = await createLobbyWithFourPlayers();
       const lobby = await Lobby.findByPk(lobbyId);
-      expect(lobby?.visibilityMode).toBe("slot");
+      expect(lobby?.visibilityMode).toBe("both");
     });
 
     it("a lightweight game inherits 'both' via the column default", async () => {

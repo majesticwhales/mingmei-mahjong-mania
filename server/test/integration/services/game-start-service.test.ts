@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { PRODUCTION_LOBBY_PRESET } from "../../../src/game/lobby-presets.ts";
 import * as lobbyService from "../../../src/services/lobby-service.ts";
 import * as notificationService from "../../../src/services/lobby-notification-service.ts";
 import { startFromLobby } from "../../../src/services/game-start-service.ts";
@@ -65,7 +66,10 @@ describe("startFromLobby", () => {
     expect(lobby?.status).toBe("closed");
     expect(tileCount).toBe(136);
     expect(nodeCount).toBe(84);
-    expect(jobCount).toBe(3);
+    // both mode: 2 phase advances + 2 slot unlocks + preset notifications + GAME_END
+    expect(jobCount).toBe(
+      2 + 2 + PRODUCTION_LOBBY_PRESET.notifications.length + 1,
+    );
 
     const game = await Game.findByPk(result.gameId);
     expect(game?.status).toBe("active");
@@ -88,14 +92,14 @@ describe("startFromLobby", () => {
     expect(game?.slotsPerNode).toBe(3);
     expect(game?.visibilityPhaseCount).toBe(2);
 
-    // With N = 2, scheduleGameJobs should produce one VISIBILITY_PHASE_ADVANCE
-    // and one GAME_END.
+    // With N = 2: one VISIBILITY_PHASE_ADVANCE, preset notifications, GAME_END.
     const jobs = await GameScheduledJob.findAll({
       where: { gameId: result.gameId },
       order: [["runAt", "ASC"]],
     });
     expect(jobs.map((j) => j.jobType)).toEqual([
       "VISIBILITY_PHASE_ADVANCE",
+      ...PRODUCTION_LOBBY_PRESET.notifications.map(() => "NOTIFICATION" as const),
       "GAME_END",
     ]);
   });
@@ -179,19 +183,27 @@ describe("startFromLobby", () => {
       order: [["runAt", "ASC"]],
     });
 
-    expect(notifJobs).toHaveLength(2);
-    expect(notifJobs[0]!.runAt.getTime()).toBe(game!.startedAt.getTime());
-    expect(notifJobs[0]!.payload).toEqual({
+    expect(notifJobs).toHaveLength(2 + PRODUCTION_LOBBY_PRESET.notifications.length);
+
+    const gameStartJob = notifJobs.find(
+      (job) => (job.payload as { template?: string }).template === "game_start",
+    );
+    expect(gameStartJob?.runAt.getTime()).toBe(game!.startedAt.getTime());
+    expect(gameStartJob?.payload).toEqual({
       template: "game_start",
       data: null,
     });
-    expect(notifJobs[1]!.runAt.getTime()).toBe(
+
+    const hostWarningJob = notifJobs.find(
+      (job) =>
+        (job.payload as { template?: string; data?: { minutesLeft?: number } })
+          .template === "time_warning" &&
+        (job.payload as { data?: { minutesLeft?: number } }).data?.minutesLeft ===
+          10,
+    );
+    expect(hostWarningJob?.runAt.getTime()).toBe(
       game!.startedAt.getTime() + 600 * 1000,
     );
-    expect(notifJobs[1]!.payload).toEqual({
-      template: "time_warning",
-      data: { minutesLeft: 10 },
-    });
   });
 
   describe("visibility mode (chunk 3)", () => {
@@ -254,7 +266,10 @@ describe("startFromLobby", () => {
 
       const jobs = await GameScheduledJob.findAll({ where: { gameId } });
       const types = jobs.map((j) => j.jobType).sort();
-      expect(types).toEqual(["GAME_END"]);
+      expect(types).toEqual([
+        ...PRODUCTION_LOBBY_PRESET.notifications.map(() => "NOTIFICATION"),
+        "GAME_END",
+      ].sort());
     });
 
     it("phase-only games keep the phase tables and skip SLOT_UNLOCKED jobs", async () => {
