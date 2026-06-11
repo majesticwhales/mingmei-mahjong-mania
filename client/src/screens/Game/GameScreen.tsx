@@ -73,6 +73,7 @@ export function GameScreen() {
   );
   const [ending, setEnding] = useState(false);
   const [checkInPending, setCheckInPending] = useState(false);
+  const [pendingCheckInNodeId, setPendingCheckInNodeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -127,15 +128,20 @@ export function GameScreen() {
     );
   }, [projection]);
 
-  const mapSelectedNodeId = selectedNodeId ?? atStation?.nodeId ?? null;
+  const mapSelectedNodeId =
+    selectedNodeId ?? pendingCheckInNodeId ?? atStation?.nodeId ?? null;
 
   const viewingNode = useMemo(() => {
     if (!projection) return null;
-    if (panelDismissed && !selectedNodeId) return null;
-    const nodeId = selectedNodeId ?? atStation?.nodeId ?? null;
+    if (panelDismissed && !selectedNodeId && !pendingCheckInNodeId) return null;
+    const nodeId = mapSelectedNodeId;
     if (!nodeId) return null;
     return projection.mapNodes.find((node) => node.id === nodeId) ?? null;
-  }, [projection, selectedNodeId, atStation, panelDismissed]);
+  }, [projection, mapSelectedNodeId, panelDismissed, selectedNodeId, pendingCheckInNodeId]);
+
+  const isSyncingCheckIn = Boolean(
+    pendingCheckInNodeId && atStation?.nodeId !== pendingCheckInNodeId,
+  );
 
   function handleSelectStation(nodeId: string) {
     setSelectedNodeId(nodeId);
@@ -224,6 +230,13 @@ export function GameScreen() {
   }, [atStation?.nodeId]);
 
   useEffect(() => {
+    if (pendingCheckInNodeId && atStation?.nodeId === pendingCheckInNodeId) {
+      setPendingCheckInNodeId(null);
+      setSelectedNodeId(null);
+    }
+  }, [atStation?.nodeId, pendingCheckInNodeId]);
+
+  useEffect(() => {
     if (!atStation) {
       startedChallengeRef.current = null;
     }
@@ -291,6 +304,10 @@ export function GameScreen() {
 
   async function handleCheckIn(nodeId: string) {
     setCheckInPending(true);
+    setPendingCheckInNodeId(nodeId);
+    setSelectedNodeId(nodeId);
+    setPanelDismissed(false);
+    let succeeded = false;
     try {
       await runCommand(async () => {
         // Phase L: `checkInCommand` internally captures geo (2 s timeout,
@@ -298,11 +315,13 @@ export function GameScreen() {
         // capture never throws — a null result just means the command
         // ships without a sample.
         await checkInCommand({ nodeId });
-        setSelectedNodeId(null);
-        setPanelDismissed(false);
+        succeeded = true;
       });
     } finally {
       setCheckInPending(false);
+      if (!succeeded) {
+        setPendingCheckInNodeId(null);
+      }
     }
   }
 
@@ -310,6 +329,7 @@ export function GameScreen() {
     if (isScaffoldChallenge(activeChallenge)) {
       setScaffoldChallengeComplete(true);
       setChallengeOpen(false);
+      setSwapOpen(true);
       return;
     }
 
@@ -321,6 +341,7 @@ export function GameScreen() {
       await runCommand(async () => {
         await completeChallengeCommand({ instanceId });
         setChallengeOpen(false);
+        setSwapOpen(true);
       });
     } finally {
       setChallengePending(false);
@@ -483,7 +504,7 @@ export function GameScreen() {
         stationLines={stationLines}
         handTiles={projection.handTiles}
         commandsPending={commandsPending}
-        checkInPending={checkInPending}
+        checkInPending={checkInPending || isSyncingCheckIn}
         commandsDisabled={gameEnded || Boolean(handCompleted)}
         canClaimWin={canClaimWin}
         showSwapTile={showSwapTile}

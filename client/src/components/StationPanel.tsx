@@ -107,8 +107,10 @@ function stationTilesForView(
   atStation: AtStationDto | null,
   isViewingCheckedInStation: boolean,
 ) {
-  const tiles = isViewingCheckedInStation && atStation ? atStation.tiles : viewingNode.tiles;
-  const single = isViewingCheckedInStation && atStation ? atStation.tile : viewingNode.tile;
+  const atStationMatchesView = atStation?.nodeId === viewingNode.id;
+  const useAtStationTiles = isViewingCheckedInStation && atStationMatchesView && atStation;
+  const tiles = useAtStationTiles ? atStation.tiles : viewingNode.tiles;
+  const single = useAtStationTiles ? atStation.tile : viewingNode.tile;
 
   if (isTileStation(viewingNode.code)) {
     return renderTripleStationSlots(tiles, single);
