@@ -6,13 +6,13 @@ describe("claimWin helpers", () => {
     expect(
       waitMatchesTile(
         { tile: { suit: "pin", rank: 5, copyIndex: 0 } },
-        { suit: "pin", rank: 5, copyIndex: 2 },
+        { suit: "pin", rank: 5 },
       ),
     ).toBe(true);
     expect(
       waitMatchesTile(
         { tile: { suit: "pin", rank: 5, copyIndex: 0 } },
-        { suit: "pin", rank: 8, copyIndex: 0 },
+        { suit: "pin", rank: 8 },
       ),
     ).toBe(false);
   });
