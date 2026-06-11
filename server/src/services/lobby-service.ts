@@ -25,10 +25,16 @@ import {
 } from "./lobby-serializer.ts";
 import { serializeLobbyNotification } from "./lobby-notification-service.ts";
 import { getBroadcaster } from "../socket/broadcaster-registry.ts";
+import {
+  deriveAutoDistributedOffsets,
+  lobbyPresetForTestFlag,
+} from "../game/lobby-presets.ts";
 
 const DEFAULT_TEMPLATE_NAME = "TTC 2026";
 
 export interface CreateLobbyOptions {
+  /** When true, use the short 240s test preset instead of the 4-hour production preset. */
+  isTestGame?: boolean;
   mapTemplateId?: string;
   gameDurationSeconds?: number;
   visibilityPhaseIntervalSeconds?: number;
@@ -403,18 +409,18 @@ export async function createLobby(
 ): Promise<LobbyDetailDto> {
   await assertIsAdmin(hostUserId);
 
+  const preset = lobbyPresetForTestFlag(options.isTestGame === true);
   const template = await resolveMapTemplate(options.mapTemplateId);
   const gameDurationSeconds =
-    options.gameDurationSeconds ?? template.defaultDurationSeconds;
+    options.gameDurationSeconds ?? preset.gameDurationSeconds;
   const visibilityPhaseCount =
-    options.visibilityPhaseCount ?? template.defaultVisibilityPhaseCount;
+    options.visibilityPhaseCount ?? preset.visibilityPhaseCount;
   const visibilityPhaseIntervalSeconds =
     options.visibilityPhaseIntervalSeconds ??
-    Math.floor(gameDurationSeconds / Math.max(visibilityPhaseCount, 1));
+    preset.visibilityPhaseIntervalSeconds;
   const slotsPerNode = options.slotsPerNode ?? template.defaultSlotsPerNode;
   const deadWallSize = options.deadWallSize ?? template.defaultDeadWallSize;
-  const visibilityMode =
-    options.visibilityMode ?? template.defaultVisibilityMode;
+  const visibilityMode = options.visibilityMode ?? preset.visibilityMode;
   const teamAssignmentMode = options.teamAssignmentMode ?? "pick";
   const minPlayersToStart = options.minPlayersToStart ?? 4;
 
@@ -455,9 +461,7 @@ export async function createLobby(
   //      don't have to also re-supply matched-length arrays just to start
   //      a lobby. Mirrors the auto-resize behavior in `updateConfig`.
   const slotUnlockOffsetsSeconds = options.slotUnlockOffsetsSeconds
-    ?? (template.defaultSlotUnlockOffsetsSeconds.length === slotsPerNode
-      ? template.defaultSlotUnlockOffsetsSeconds
-      : (new Array<number>(slotsPerNode).fill(0)));
+    ?? deriveAutoDistributedOffsets(slotsPerNode, gameDurationSeconds);
   const slotMapVisible = options.slotMapVisible
     ?? (template.defaultSlotMapVisible.length === slotsPerNode
       ? template.defaultSlotMapVisible
@@ -527,6 +531,16 @@ export async function createLobby(
       { transaction },
     );
 
+    const notificationRows = await LobbyNotification.bulkCreate(
+      preset.notifications.map((notification) => ({
+        lobbyId: lobby.id,
+        atSeconds: notification.atSeconds,
+        template: notification.template,
+        data: notification.data,
+      })),
+      { transaction, returning: true },
+    );
+
     const members = await LobbyMember.findAll({
       where: { lobbyId: lobby.id },
       transaction,
@@ -537,19 +551,14 @@ export async function createLobby(
     });
     const host = await User.findByPk(hostUserId, { transaction });
     const usersById = new Map(host ? [[host.id, host]] : []);
+    const notifications = notificationRows.map(serializeLobbyNotification);
 
-    // A freshly-created lobby has no notifications yet, so we can skip
-    // the extra query and pass `[]` directly. `loadLobbyBundle` is the
-    // path that's exercised after this when the host calls
-    // `addLobbyNotification` and the bundle gets re-read. There's also
-    // no `games` row yet — `gameId` only becomes non-null after
-    // `startFromLobby` commits.
     return serializeLobbyDetail(
       lobby,
       members,
       teamAssignments,
       usersById,
-      [],
+      notifications,
       null,
     );
   });

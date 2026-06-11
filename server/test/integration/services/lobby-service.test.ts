@@ -19,6 +19,37 @@ describe("lobby-service", () => {
     expect(lobby.readiness.ready).toBe(false);
   });
 
+  it("applies the production preset (4h TTC 2026) by default", async () => {
+    const host = await registerAdminUser();
+    const lobby = await lobbyService.createLobby(host.user.id);
+
+    expect(lobby.config.gameDurationSeconds).toBe(14_400);
+    expect(lobby.config.visibilityPhaseCount).toBe(3);
+    expect(lobby.config.visibilityPhaseIntervalSeconds).toBe(3_600);
+    expect(lobby.config.visibilityMode).toBe("both");
+    expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 4800, 9600]);
+    expect(lobby.notifications).toHaveLength(3);
+    expect(lobby.notifications.map((n) => n.atSeconds)).toEqual([
+      10_800, 12_600, 14_100,
+    ]);
+    expect(lobby.notifications.every((n) => n.template === "time_warning")).toBe(
+      true,
+    );
+  });
+
+  it("applies the short test preset when isTestGame is true", async () => {
+    const host = await registerAdminUser();
+    const lobby = await lobbyService.createLobby(host.user.id, {
+      isTestGame: true,
+    });
+
+    expect(lobby.config.gameDurationSeconds).toBe(240);
+    expect(lobby.config.visibilityPhaseIntervalSeconds).toBe(60);
+    expect(lobby.config.visibilityPhaseCount).toBe(3);
+    expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 80, 160]);
+    expect(lobby.notifications.map((n) => n.atSeconds)).toEqual([180, 210, 235]);
+  });
+
   it("rejects an invalid default start station on create", async () => {
     const host = await registerAdminUser();
     await expect(
@@ -163,11 +194,11 @@ describe("lobby-service", () => {
   });
 
   describe("per-slot rules arrays (chunk 5)", () => {
-    it("defaults slotUnlockOffsetsSeconds and slotMapVisible from the template", async () => {
+    it("defaults slotUnlockOffsetsSeconds from the production preset duration", async () => {
       const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
 
-      expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 2400, 4800]);
+      expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 4800, 9600]);
       expect(lobby.config.slotMapVisible).toEqual([true, true, true]);
     });
 
@@ -350,10 +381,10 @@ describe("lobby-service", () => {
   });
 
   describe("visibility mode (chunk 2)", () => {
-    it("defaults to the template's defaultVisibilityMode ('slot')", async () => {
+    it("defaults to the production preset visibilityMode ('both')", async () => {
       const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
-      expect(lobby.config.visibilityMode).toBe("slot");
+      expect(lobby.config.visibilityMode).toBe("both");
     });
 
     it.each(["none", "phase", "slot", "both"] as const)(

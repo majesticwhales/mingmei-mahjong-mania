@@ -7,6 +7,7 @@ export function LobbiesScreen() {
   const isAdmin = useIsAdmin();
   const navigate = useNavigate();
   const [lobbyId, setLobbyId] = useState("");
+  const [testGame, setTestGame] = useState(false);
 
   if (state.status !== "authenticated") return null;
 
@@ -27,13 +28,23 @@ export function LobbiesScreen() {
       </header>
       <h1 className="screen__title">Lobbies</h1>
       {isAdmin ? (
-        <button
-          type="button"
-          className="btn btn--primary btn--block"
-          onClick={() => navigate("/lobbies/new", { replace: false })}
-        >
-          + Create new lobby
-        </button>
+        <>
+          <label className="form__field">
+            <span>Test game (4 min)</span>
+            <input
+              type="checkbox"
+              checked={testGame}
+              onChange={(e) => setTestGame(e.target.checked)}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn btn--primary btn--block"
+            onClick={() => navigate("/lobbies/new", { state: { testGame } })}
+          >
+            + Create new lobby
+          </button>
+        </>
       ) : null}
       <form className="form form--inline" onSubmit={handleJoin}>
         <h2 className="form__section-title">Join existing lobby</h2>

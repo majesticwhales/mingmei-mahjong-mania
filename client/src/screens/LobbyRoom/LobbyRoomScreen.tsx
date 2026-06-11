@@ -1,37 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { HttpError } from "../../transport/httpError";
 import { useAuth, useIsAdmin } from "../../state/auth/hooks";
-import { useIsHost, useLobby, useLobbyMembers, useLobbyNotifications } from "../../state/lobby/hooks";
-import { ConfigForm, type ConfigFormHandle } from "./ConfigForm";
+import { useIsHost, useLobby, useLobbyMembers } from "../../state/lobby/hooks";
 import { MemberList } from "./MemberList";
-import { NotificationsEditor } from "./NotificationsEditor";
 import { TeamPicker } from "./TeamPicker";
 
 export function LobbyRoomScreen() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const { state: authState } = useAuth();
-  const {
-    state,
-    loadLobby,
-    createLobby,
-    joinLobby,
-    pickTeam,
-    updateConfig,
-    addNotification,
-    updateNotification,
-    removeNotification,
-    startLobby,
-  } = useLobby();
+  const { state, loadLobby, createLobby, joinLobby, pickTeam, startLobby } = useLobby();
   const isHost = useIsHost();
   const isAdmin = useIsAdmin();
   const members = useLobbyMembers();
-  const notifications = useLobbyNotifications();
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const configFormRef = useRef<ConfigFormHandle>(null);
+  const testGame =
+    (location.state as { testGame?: boolean } | null)?.testGame === true;
 
   useEffect(() => {
     if (!id) return;
@@ -40,11 +28,13 @@ export function LobbyRoomScreen() {
         navigate("/lobbies", { replace: true });
         return;
       }
-      void createLobby().then((lobby) => navigate(`/lobbies/${lobby.id}`, { replace: true }));
+      void createLobby({ isTestGame: testGame }).then((lobby) =>
+        navigate(`/lobbies/${lobby.id}`, { replace: true }),
+      );
       return;
     }
     void loadLobby(id);
-  }, [id, loadLobby, createLobby, navigate, authState]);
+  }, [id, loadLobby, createLobby, navigate, authState, testGame]);
 
   // Auto-navigate every lobby member (host included) to the game screen
   // once the server flips the lobby out of `waiting` and the `lobby.config`
@@ -104,7 +94,6 @@ export function LobbyRoomScreen() {
     setError(null);
     setStarting(true);
     try {
-      await configFormRef.current?.savePendingChanges();
       const gameId = await startLobby();
       navigate(`/games/${gameId}`);
     } catch (err) {
@@ -134,17 +123,6 @@ export function LobbyRoomScreen() {
           });
         }}
       />
-      {isHost ? (
-        <>
-          <ConfigForm ref={configFormRef} config={lobby.config} onSave={updateConfig} />
-          <NotificationsEditor
-            notifications={notifications}
-            onAdd={addNotification}
-            onUpdate={updateNotification}
-            onRemove={removeNotification}
-          />
-        </>
-      ) : null}
       {isAdmin ? (
         <button
           type="button"
