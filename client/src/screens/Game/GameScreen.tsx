@@ -4,12 +4,12 @@ import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { Legend } from "../../components/Legend";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
-import { captureGeolocationForCheckIn } from "../../hooks/useGeolocation";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useIsAdmin } from "../../state/auth/hooks";
 import {
   useAtStation,
   useClaimWin,
+  useCommandWithGeo,
   useEventLog,
   useGame,
   useGameProjection,
@@ -28,12 +28,18 @@ import { VisibilityCountdown } from "./VisibilityCountdown";
 export function GameScreen() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { state, joinGame, resyncGame, submitCommand, leaveGame } = useGame();
+  const { state, joinGame, resyncGame, leaveGame } = useGame();
   const projection = useGameProjection();
   const atStation = useAtStation();
   const handCompleted = useHandCompleted();
   const claimWin = useClaimWin();
   const eventLog = useEventLog();
+  // Phase L: every user-driven command attempts a geo capture before
+  // submission. Bind one hook per command type at the component level so
+  // the underlying `useCallback` identity stays stable across renders.
+  const checkInCommand = useCommandWithGeo("CHECK_IN");
+  const checkOutCommand = useCommandWithGeo("CHECK_OUT");
+  const swapTileCommand = useCommandWithGeo("SWAP_TILE");
   const { state: outboxState, pushToast } = useOutbox();
   const isAdmin = useIsAdmin();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -209,11 +215,11 @@ export function GameScreen() {
     setCheckInPending(true);
     try {
       await runCommand(async () => {
-        const geo = await captureGeolocationForCheckIn();
-        await submitCommand("CHECK_IN", {
-          nodeId,
-          ...(geo ? { geo } : {}),
-        });
+        // Phase L: `checkInCommand` internally captures geo (2 s timeout,
+        // cached fix preferred) and attaches it under `payload.geo`. The
+        // capture never throws — a null result just means the command
+        // ships without a sample.
+        await checkInCommand({ nodeId });
         setSelectedNodeId(null);
         setPanelDismissed(false);
       });
@@ -224,14 +230,14 @@ export function GameScreen() {
 
   async function handleCheckOut() {
     await runCommand(async () => {
-      await submitCommand("CHECK_OUT", {});
+      await checkOutCommand({});
       setSelectedNodeId(null);
     });
   }
 
   async function handleSwap(handTileId: string, stationTileId: string, slotIndex?: number) {
     await runCommand(async () => {
-      await submitCommand("SWAP_TILE", {
+      await swapTileCommand({
         handTileId,
         stationTileId,
         ...(slotIndex != null ? { slotIndex } : {}),

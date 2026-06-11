@@ -7,15 +7,11 @@ import { HttpError } from "../../lib/http-error.ts";
 import { GameNode } from "../../models/game-node.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { autoForfeitActiveChallenge } from "../challenge-lifecycle.ts";
-import {
-  evaluateGeolocation,
-  parseGeoPayload,
-  type GeoInput,
-} from "../../services/geolocation.ts";
+import { recordCommandGeolocation } from "../../services/geolocation.ts";
 
 interface CheckInPayload {
   nodeId: string;
-  geo: GeoInput | null;
+  rawGeo: unknown;
 }
 
 function parsePayload(payload: Record<string, unknown>): CheckInPayload {
@@ -27,8 +23,11 @@ function parsePayload(payload: Record<string, unknown>): CheckInPayload {
       "CHECK_IN requires a string nodeId in the payload",
     );
   }
-  const geo = parseGeoPayload(payload.geo);
-  return { nodeId, geo };
+  // `geo` is extracted as `unknown` — the shared `recordCommandGeolocation`
+  // helper validates it and silently drops malformed input (warn+allow per
+  // TDD §3.12). Direct payload-shape errors here would defeat the
+  // "geo never blocks a command" guarantee.
+  return { nodeId, rawGeo: payload.geo };
 }
 
 /**
@@ -39,18 +38,33 @@ function parsePayload(payload: Record<string, unknown>): CheckInPayload {
  * the previous station, then the CHECK_IN event for the new one. The single
  * underlying position update only writes the new node.
  *
- * Phase F (this handler): the optional `geo` payload is parsed and evaluated
- * against the target station's geofence + accuracy. Results are persisted
- * into `game_team_positions` (last-known lat/lng/validated/warning columns)
- * and lifted onto the CHECK_IN event payload so the event log can render a
- * warning badge. The handler **never rejects** on a geo warning — per TDD
- * §3.4 the rule is "allow always, warn".
+ * Phase F + Phase L (this handler):
+ *   - The optional `geo` payload is routed through the shared
+ *     `recordCommandGeolocation` helper. The helper validates the input
+ *     (warn+allow: malformed `geo` is silently dropped) and, on a valid
+ *     sample, mutates the team's `last_known_*` telemetry columns +
+ *     evaluates the geofence against the target station.
+ *   - The CHECK_IN-specific snapshot columns (`lastCheckInLatitude`,
+ *     `lastCheckInLongitude`, `geofenceValidated`, `geolocationWarning`)
+ *     are written from the helper's result so they remain consistent with
+ *     the new last-known columns.
+ *   - The CHECK_IN event payload gains the raw `geo` block (Phase L)
+ *     alongside the existing `geolocationWarning` / `geofenceValidated`
+ *     / `distanceMeters` flags. The `geo` block is omitted when no sample
+ *     was supplied or when the sample was malformed.
+ *   - The implicit CHECK_OUT event emitted from inside this handler
+ *     inherits the same `geo` block (so the audit trail captures where
+ *     the team was at the moment of the move), but does NOT get its own
+ *     `geolocationWarning` — the team is being validated against the
+ *     *new* station, and double-emitting the warning against the *old*
+ *     station would mislead the audit log. Per TDD §3.12 the helper is
+ *     called exactly once per command submission.
  *
  * Phase G (deferred): media (photo) fields on the payload are still ignored.
  */
 export const checkInHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
-    const { nodeId: targetNodeId, geo } = parsePayload(ctx.payload);
+    const { nodeId: targetNodeId, rawGeo } = parsePayload(ctx.payload);
 
     const targetNode = await GameNode.findOne({
       where: { id: targetNodeId, gameId: ctx.gameId },
@@ -84,7 +98,11 @@ export const checkInHandler: CommandHandler = {
       );
     }
 
-    const evaluation = geo != null ? evaluateGeolocation(geo, targetNode) : null;
+    const geoResult = recordCommandGeolocation({
+      rawGeo,
+      position,
+      currentStation: targetNode,
+    });
 
     const events: CommandResult["events"] = [];
 
@@ -107,22 +125,31 @@ export const checkInHandler: CommandHandler = {
         where: { id: position.currentGameNodeId, gameId: ctx.gameId },
         transaction: ctx.transaction,
       });
+      const checkOutPayload: Record<string, unknown> = {
+        nodeId: position.currentGameNodeId,
+        nodeCode: previousNode?.code ?? null,
+        implicit: true,
+      };
+      // Phase L: lift the parent CHECK_IN's geo sample onto the implicit
+      // CHECK_OUT event so the audit trail captures the team's position
+      // at the moment of the move. Deliberately omit `geolocationWarning`
+      // — the team is being validated against the *new* station, not the
+      // old one, so re-emitting the warning here would mislead the log.
+      if (geoResult.geo != null) {
+        checkOutPayload.geo = geoResult.geo;
+      }
       events.push({
         eventType: "CHECK_OUT",
-        payload: {
-          nodeId: position.currentGameNodeId,
-          nodeCode: previousNode?.code ?? null,
-          implicit: true,
-        },
+        payload: checkOutPayload,
       });
     }
 
     position.currentGameNodeId = targetNode.id;
     position.checkedInAt = new Date();
-    position.lastCheckInLatitude = geo?.latitude ?? null;
-    position.lastCheckInLongitude = geo?.longitude ?? null;
-    position.geofenceValidated = evaluation?.validated ?? null;
-    position.geolocationWarning = evaluation?.warning ?? null;
+    position.lastCheckInLatitude = geoResult.geo?.latitude ?? null;
+    position.lastCheckInLongitude = geoResult.geo?.longitude ?? null;
+    position.geofenceValidated = geoResult.geofenceValidated;
+    position.geolocationWarning = geoResult.geolocationWarning;
     // Phase H: every CHECK_IN starts a fresh session. The swap-credit
     // flags reset unconditionally — even if the team hadn't earned a
     // credit, this normalizes the state and keeps the per-session
@@ -135,10 +162,16 @@ export const checkInHandler: CommandHandler = {
       nodeId: targetNode.id,
       nodeCode: targetNode.code,
     };
-    if (evaluation != null) {
-      checkInPayload.geolocationWarning = evaluation.warning;
-      checkInPayload.geofenceValidated = evaluation.validated;
-      checkInPayload.distanceMeters = evaluation.distanceMeters;
+    if (geoResult.geo != null) {
+      // Phase L: lift the raw sample onto the event payload (never
+      // server-corrected) plus the existing Phase F warning flags. The
+      // `geo` block is omitted entirely when no sample was supplied or
+      // the sample was malformed — `geolocationWarning: false` would
+      // wrongly suggest "we checked, and it was fine".
+      checkInPayload.geo = geoResult.geo;
+      checkInPayload.geolocationWarning = geoResult.geolocationWarning;
+      checkInPayload.geofenceValidated = geoResult.geofenceValidated;
+      checkInPayload.distanceMeters = geoResult.distanceMeters;
     }
 
     events.push({

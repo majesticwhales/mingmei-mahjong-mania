@@ -7,12 +7,16 @@ import { HttpError } from "../../lib/http-error.ts";
 import { GameChallengeInstance } from "../../models/game-challenge-instance.ts";
 import { GameNode } from "../../models/game-node.ts";
 import { GameNodeChallenge } from "../../models/game-node-challenge.ts";
+import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { CHALLENGE_COOLDOWN_MS } from "../challenge-lifecycle.ts";
 import { assertNotHandCompleted } from "../hand-completed-lock.ts";
+import { recordCommandGeolocation } from "../../services/geolocation.ts";
 
 interface ForfeitChallengePayload {
   /** `game_challenge_instances.id` of the team's currently in-progress challenge. */
   instanceId: string;
+  /** Phase L: raw geolocation sample (warn+allow — see `recordCommandGeolocation`). */
+  rawGeo: unknown;
 }
 
 function parsePayload(payload: Record<string, unknown>): ForfeitChallengePayload {
@@ -24,7 +28,7 @@ function parsePayload(payload: Record<string, unknown>): ForfeitChallengePayload
       "CHALLENGE_FORFEITED requires a string instanceId in the payload",
     );
   }
-  return { instanceId };
+  return { instanceId, rawGeo: payload.geo };
 }
 
 /**
@@ -43,7 +47,7 @@ function parsePayload(payload: Record<string, unknown>): ForfeitChallengePayload
  */
 export const forfeitChallengeHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
-    const { instanceId } = parsePayload(ctx.payload);
+    const { instanceId, rawGeo } = parsePayload(ctx.payload);
 
     await assertNotHandCompleted({
       gameTeamId: ctx.gameTeamId,
@@ -60,7 +64,17 @@ export const forfeitChallengeHandler: CommandHandler = {
             {
               model: GameNode,
               required: true,
-              attributes: ["id", "code"],
+              // Phase L expanded these from ["id", "code"] to include the
+              // geofence columns so `recordCommandGeolocation` can
+              // evaluate the team's sample against the station without
+              // a second query.
+              attributes: [
+                "id",
+                "code",
+                "latitude",
+                "longitude",
+                "geofenceRadiusMeters",
+              ],
             },
           ],
         },
@@ -91,6 +105,32 @@ export const forfeitChallengeHandler: CommandHandler = {
 
     const node = instance.gameNodeChallenge!.gameNode!;
 
+    // Phase L: capture telemetry. Unlike the other resolution handlers,
+    // CHALLENGE_FORFEITED has no team-must-be-checked-in precondition
+    // (the JSDoc above explains why), so the team may already be
+    // off-station. We pass `currentStation: null` when that's the case
+    // so the helper records `last_known_*` without firing a (misleading)
+    // warning against the challenge's node. Position lookup is defensive
+    // — every registered team has a row, but if the row is somehow
+    // missing we still want the forfeit itself to succeed without
+    // attempting a geo write.
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: ctx.gameTeamId },
+      transaction: ctx.transaction,
+    });
+    const currentStation =
+      position?.currentGameNodeId === node.id ? node : null;
+    const geoResult = position
+      ? recordCommandGeolocation({
+          rawGeo,
+          position,
+          currentStation,
+        })
+      : null;
+    if (position && geoResult?.geo != null) {
+      await position.save({ transaction: ctx.transaction });
+    }
+
     const now = new Date();
     const cooldownUntil = new Date(now.getTime() + CHALLENGE_COOLDOWN_MS);
 
@@ -100,18 +140,24 @@ export const forfeitChallengeHandler: CommandHandler = {
     instance.resolutionPayload = { reason: "explicit" };
     await instance.save({ transaction: ctx.transaction });
 
+    const eventPayload: Record<string, unknown> = {
+      nodeId: node.id,
+      nodeCode: node.code,
+      challengeId: instance.challengeId,
+      instanceId: instance.id,
+      cooldownUntil: cooldownUntil.toISOString(),
+      reason: "explicit",
+    };
+    if (geoResult?.geo != null) {
+      eventPayload.geo = geoResult.geo;
+      eventPayload.geolocationWarning = geoResult.geolocationWarning;
+    }
+
     return {
       events: [
         {
           eventType: "CHALLENGE_FORFEITED",
-          payload: {
-            nodeId: node.id,
-            nodeCode: node.code,
-            challengeId: instance.challengeId,
-            instanceId: instance.id,
-            cooldownUntil: cooldownUntil.toISOString(),
-            reason: "explicit",
-          },
+          payload: eventPayload,
         },
       ],
     };

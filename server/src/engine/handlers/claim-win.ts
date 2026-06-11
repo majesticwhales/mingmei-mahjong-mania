@@ -30,6 +30,7 @@ import { RED_FIVES_RULE_KEY } from "../../tiles/red-five.ts";
 import { autoForfeitActiveChallenge } from "../challenge-lifecycle.ts";
 import { assertNotHandCompleted } from "../hand-completed-lock.ts";
 import { loadTeamHandTiles } from "../team-hand-tiles.ts";
+import { recordCommandGeolocation } from "../../services/geolocation.ts";
 
 interface ClaimWinPayload {
   /**
@@ -39,6 +40,8 @@ interface ClaimWinPayload {
    * position and `slot_index` is unlocked).
    */
   stationTileId: string;
+  /** Phase L: raw geolocation sample (warn+allow — see `recordCommandGeolocation`). */
+  rawGeo: unknown;
 }
 
 function parsePayload(payload: Record<string, unknown>): ClaimWinPayload {
@@ -50,7 +53,7 @@ function parsePayload(payload: Record<string, unknown>): ClaimWinPayload {
       "CLAIM_WIN requires a string stationTileId in the payload",
     );
   }
-  return { stationTileId };
+  return { stationTileId, rawGeo: payload.geo };
 }
 
 interface DoraIndicatorRow {
@@ -168,7 +171,7 @@ function pickWinningWait(
  */
 export const claimWinHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
-    const { stationTileId } = parsePayload(ctx.payload);
+    const { stationTileId, rawGeo } = parsePayload(ctx.payload);
 
     await assertNotHandCompleted({
       gameTeamId: ctx.gameTeamId,
@@ -214,6 +217,17 @@ export const claimWinHandler: CommandHandler = {
         `Station ${position.currentGameNodeId} not found mid-handler`,
       );
     }
+
+    // Phase L: capture telemetry against the team's current station. The
+    // helper silently drops malformed input and may mutate
+    // `position.lastKnown_*`. The save happens further down — either via
+    // the existing credit-consume branch, or via the geo-only path we OR
+    // in there.
+    const geoResult = recordCommandGeolocation({
+      rawGeo,
+      position,
+      currentStation: station,
+    });
 
     const game = await Game.findByPk(ctx.gameId, {
       transaction: ctx.transaction,
@@ -367,6 +381,11 @@ export const claimWinHandler: CommandHandler = {
     // bookkeeping invariant is identical to SWAP_TILE.
     if (challengeCount > 0) {
       position.pendingSwapCredit = false;
+    }
+    // Save the position iff something changed: credit consumption (above)
+    // or the Phase L geo helper recording a sample. Free-swap stations
+    // with no geo still skip the save (preserves original behaviour).
+    if (challengeCount > 0 || geoResult.geo != null) {
       await position.save({ transaction: ctx.transaction });
     }
 
@@ -409,20 +428,26 @@ export const claimWinHandler: CommandHandler = {
       });
     }
 
+    const claimWinPayload: Record<string, unknown> = {
+      nodeId: station.id,
+      nodeCode: station.code,
+      stationTileId,
+      slotIndex: stationSlotIndex,
+      finalHan: winning.han,
+      finalFu: winning.fu,
+      finalPoints: winning.points,
+      finalYaku: winning.yaku.map((y) => ({ name: y.name, han: y.han })),
+      isYakuman: winning.isYakuman,
+    };
+    if (geoResult.geo != null) {
+      claimWinPayload.geo = geoResult.geo;
+      claimWinPayload.geolocationWarning = geoResult.geolocationWarning;
+    }
+
     const events: EmittedEvent[] = [
       {
         eventType: "CLAIM_WIN",
-        payload: {
-          nodeId: station.id,
-          nodeCode: station.code,
-          stationTileId,
-          slotIndex: stationSlotIndex,
-          finalHan: winning.han,
-          finalFu: winning.fu,
-          finalPoints: winning.points,
-          finalYaku: winning.yaku.map((y) => ({ name: y.name, han: y.han })),
-          isYakuman: winning.isYakuman,
-        },
+        payload: claimWinPayload,
       },
     ];
     if (autoForfeitEvent) {

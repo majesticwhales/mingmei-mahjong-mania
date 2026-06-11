@@ -10,10 +10,13 @@ import { GameNode } from "../../models/game-node.ts";
 import { GameNodeChallenge } from "../../models/game-node-challenge.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { assertNotHandCompleted } from "../hand-completed-lock.ts";
+import { recordCommandGeolocation } from "../../services/geolocation.ts";
 
 interface StartChallengePayload {
   /** Game node the team is starting the challenge at. Must match the team's current station. */
   nodeId: string;
+  /** Phase L: raw geolocation sample (warn+allow — see `recordCommandGeolocation`). */
+  rawGeo: unknown;
 }
 
 function parsePayload(payload: Record<string, unknown>): StartChallengePayload {
@@ -25,7 +28,7 @@ function parsePayload(payload: Record<string, unknown>): StartChallengePayload {
       "START_CHALLENGE requires a string nodeId in the payload",
     );
   }
-  return { nodeId };
+  return { nodeId, rawGeo: payload.geo };
 }
 
 /**
@@ -54,7 +57,7 @@ function parsePayload(payload: Record<string, unknown>): StartChallengePayload {
  */
 export const startChallengeHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
-    const { nodeId } = parsePayload(ctx.payload);
+    const { nodeId, rawGeo } = parsePayload(ctx.payload);
 
     await assertNotHandCompleted({
       gameTeamId: ctx.gameTeamId,
@@ -115,6 +118,20 @@ export const startChallengeHandler: CommandHandler = {
       );
     }
 
+    // Phase L: capture telemetry against the team's current station
+    // (which equals `node` by the wrong_node check above). The helper
+    // silently drops malformed input. We save the position below only
+    // when a sample was actually recorded — START_CHALLENGE has no
+    // other position mutation today.
+    const geoResult = recordCommandGeolocation({
+      rawGeo,
+      position,
+      currentStation: node,
+    });
+    if (geoResult.geo != null) {
+      await position.save({ transaction: ctx.transaction });
+    }
+
     const topChallenge = await GameNodeChallenge.findOne({
       where: { gameNodeId: nodeId },
       order: [["sortOrder", "ASC"]],
@@ -161,16 +178,22 @@ export const startChallengeHandler: CommandHandler = {
       { transaction: ctx.transaction },
     );
 
+    const eventPayload: Record<string, unknown> = {
+      nodeId: node.id,
+      nodeCode: node.code,
+      challengeId: topChallenge.challengeId,
+      instanceId: instance.id,
+    };
+    if (geoResult.geo != null) {
+      eventPayload.geo = geoResult.geo;
+      eventPayload.geolocationWarning = geoResult.geolocationWarning;
+    }
+
     return {
       events: [
         {
           eventType: "START_CHALLENGE",
-          payload: {
-            nodeId: node.id,
-            nodeCode: node.code,
-            challengeId: topChallenge.challengeId,
-            instanceId: instance.id,
-          },
+          payload: eventPayload,
         },
       ],
     };

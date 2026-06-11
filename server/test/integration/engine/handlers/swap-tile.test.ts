@@ -412,4 +412,90 @@ describe("SWAP_TILE handler", () => {
     expect(position?.pendingSwapCredit).toBe(false);
     expect(position?.creditEarnedInSession).toBe(false);
   });
+
+  // -------------------------------------------------------------------------
+  // Phase L: geolocation telemetry on user-driven commands. The shared
+  // `recordCommandGeolocation` helper is unit-tested elsewhere; here we
+  // assert the handler wires it through and lifts the result onto the
+  // event payload + position row.
+  //
+  // Lightweight fixture: bay = index 0 → 43.65 / -79.38, 100 m radius.
+  // -------------------------------------------------------------------------
+
+  it("Phase L: SWAP_TILE with valid in-fence geo lifts geo+warning:false onto the event and populates last_known_*", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      nodeTilesByCode: { bay: 1 },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const sample = { latitude: 43.65, longitude: -79.38, accuracy: 10 };
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "SWAP_TILE",
+      payload: {
+        handTileId: fixture.handTiles[0]!.gameTileId,
+        stationTileId: fixture.nodeTiles[0]!.gameTileId,
+        geo: sample,
+      },
+    });
+
+    const event = result.events[0]!;
+    expect(event.eventType).toBe("SWAP_TILE");
+    expect(event.payload).toMatchObject({
+      nodeId: bayId,
+      geo: sample,
+      geolocationWarning: false,
+    });
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBe(43.65);
+    expect(position?.lastKnownLongitude).toBe(-79.38);
+    expect(position?.lastKnownAccuracy).toBe(10);
+    expect(position?.lastKnownSeenAt).toBeInstanceOf(Date);
+  });
+
+  it("Phase L: SWAP_TILE with malformed geo silently drops it and still completes the swap", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      handTilesBySlot: { 1: 1 },
+      nodeTilesByCode: { bay: 1 },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "SWAP_TILE",
+      payload: {
+        handTileId: fixture.handTiles[0]!.gameTileId,
+        stationTileId: fixture.nodeTiles[0]!.gameTileId,
+        geo: { longitude: -79.38, accuracy: 10 },
+      },
+    });
+
+    const event = result.events[0]!;
+    expect(event.eventType).toBe("SWAP_TILE");
+    expect(event.payload).not.toHaveProperty("geo");
+    expect(event.payload).not.toHaveProperty("geolocationWarning");
+    expect(event.payload).toMatchObject({ nodeId: bayId });
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBeNull();
+    expect(position?.lastKnownLongitude).toBeNull();
+    expect(position?.lastKnownAccuracy).toBeNull();
+    expect(position?.lastKnownSeenAt).toBeNull();
+  });
 });

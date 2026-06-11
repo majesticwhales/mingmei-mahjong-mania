@@ -57,4 +57,26 @@ export class GameTeamPosition extends BaseModel {
    */
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
   declare creditEarnedInSession: boolean;
+
+  /**
+   * Phase L telemetry — most recent latitude reported by **any**
+   * user-driven command from this team's client. Updated by the shared
+   * `recordCommandGeolocation` helper (see
+   * `server/src/services/geolocation.ts`). Independent of
+   * `lastCheckInLatitude`, which remains the CHECK_IN-time snapshot.
+   * `NULL` for teams whose clients have never sent a `geo` block.
+   */
+  @Column({ type: DataType.DOUBLE, allowNull: true })
+  declare lastKnownLatitude: number | null;
+
+  @Column({ type: DataType.DOUBLE, allowNull: true })
+  declare lastKnownLongitude: number | null;
+
+  /** Browser-reported accuracy in meters at the moment of the last sample. */
+  @Column({ type: DataType.DOUBLE, allowNull: true })
+  declare lastKnownAccuracy: number | null;
+
+  /** Server clock when the engine stamped the last-known sample. */
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare lastKnownSeenAt: Date | null;
 }

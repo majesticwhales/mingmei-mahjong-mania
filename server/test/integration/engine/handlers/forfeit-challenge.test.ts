@@ -201,4 +201,143 @@ describe("CHALLENGE_FORFEITED handler", () => {
       }),
     ).rejects.toMatchObject({ status: 409, code: "hand_completed" });
   });
+
+  // -------------------------------------------------------------------------
+  // Phase L: geolocation telemetry. Fixture node bay = index 0 → 43.65 /
+  // -79.38, 100 m radius.
+  //
+  // CHALLENGE_FORFEITED has no checked-in precondition (a team can forfeit
+  // even after auto-CHECK_OUT moved them). The handler passes
+  // `currentStation: null` to the helper when the team's position no
+  // longer matches the challenge's node, so the off-station path is
+  // explicitly covered here.
+  // -------------------------------------------------------------------------
+
+  it("Phase L: CHALLENGE_FORFEITED with valid in-fence geo (team still at station) lifts geo+warning:false", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    const instance = await GameChallengeInstance.create({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+      status: "in_progress",
+      assignedAt: new Date(),
+    });
+    const sample = { latitude: 43.65, longitude: -79.38, accuracy: 10 };
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CHALLENGE_FORFEITED",
+      payload: { instanceId: instance.id, geo: sample },
+    });
+
+    expect(result.events[0]!.payload).toMatchObject({
+      nodeId: bayId,
+      reason: "explicit",
+      geo: sample,
+      geolocationWarning: false,
+    });
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBe(43.65);
+    expect(position?.lastKnownSeenAt).toBeInstanceOf(Date);
+  });
+
+  it("Phase L: CHALLENGE_FORFEITED off-station records last_known_* without firing a warning", async () => {
+    // Forfeiting after the team has moved off the challenge's node: the
+    // helper still records `last_known_*` but explicitly skips the
+    // warning evaluation (currentStation = null) because a warning
+    // against a station the team has already left would mislead the log.
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    const instance = await GameChallengeInstance.create({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+      status: "in_progress",
+      assignedAt: new Date(),
+    });
+    await GameTeamPosition.update(
+      { currentGameNodeId: null, checkedInAt: null },
+      { where: { gameTeamId: participant.gameTeamId } },
+    );
+    // Far from bay; would normally warn, but currentStation is null so
+    // the helper short-circuits to warning:false.
+    const sample = { latitude: 50.0, longitude: -75.0, accuracy: 10 };
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CHALLENGE_FORFEITED",
+      payload: { instanceId: instance.id, geo: sample },
+    });
+
+    expect(result.events[0]!.payload).toMatchObject({
+      nodeId: bayId,
+      reason: "explicit",
+      geo: sample,
+      geolocationWarning: false,
+    });
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBe(50.0);
+    expect(position?.lastKnownLongitude).toBe(-75.0);
+  });
+
+  it("Phase L: CHALLENGE_FORFEITED with malformed geo silently drops it and still fails the instance", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    const instance = await GameChallengeInstance.create({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+      status: "in_progress",
+      assignedAt: new Date(),
+    });
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CHALLENGE_FORFEITED",
+      payload: { instanceId: instance.id, geo: 42 },
+    });
+
+    expect(result.events[0]!.eventType).toBe("CHALLENGE_FORFEITED");
+    expect(result.events[0]!.payload).not.toHaveProperty("geo");
+    expect(result.events[0]!.payload).not.toHaveProperty("geolocationWarning");
+
+    const refreshed = await GameChallengeInstance.findByPk(instance.id);
+    expect(refreshed?.status).toBe("failed");
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBeNull();
+  });
 });

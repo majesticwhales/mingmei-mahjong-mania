@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HttpError } from "../../../src/lib/http-error.ts";
 import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
   evaluateGeolocation,
   haversineDistanceMeters,
   parseGeoPayload,
+  recordCommandGeolocation,
+  type CommandGeoPosition,
+  type CommandGeoStation,
 } from "../../../src/services/geolocation.ts";
 
 /**
@@ -277,5 +280,210 @@ describe("evaluateGeolocation", () => {
 
   it("exports DEFAULT_GEOFENCE_RADIUS_METERS === 100 (matches map-clone-service clone-time default)", () => {
     expect(DEFAULT_GEOFENCE_RADIUS_METERS).toBe(100);
+  });
+});
+
+describe("recordCommandGeolocation", () => {
+  /**
+   * Build a fresh blank `CommandGeoPosition` slice for each test. We use a
+   * plain object rather than the Sequelize model — the helper is purely
+   * synchronous and only mutates the four `lastKnown*` fields, so the
+   * structural interface is enough.
+   */
+  function blankPosition(): CommandGeoPosition {
+    return {
+      lastKnownLatitude: null,
+      lastKnownLongitude: null,
+      lastKnownAccuracy: null,
+      lastKnownSeenAt: null,
+    };
+  }
+
+  const station: CommandGeoStation = {
+    latitude: 43.6747046,
+    longitude: -79.406983,
+    geofenceRadiusMeters: 100,
+  };
+
+  const validGeo = {
+    latitude: 43.6747046,
+    longitude: -79.406983,
+    accuracy: 10,
+  };
+
+  it("returns an all-null result and leaves the position untouched when rawGeo is absent", () => {
+    const position = blankPosition();
+    const result = recordCommandGeolocation({
+      rawGeo: undefined,
+      position,
+      currentStation: station,
+    });
+    expect(result).toEqual({
+      geo: null,
+      geolocationWarning: null,
+      geofenceValidated: null,
+      distanceMeters: null,
+    });
+    expect(position).toEqual(blankPosition());
+  });
+
+  it("returns an all-null result when rawGeo is explicitly null (client denied geolocation)", () => {
+    const position = blankPosition();
+    const result = recordCommandGeolocation({
+      rawGeo: null,
+      position,
+      currentStation: station,
+    });
+    expect(result.geo).toBeNull();
+    expect(position).toEqual(blankPosition());
+  });
+
+  it("silently drops a malformed rawGeo (warn+allow) — no throw, position untouched", () => {
+    const position = blankPosition();
+    const cases: unknown[] = [
+      "not an object",
+      42,
+      [0, 0, 5],
+      { longitude: 0, accuracy: 5 }, // missing latitude
+      { latitude: Number.NaN, longitude: 0, accuracy: 5 },
+      { latitude: 0, longitude: 0, accuracy: -1 },
+      { latitude: 91, longitude: 0, accuracy: 5 },
+    ];
+    for (const rawGeo of cases) {
+      const result = recordCommandGeolocation({
+        rawGeo,
+        position,
+        currentStation: station,
+      });
+      expect(result).toEqual({
+        geo: null,
+        geolocationWarning: null,
+        geofenceValidated: null,
+        distanceMeters: null,
+      });
+    }
+    expect(position).toEqual(blankPosition());
+  });
+
+  it("mutates last_known_* fields on the position with a valid sample (uses opts.now)", () => {
+    const position = blankPosition();
+    const now = new Date("2026-06-10T22:00:00.000Z");
+    const result = recordCommandGeolocation({
+      rawGeo: validGeo,
+      position,
+      currentStation: station,
+      now,
+    });
+    expect(position.lastKnownLatitude).toBe(validGeo.latitude);
+    expect(position.lastKnownLongitude).toBe(validGeo.longitude);
+    expect(position.lastKnownAccuracy).toBe(validGeo.accuracy);
+    expect(position.lastKnownSeenAt).toEqual(now);
+    expect(result.geo).toEqual(validGeo);
+  });
+
+  it("defaults seenAt to wall-clock when opts.now is omitted", () => {
+    const position = blankPosition();
+    const before = Date.now();
+    recordCommandGeolocation({
+      rawGeo: validGeo,
+      position,
+      currentStation: station,
+    });
+    const after = Date.now();
+    expect(position.lastKnownSeenAt).toBeInstanceOf(Date);
+    const stamped = (position.lastKnownSeenAt as Date).getTime();
+    expect(stamped).toBeGreaterThanOrEqual(before);
+    expect(stamped).toBeLessThanOrEqual(after);
+  });
+
+  it("evaluates against currentStation when the team is checked in", () => {
+    const position = blankPosition();
+    const result = recordCommandGeolocation({
+      rawGeo: validGeo,
+      position,
+      currentStation: station,
+    });
+    expect(result.geolocationWarning).toBe(false);
+    expect(result.geofenceValidated).toBe(true);
+    expect(result.distanceMeters).toBeCloseTo(0, 6);
+  });
+
+  it("raises geolocationWarning when on-station evaluation fails (outside geofence)", () => {
+    const position = blankPosition();
+    const result = recordCommandGeolocation({
+      // ~200 m north of the station.
+      rawGeo: {
+        latitude: 43.6747046 + 200 / 111_194.926644,
+        longitude: -79.406983,
+        accuracy: 10,
+      },
+      position,
+      currentStation: station,
+    });
+    expect(result.geolocationWarning).toBe(true);
+    expect(result.geofenceValidated).toBe(false);
+    expect(result.distanceMeters).toBeGreaterThan(100);
+  });
+
+  it("raises geolocationWarning when on-station evaluation fails (accuracy too loose)", () => {
+    const position = blankPosition();
+    const result = recordCommandGeolocation({
+      rawGeo: { latitude: 43.6747046, longitude: -79.406983, accuracy: 250 },
+      position,
+      currentStation: station,
+    });
+    expect(result.geolocationWarning).toBe(true);
+    expect(result.geofenceValidated).toBe(false);
+  });
+
+  it("records last_known_* but skips evaluation when currentStation is null (off-station command)", () => {
+    const position = blankPosition();
+    const result = recordCommandGeolocation({
+      rawGeo: validGeo,
+      position,
+      currentStation: null,
+    });
+    expect(position.lastKnownLatitude).toBe(validGeo.latitude);
+    expect(position.lastKnownLongitude).toBe(validGeo.longitude);
+    expect(position.lastKnownAccuracy).toBe(validGeo.accuracy);
+    expect(position.lastKnownSeenAt).toBeInstanceOf(Date);
+    expect(result.geo).toEqual(validGeo);
+    // Off-station: no warning to raise (there's no station to compare against).
+    expect(result.geolocationWarning).toBe(false);
+    expect(result.geofenceValidated).toBeNull();
+    expect(result.distanceMeters).toBeNull();
+  });
+
+  it("does not call .save() on the position (caller owns persistence)", () => {
+    // The helper takes a structural interface (no .save()) but real callers
+    // pass the Sequelize model. Document that no save fires by wrapping the
+    // position in a spy-ed object — the spy must never be invoked.
+    const save = vi.fn();
+    const position = {
+      ...blankPosition(),
+      save,
+    };
+    recordCommandGeolocation({
+      rawGeo: validGeo,
+      position,
+      currentStation: station,
+    });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("does not re-throw HttpError from parseGeoPayload — warn+allow guarantees no exception escapes", () => {
+    const position = blankPosition();
+    expect(() => {
+      recordCommandGeolocation({
+        rawGeo: { latitude: "not a number", longitude: 0, accuracy: 5 },
+        position,
+        currentStation: station,
+      });
+    }).not.toThrow();
+    // Defensive: parseGeoPayload itself still throws for direct callers
+    // that want strict 400-on-malformed behaviour.
+    expect(() =>
+      parseGeoPayload({ latitude: "not a number", longitude: 0, accuracy: 5 }),
+    ).toThrow(HttpError);
   });
 });
