@@ -55,7 +55,12 @@ export function GameScreen() {
     }
   }, [id, joinGame, state.status, state]);
 
-  const gameEnded = projection?.status === "ended";
+  // Only treat the game as ended when the loaded projection belongs to this
+  // route. Otherwise a prior session's ended game can still be in context
+  // for a frame after navigating to a freshly-started game, which wrongly
+  // bounced users to /summary before joinGame finished.
+  const gameEnded =
+    state.status === "active" && state.id === id && projection?.status === "ended";
 
   // Phase J — once the game flips to `ended`, send everyone to the
   // summary. The game screen is read-only at this point (the projection

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { HttpError } from "../../transport/httpError";
 import { useAuth, useIsAdmin } from "../../state/auth/hooks";
+import { useGame } from "../../state/game/hooks";
 import { useIsHost, useLobby, useLobbyMembers } from "../../state/lobby/hooks";
 import { MemberList } from "./MemberList";
 import { TeamPicker } from "./TeamPicker";
@@ -13,6 +14,7 @@ export function LobbyRoomScreen() {
   const navigate = useNavigate();
   const { state: authState } = useAuth();
   const { state, loadLobby, createLobby, joinLobby, pickTeam, startLobby } = useLobby();
+  const { leaveGame } = useGame();
   const isHost = useIsHost();
   const isAdmin = useIsAdmin();
   const members = useLobbyMembers();
@@ -94,6 +96,7 @@ export function LobbyRoomScreen() {
     setError(null);
     setStarting(true);
     try {
+      leaveGame();
       const gameId = await startLobby();
       navigate(`/games/${gameId}`);
     } catch (err) {
