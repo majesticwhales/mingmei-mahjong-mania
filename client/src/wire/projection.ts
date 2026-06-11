@@ -11,9 +11,38 @@ export interface TileDto {
   isRedFive: boolean;
 }
 
+/**
+ * Legacy "visible tile at slot k" entry, still emitted by
+ * `AtStationDto.tiles[]` until Phase L chunk L4 rewires `atStation`
+ * onto the shared `buildNodeView` shape.
+ */
 export interface SlotTileDto {
   slotIndex: number;
   tile: TileDto;
+}
+
+/**
+ * Phase L §3.13: server-resolved per-slot map view. The server emits
+ * one entry per slot the node has (`0 .. slots_per_node - 1`), in
+ * ascending order. UI rendering paths must read `visible` / `locked`
+ * directly — never re-derive them from `visibilityPhase` /
+ * `phaseDrivenSlotMap` (those survive as telemetry only).
+ *
+ * - `tile` is the placement at that slot iff the slot is visible; the
+ *   server `null`s it out otherwise (hidden slot, empty slot, or both).
+ * - `visible` is the server-resolved gate (phase fog ∧ map-reveal
+ *   timer, with mode-off layers short-circuited).
+ * - `locked` reflects the claim-unlock timer. The server enforces
+ *   `mapOffset[k] IS NULL OR mapOffset[k] >= claimOffset[k]`, so
+ *   `visible: true` implies `locked: false`; `locked` is informative
+ *   primarily when `visible: false` (lets the client render a
+ *   "claim opens in X" countdown without duplicating the math).
+ */
+export interface MapNodeTileDto {
+  slotIndex: number;
+  tile: TileDto | null;
+  visible: boolean;
+  locked: boolean;
 }
 
 export interface MapNodeDto {
@@ -28,8 +57,13 @@ export interface MapNodeDto {
   isInterchange: boolean;
   latitude: number;
   longitude: number;
-  tile?: TileDto;
-  tiles?: SlotTileDto[];
+  /**
+   * Phase L §3.13: exhaustive per-slot view (`tiles.length` always
+   * equals `slots_per_node`). UI must read `tiles[].visible` /
+   * `tiles[].locked` directly rather than re-deriving from the
+   * telemetry-only `visibilityPhase` / `phaseDrivenSlotMap` fields.
+   */
+  tiles: MapNodeTileDto[];
 }
 
 export interface MapLineDto {
@@ -152,8 +186,23 @@ export interface GameStateProjection {
   status: GameStatus;
   endsAt: string;
   nextVisibilityChangeAt: string | null;
+  /**
+   * **Telemetry only as of Phase L §3.13.** Surfaces "phase k of n"
+   * copy in the visibility countdown banner / event log. UI rendering
+   * paths must read `mapNodes[].tiles[].visible` directly rather than
+   * re-deriving per-slot visibility from this field.
+   */
   visibilityPhase: number;
+  /**
+   * **Telemetry only as of Phase L §3.13.** Snapshotted phase count;
+   * equals `slotsPerNode` in the tile-slot mode. See `visibilityPhase`.
+   */
   visibilityPhaseCount: number;
+  /**
+   * **Telemetry only as of Phase L §3.13.** True when the projection's
+   * per-slot map gate used a phase-driven path. UI must not re-derive
+   * visibility from this — read `mapNodes[].tiles[].visible` directly.
+   */
   phaseDrivenSlotMap: boolean;
   mapNodes: MapNodeDto[];
   mapLines: MapLineDto[];

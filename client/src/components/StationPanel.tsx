@@ -2,7 +2,14 @@ import { TILE_BACK_IMAGE_PATH } from "../data/riichiTiles";
 import { isTileStation, TILES_PER_STATION } from "../data/tileStations";
 import type { SubwayLine } from "../data/types";
 import { tileImagePath } from "../lib/tileImages";
-import type { AtStationDto, HandTileDto, MapNodeDto, SlotTileDto, TileDto } from "../wire/projection";
+import type {
+  AtStationDto,
+  HandTileDto,
+  MapNodeDto,
+  MapNodeTileDto,
+  SlotTileDto,
+  TileDto,
+} from "../wire/projection";
 
 interface Props {
   atStation: AtStationDto | null;
@@ -26,20 +33,35 @@ interface Props {
   onClaimWin?: () => void;
 }
 
-function tilesBySlot(tiles: SlotTileDto[] | undefined, single?: TileDto) {
+/**
+ * Phase L §3.13: `MapNodeTileDto[]` is the server-resolved exhaustive
+ * per-slot view. Project it down to the legacy `SlotTileDto[]` shape
+ * (only the slots with a visible placement) so the existing render
+ * helpers can stay unchanged. `atStation.tiles[]` is still legacy
+ * `SlotTileDto[]` in L3; see TDD §3.13 for the L4 rewire.
+ */
+function nodeTilesToSlotTiles(tiles: MapNodeTileDto[]): SlotTileDto[] {
+  const out: SlotTileDto[] = [];
+  for (const entry of tiles) {
+    if (entry.visible && entry.tile != null) {
+      out.push({ slotIndex: entry.slotIndex, tile: entry.tile });
+    }
+  }
+  return out;
+}
+
+function tilesBySlot(tiles: SlotTileDto[] | undefined) {
   const bySlot = new Map<number, TileDto>();
   if (tiles) {
     for (const entry of tiles) {
       bySlot.set(entry.slotIndex, entry.tile);
     }
-  } else if (single) {
-    bySlot.set(0, single);
   }
   return bySlot;
 }
 
-function renderTripleStationSlots(tiles: SlotTileDto[] | undefined, single?: TileDto) {
-  const known = tilesBySlot(tiles, single);
+function renderTripleStationSlots(tiles: SlotTileDto[] | undefined) {
+  const known = tilesBySlot(tiles);
   return Array.from({ length: TILES_PER_STATION }, (_, slotIndex) => {
     const tile = known.get(slotIndex);
     if (tile) {
@@ -69,7 +91,10 @@ function renderTripleStationSlots(tiles: SlotTileDto[] | undefined, single?: Til
   });
 }
 
-function renderLegacyStationTiles(tiles: SlotTileDto[] | undefined, single?: TileDto) {
+function renderLegacyStationTiles(
+  tiles: SlotTileDto[] | undefined,
+  single?: TileDto,
+) {
   if (tiles?.length) {
     return tiles.map((slot) => (
       <div key={slot.slotIndex} className="station-panel__slot">
@@ -103,13 +128,23 @@ function stationTilesForView(
   atStation: AtStationDto | null,
   isViewingCheckedInStation: boolean,
 ) {
-  const tiles = isViewingCheckedInStation && atStation ? atStation.tiles : viewingNode.tiles;
-  const single = isViewingCheckedInStation && atStation ? atStation.tile : viewingNode.tile;
-
-  if (isTileStation(viewingNode.code)) {
-    return renderTripleStationSlots(tiles, single);
+  // Phase L §3.13: when the team is at the station, the engine
+  // overrides the per-slot map gate (every station tile is visible at
+  // atStation regardless of map fog); use the legacy `atStation.tiles`
+  // path. Otherwise we project the exhaustive `MapNodeTileDto[]` down
+  // to the visible-only `SlotTileDto[]` shape the renderer expects.
+  if (isViewingCheckedInStation && atStation) {
+    if (isTileStation(viewingNode.code)) {
+      return renderTripleStationSlots(atStation.tiles);
+    }
+    return renderLegacyStationTiles(atStation.tiles, atStation.tile);
   }
-  return renderLegacyStationTiles(tiles, single);
+
+  const slotTiles = nodeTilesToSlotTiles(viewingNode.tiles);
+  if (isTileStation(viewingNode.code)) {
+    return renderTripleStationSlots(slotTiles);
+  }
+  return renderLegacyStationTiles(slotTiles);
 }
 
 export function StationPanel({

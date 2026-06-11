@@ -48,11 +48,16 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
 
     expect(projection.visibilityPhase).toBe(1);
     expect(projection.visibilityPhaseCount).toBe(3);
+    // Phase L §3.13: `phaseDrivenSlotMap` is telemetry — the UI must
+    // read `tiles[].visible` directly.
     expect(projection.phaseDrivenSlotMap).toBe(true);
     for (const code of ["a", "b"] as const) {
       const node = projection.mapNodes.find((n) => n.code === code)!;
-      expect(node.tiles).toHaveLength(1);
-      expect(node.tiles![0]!.slotIndex).toBe(1);
+      expect(node.tiles).toHaveLength(3);
+      expect(node.tiles.map((t) => t.slotIndex)).toEqual([0, 1, 2]);
+      expect(node.tiles.map((t) => t.visible)).toEqual([false, true, false]);
+      // mode = "phase" → slot layer off → `locked` is false everywhere.
+      expect(node.tiles.map((t) => t.locked)).toEqual([false, false, false]);
     }
     expect(projection.atStation).toBeNull();
   });
@@ -78,7 +83,12 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
 
     expect(projection.phaseDrivenSlotMap).toBe(false);
     const node = projection.mapNodes.find((n) => n.code === "a")!;
-    expect(node.tiles?.map((t) => t.slotIndex)).toEqual([0]);
+    // Phase L §3.13: all three slots are emitted; the claim + map
+    // timers gate `visible` / `locked` (slot 1, 2 still hidden +
+    // locked at game start).
+    expect(node.tiles).toHaveLength(3);
+    expect(node.tiles.map((t) => t.visible)).toEqual([true, false, false]);
+    expect(node.tiles.map((t) => t.locked)).toEqual([false, true, true]);
   });
 
   it("slot mode shows every tile at the checked-in station from the start", async () => {
@@ -102,9 +112,9 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
     expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
       0, 1, 2,
     ]);
-    expect(
-      projection.mapNodes.find((n) => n.code === "a")!.tiles?.map((t) => t.slotIndex),
-    ).toEqual([0]);
+    const aNode = projection.mapNodes.find((n) => n.code === "a")!;
+    expect(aNode.tiles.map((t) => t.visible)).toEqual([true, false, false]);
+    expect(aNode.tiles.map((t) => t.locked)).toEqual([false, true, true]);
   });
 
   it("slot mode adds map tiles as each slot unlocks", async () => {
@@ -125,17 +135,33 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
       fixture.participants[0]!.gameTeamId,
       { now: startedAt },
     );
-    expect(
-      atStart.mapNodes.find((n) => n.code === "a")!.tiles?.map((t) => t.slotIndex),
-    ).toEqual([0]);
+    const atStartNode = atStart.mapNodes.find((n) => n.code === "a")!;
+    expect(atStartNode.tiles.map((t) => t.visible)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    expect(atStartNode.tiles.map((t) => t.locked)).toEqual([
+      false,
+      true,
+      true,
+    ]);
 
     const afterSlot1 = await buildGameStateProjection(
       fixture.gameId,
       fixture.participants[0]!.gameTeamId,
       { now: new Date(startedAt.getTime() + 60_000) },
     );
-    expect(
-      afterSlot1.mapNodes.find((n) => n.code === "a")!.tiles?.map((t) => t.slotIndex),
-    ).toEqual([0, 1]);
+    const afterSlot1Node = afterSlot1.mapNodes.find((n) => n.code === "a")!;
+    expect(afterSlot1Node.tiles.map((t) => t.visible)).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    expect(afterSlot1Node.tiles.map((t) => t.locked)).toEqual([
+      false,
+      false,
+      true,
+    ]);
   });
 });

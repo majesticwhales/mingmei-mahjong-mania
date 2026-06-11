@@ -9,6 +9,11 @@ import { StationMarker, type TileSlotDisplay } from "./StationMarker";
 interface Props {
   network: Network;
   mapNodes?: MapNodeDto[];
+  /**
+   * Phase L §3.13: kept for prop-shape stability (and to surface "phase
+   * k of n" telemetry on hover / overlays in future work); the SVG
+   * rendering path no longer consults these to derive visibility.
+   */
   visibilityPhase: number;
   visibilityPhaseCount: number;
   phaseDrivenSlotMap: boolean;
@@ -29,73 +34,48 @@ function emptyTileSlots(): TileSlotDisplay[] {
   }));
 }
 
-function applyPhaseSlotVisibility(
-  slots: TileSlotDisplay[],
-  visibilityPhase: number,
-  visibilityPhaseCount: number,
-): TileSlotDisplay[] {
-  if (visibilityPhaseCount !== TILES_PER_STATION) {
-    return slots;
-  }
-  const activeSlot = Math.min(
-    Math.max(visibilityPhase, 0),
-    TILES_PER_STATION - 1,
-  );
-  return slots.map((slot, index) => ({
-    ...slot,
-    visible: index === activeSlot && slot.visible,
-  }));
-}
-
-function buildTileSlots(
-  node: MapNodeDto | undefined,
-  visibilityPhase: number,
-  visibilityPhaseCount: number,
-  phaseDrivenSlotMap: boolean,
-): TileSlotDisplay[] {
+/**
+ * Phase L §3.13: the server resolves per-slot visibility / locked state
+ * and emits one `MapNodeTileDto` per slot in `node.tiles[]`. The client
+ * only translates the wire shape into the renderer's `TileSlotDisplay`
+ * — `visibilityPhase` / `phaseDrivenSlotMap` are telemetry now and are
+ * intentionally not consulted here.
+ */
+function buildTileSlots(node: MapNodeDto | undefined): TileSlotDisplay[] {
   const slots = emptyTileSlots();
-  const activeSlot = Math.min(
-    Math.max(visibilityPhase, 0),
-    TILES_PER_STATION - 1,
-  );
+  if (!node) return slots;
 
-  if (node?.tiles) {
-    for (const entry of node.tiles) {
-      if (entry.slotIndex < 0 || entry.slotIndex >= TILES_PER_STATION) continue;
+  for (const entry of node.tiles) {
+    if (entry.slotIndex < 0 || entry.slotIndex >= TILES_PER_STATION) continue;
+    if (entry.visible && entry.tile != null) {
       slots[entry.slotIndex] = {
         imagePath: tileImagePath(entry.tile),
         label: entry.tile.displayName,
         visible: true,
+        locked: entry.locked,
+      };
+    } else {
+      // Hidden slot — render face-down. Carry `locked` through so the
+      // marker can stamp the lock affordance even before reveal.
+      slots[entry.slotIndex] = {
+        imagePath: TILE_BACK_IMAGE_PATH,
+        visible: false,
+        locked: entry.locked,
       };
     }
-    if (phaseDrivenSlotMap) {
-      return applyPhaseSlotVisibility(slots, visibilityPhase, visibilityPhaseCount);
-    }
-    return slots;
   }
-
-  if (node?.tile) {
-    const targetIndex = phaseDrivenSlotMap ? activeSlot : 0;
-    slots[targetIndex] = {
-      imagePath: tileImagePath(node.tile),
-      label: node.tile.displayName,
-      visible: true,
-    };
-    if (phaseDrivenSlotMap) {
-      return applyPhaseSlotVisibility(slots, visibilityPhase, visibilityPhaseCount);
-    }
-    return slots;
-  }
-
   return slots;
 }
 
 export function SubwaySvg({
   network,
   mapNodes,
-  visibilityPhase,
-  visibilityPhaseCount,
-  phaseDrivenSlotMap,
+  // Phase L §3.13: kept on the prop signature to avoid churning every
+  // call site; intentionally unused for rendering (server-resolved
+  // visibility flows through `mapNodes[].tiles[]`).
+  visibilityPhase: _visibilityPhase,
+  visibilityPhaseCount: _visibilityPhaseCount,
+  phaseDrivenSlotMap: _phaseDrivenSlotMap,
   selectedStationId,
   onSelectStation,
   onMapBackgroundClick,
@@ -122,16 +102,7 @@ export function SubwaySvg({
               key={station.id}
               station={station}
               variant={tileStation ? "tiles" : "dot"}
-              tileSlots={
-                tileStation
-                  ? buildTileSlots(
-                      node,
-                      visibilityPhase,
-                      visibilityPhaseCount,
-                      phaseDrivenSlotMap,
-                    )
-                  : undefined
-              }
+              tileSlots={tileStation ? buildTileSlots(node) : undefined}
               isSelected={selectedStationId === station.id}
               onSelect={onSelectStation}
             />
