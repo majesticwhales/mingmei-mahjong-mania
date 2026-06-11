@@ -45,6 +45,25 @@ const atStation: AtStationDto = {
 };
 
 describe("ClaimWinModal", () => {
+  it("matches waits by suit and rank even when copyIndex differs", () => {
+    const waits: AnalyzedWaitDto[] = [wait("pin", 5, 0)];
+    const station: AtStationDto = {
+      nodeId: "node-1",
+      code: "TKY",
+      tiles: [{ slotIndex: 0, tile: tile({ suit: "pin", rank: 5, copyIndex: 2 }) }],
+    };
+    render(
+      <ClaimWinModal
+        atStation={station}
+        waits={waits}
+        onConfirm={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Claim pin5-2")).toBeInTheDocument();
+  });
+
   it("only renders station tiles that match a wait", () => {
     const waits: AnalyzedWaitDto[] = [
       wait("pin", 5, 0),

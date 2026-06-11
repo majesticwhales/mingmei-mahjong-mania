@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { waitMatchesTile } from "../../lib/claimWin";
 import { tileImagePath } from "../../lib/tileImages";
 import type {
   AnalyzedWaitDto,
@@ -29,11 +30,11 @@ function resolveStationSlots(atStation: AtStationDto): SlotTileDto[] {
 
 /**
  * Phase J — pick the station tile to claim as the winning 14th. We
- * filter the station's exposed slots to only those whose tile matches
- * a wait by `(suit, rank, copyIndex)`. The orchestrator already picked
- * its preferred copyIndex per wait (red-five-first when red fives are
- * on), so the cross-reference yields the *exact* tile the team should
- * claim to score best — no client-side disambiguation required.
+ * filter the station's exposed slots to those whose tile type matches
+ * a tenpai wait by `(suit, rank)`. The wait's `copyIndex` is the
+ * orchestrator's scoring preference for a hypothetical 14th tile; the
+ * physical station copy may differ (e.g. non-red 5p while the wait
+ * lists copyIndex 0). The server re-scores using the claimed instance.
  */
 function selectClaimableTiles(
   slots: ReadonlyArray<SlotTileDto>,
@@ -41,20 +42,18 @@ function selectClaimableTiles(
 ): ClaimableTile[] {
   const matches: ClaimableTile[] = [];
   for (const slot of slots) {
-    for (const wait of waits) {
-      if (
-        wait.tile.suit === slot.tile.suit &&
-        wait.tile.rank === slot.tile.rank &&
-        wait.tile.copyIndex === slot.tile.copyIndex
-      ) {
-        matches.push({
-          slotIndex: slot.slotIndex,
-          tile: slot.tile,
-          wait,
-        });
-        break;
-      }
-    }
+    const matchingWaits = waits.filter((wait) => waitMatchesTile(wait, slot.tile));
+    if (matchingWaits.length === 0) continue;
+    matchingWaits.sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      if (b.yaku.length !== a.yaku.length) return b.yaku.length - a.yaku.length;
+      return b.han - a.han;
+    });
+    matches.push({
+      slotIndex: slot.slotIndex,
+      tile: slot.tile,
+      wait: matchingWaits[0]!,
+    });
   }
   // Sort highest-scoring first so the default selection lands on the
   // best win available (matches the orchestrator's `compareWaitsByPoints`

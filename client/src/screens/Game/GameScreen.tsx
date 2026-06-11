@@ -4,6 +4,7 @@ import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { Legend } from "../../components/Legend";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
+import { stationHasClaimableWait } from "../../lib/claimWin";
 import { captureGeolocationForCheckIn } from "../../hooks/useGeolocation";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useIsAdmin } from "../../state/auth/hooks";
@@ -126,7 +127,7 @@ export function GameScreen() {
   }, [id, outboxState.byGame]);
 
   // Phase J — claim affordance: tenpai AND at least one station tile
-  // matches a wait by (suit, rank, copyIndex). We do the match here
+  // matches a wait by (suit, rank). We do the match here
   // (rather than inside StationPanel) so the panel stays a pure
   // presentational component, mirroring the swap-tile data-flow.
   const claimWinWaits = useMemo(() => {
@@ -144,14 +145,7 @@ export function GameScreen() {
       : atStation.tile
         ? [{ slotIndex: 0, tile: atStation.tile }]
         : [];
-    return slots.some((slot) =>
-      claimWinWaits!.some(
-        (wait) =>
-          wait.tile.suit === slot.tile.suit &&
-          wait.tile.rank === slot.tile.rank &&
-          wait.tile.copyIndex === slot.tile.copyIndex,
-      ),
-    );
+    return stationHasClaimableWait(slots, claimWinWaits);
   }, [claimWinWaits, atStation]);
 
   const latestEventSequence = useMemo(() => {
