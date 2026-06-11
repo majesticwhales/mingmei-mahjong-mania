@@ -822,6 +822,22 @@ export async function updateConfig(
       0,
     );
   }
+  // Visibility-mode lock: applied BEFORE the slot-offset structural
+  // validators so a host who patches a locked knob always sees the
+  // policy-level `visibility_knob_locked` error rather than a
+  // downstream cross-check `validation_error` (e.g. patching
+  // `slotUnlockOffsetsSeconds: [0, 60, 0]` on a phase-only lobby whose
+  // map offsets are still `[0, 0, 0]` would otherwise fail the
+  // monotonic check first). The lock only rejects explicit patch
+  // fields; the auto-resize path is exempt by design (auto-padding to
+  // zeros is a no-op for slot-off games).
+  assertPatchObeysVisibilityLock(lobby.visibilityMode, {
+    visibilityPhaseCount: patch.visibilityPhaseCount,
+    visibilityPhaseIntervalSeconds: patch.visibilityPhaseIntervalSeconds,
+    slotUnlockOffsetsSeconds: patch.slotUnlockOffsetsSeconds,
+    slotMapUnlockOffsetsSeconds: patch.slotMapUnlockOffsetsSeconds,
+  });
+
   validateSlotUnlockOffsetsSeconds(
     lobby.slotUnlockOffsetsSeconds,
     lobby.slotsPerNode,
@@ -831,18 +847,6 @@ export async function updateConfig(
     lobby.slotsPerNode,
     lobby.slotUnlockOffsetsSeconds,
   );
-
-  // Visibility-mode lock: applied here (post array-resize, post
-  // slotsPerNode validation) so the lock check sees the host's *new*
-  // arrays and the effective `slotsPerNode`. The lock only rejects
-  // explicit patch fields; the auto-resize path is exempt by design
-  // (auto-padding to zeros is a no-op for slot-off games).
-  assertPatchObeysVisibilityLock(lobby.visibilityMode, {
-    visibilityPhaseCount: patch.visibilityPhaseCount,
-    visibilityPhaseIntervalSeconds: patch.visibilityPhaseIntervalSeconds,
-    slotUnlockOffsetsSeconds: patch.slotUnlockOffsetsSeconds,
-    slotMapUnlockOffsetsSeconds: patch.slotMapUnlockOffsetsSeconds,
-  });
 
   // Mode transition cleanup: if the host just turned off a layer, force
   // the locked knobs to their trivial values. The engine doesn't read
