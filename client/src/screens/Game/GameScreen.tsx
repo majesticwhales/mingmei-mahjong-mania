@@ -86,10 +86,12 @@ export function GameScreen() {
 
   // Auto-open the hand-completed modal when a new win snapshot arrives.
   // Adjust state during render (not in an effect) so eslint's
-  // react-hooks/set-state-in-effect rule stays satisfied.
-  if (handCompleted?.completedAt !== trackedHandCompletedAt) {
-    setTrackedHandCompletedAt(handCompleted?.completedAt ?? null);
-    if (handCompleted) {
+  // react-hooks/set-state-in-effect rule stays satisfied. Coalesce
+  // missing completedAt to null — `undefined !== null` would loop forever.
+  const handCompletedAt = handCompleted?.completedAt ?? null;
+  if (handCompletedAt !== trackedHandCompletedAt) {
+    setTrackedHandCompletedAt(handCompletedAt);
+    if (handCompletedAt != null) {
       setHandCompletedDismissed(false);
     }
   }
