@@ -187,6 +187,8 @@ describe("CHECK_IN handler", () => {
       nodeCode: "bay",
       geolocationWarning: false,
       geofenceValidated: true,
+      // Phase L: the raw sample is lifted onto the event payload.
+      geo: { latitude: 43.65, longitude: -79.38, accuracy: 10 },
     });
     expect(
       (checkInEvent.payload as { distanceMeters: number }).distanceMeters,
@@ -199,6 +201,12 @@ describe("CHECK_IN handler", () => {
     expect(position?.lastCheckInLongitude).toBe(-79.38);
     expect(position?.geofenceValidated).toBe(true);
     expect(position?.geolocationWarning).toBe(false);
+    // Phase L: a valid sample also populates the cross-session
+    // last-known telemetry columns.
+    expect(position?.lastKnownLatitude).toBe(43.65);
+    expect(position?.lastKnownLongitude).toBe(-79.38);
+    expect(position?.lastKnownAccuracy).toBe(10);
+    expect(position?.lastKnownSeenAt).toBeInstanceOf(Date);
   });
 
   it("CHECK_IN with geo outside the geofence warns but still succeeds", async () => {
@@ -291,30 +299,91 @@ describe("CHECK_IN handler", () => {
     expect(position?.geolocationWarning).toBeNull();
   });
 
-  it("CHECK_IN with malformed geo (missing latitude) rejects with invalid_payload", async () => {
+  it("CHECK_IN with malformed geo (missing latitude) silently drops the geo and still checks in", async () => {
+    // Phase L: malformed geo is no longer a 400 — telemetry is "warn and
+    // allow". The handler swallows the bad sample, leaves the last-known
+    // columns NULL, omits the `geo` block from the event payload, and
+    // still completes the check-in.
     const fixture = await setupLightweightGame({ nodeCodes: ["bay"] });
     const participant = fixture.participants[0]!;
     const bayId = await findNodeIdByCode(fixture.gameId, "bay");
 
-    await expect(
-      processCommand({
-        gameId: fixture.gameId,
-        gameTeamId: participant.gameTeamId,
-        userId: participant.userId,
-        commandType: "CHECK_IN",
-        payload: {
-          nodeId: bayId,
-          geo: { longitude: -79.38, accuracy: 10 },
-        },
-      }),
-    ).rejects.toMatchObject({ status: 400, code: "invalid_payload" });
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CHECK_IN",
+      payload: {
+        nodeId: bayId,
+        geo: { longitude: -79.38, accuracy: 10 },
+      },
+    });
 
-    // No state change on a parse failure: the position row is untouched.
+    const checkInEvent = result.events.find((e) => e.eventType === "CHECK_IN")!;
+    // Malformed → event payload looks the same as the "no geo" path: no
+    // `geo`, no warning flags.
+    expect(checkInEvent.payload).toEqual({ nodeId: bayId, nodeCode: "bay" });
+
     const position = await GameTeamPosition.findOne({
       where: { gameTeamId: participant.gameTeamId },
     });
-    expect(position?.currentGameNodeId).toBeNull();
+    expect(position?.currentGameNodeId).toBe(bayId);
     expect(position?.lastCheckInLatitude).toBeNull();
+    expect(position?.lastCheckInLongitude).toBeNull();
+    expect(position?.geofenceValidated).toBeNull();
+    expect(position?.geolocationWarning).toBeNull();
+    expect(position?.lastKnownLatitude).toBeNull();
+    expect(position?.lastKnownLongitude).toBeNull();
+    expect(position?.lastKnownAccuracy).toBeNull();
+    expect(position?.lastKnownSeenAt).toBeNull();
+  });
+
+  it("Phase L: implicit CHECK_OUT inherits the parent CHECK_IN's geo block but no warning", async () => {
+    // When CHECK_IN happens at a different station from the team's current
+    // one, the handler emits CHECK_OUT (implicit) + CHECK_IN. Phase L: the
+    // parent CHECK_IN's geo sample is lifted onto the implicit CHECK_OUT
+    // for audit symmetry, but the warning flag is intentionally not
+    // re-emitted — the team is being validated against the *new* station,
+    // and re-using that warning against the *old* station would mislead
+    // the log. The helper itself is called exactly once.
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay", "bloor-yonge"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bloorId = fixture.nodeIdByCode.get("bloor-yonge")!;
+
+    // bloor-yonge is at index 1 → lat 43.651 / lng -79.379. Sample is on
+    // top of bloor with tight accuracy, so the warning is false against
+    // the *new* station.
+    const sample = { latitude: 43.651, longitude: -79.379, accuracy: 10 };
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CHECK_IN",
+      payload: { nodeId: bloorId, geo: sample },
+    });
+
+    const checkOutEvent = result.events.find(
+      (e) => e.eventType === "CHECK_OUT",
+    )!;
+    const checkInEvent = result.events.find((e) => e.eventType === "CHECK_IN")!;
+    expect(checkOutEvent.payload).toMatchObject({
+      nodeCode: "bay",
+      implicit: true,
+      geo: sample,
+    });
+    // Implicit CHECK_OUT explicitly omits geolocationWarning — keep this
+    // assertion strict so we'd catch a regression that double-evaluates.
+    expect(checkOutEvent.payload).not.toHaveProperty("geolocationWarning");
+    expect(checkInEvent.payload).toMatchObject({
+      nodeId: bloorId,
+      geo: sample,
+      geolocationWarning: false,
+      geofenceValidated: true,
+    });
   });
 
   it("CHECK_OUT clears the position row's geo snapshot", async () => {
