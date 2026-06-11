@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { PRODUCTION_LOBBY_PRESET } from "../../../src/game/lobby-presets.ts";
 import { HttpError } from "../../../src/lib/http-error.ts";
 import { Lobby } from "../../../src/models/lobby.ts";
 import { LobbyNotification } from "../../../src/models/lobby-notification.ts";
@@ -33,13 +34,14 @@ describe("lobby-notification-service", () => {
       "game_start",
       "time_warning",
       "second_warning",
+      ...PRODUCTION_LOBBY_PRESET.notifications.map((n) => n.template),
     ]);
 
     const fromGuest = await service.listLobbyNotifications(
       lobbyId,
       userIds[1]!,
     );
-    expect(fromGuest).toHaveLength(3);
+    expect(fromGuest).toHaveLength(3 + PRODUCTION_LOBBY_PRESET.notifications.length);
   });
 
   it("rejects listing from a non-member", async () => {
