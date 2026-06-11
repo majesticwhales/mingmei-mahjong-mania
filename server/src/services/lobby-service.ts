@@ -26,6 +26,7 @@ import {
 import { serializeLobbyNotification } from "./lobby-notification-service.ts";
 import { getBroadcaster } from "../socket/broadcaster-registry.ts";
 import {
+  deriveAutoDistributedOffsets,
   lobbyPresetForTestFlag,
 } from "../game/lobby-presets.ts";
 
@@ -487,20 +488,30 @@ export async function createLobby(
   // Per-slot rules arrays. Resolution order:
   //   1. Explicit host override → use as-is (must match slotsPerNode or
   //      validation throws).
-  //   2. Template default whose length matches `slotsPerNode` → inherit.
-  //   3. Algorithmic default — `[0,0,...,0]` for offsets, `[true,...,true]`
-  //      for map-visibility. Triggered when the host overrides
-  //      `slotsPerNode` past the template's defaults' length, so they
-  //      don't have to also re-supply matched-length arrays just to start
-  //      a lobby. Mirrors the auto-resize behavior in `updateConfig`.
+  //   2. Slot layer disabled by `visibilityMode` ("none" / "phase") →
+  //      coerce to the trivial all-zero arrays. The knob lock (see
+  //      `assertPatchObeysVisibilityLock`) only audits host-supplied
+  //      values, so without this branch an auto-distributed default
+  //      would silently violate the lock at update time.
+  //   3. Otherwise auto-distribute evenly across the resolved game
+  //      duration (so a 4h production game with 3 slots/node yields
+  //      [0, 4800, 9600], and a 240s test game yields [0, 80, 160]).
+  //      The map-reveal timeline mirrors the claim timeline by default,
+  //      which trivially satisfies `map[k] >= claim[k]` and means no
+  //      separate SLOT_MAP_UNLOCKED jobs fire unless the host explicitly
+  //      delays the map reveal. Template defaults remain on the model
+  //      for migration history / future tooling but are no longer
+  //      consulted on lobby create.
+  const slotLayerActive = visibilityIncludes(visibilityMode, "slot");
   const slotUnlockOffsetsSeconds = options.slotUnlockOffsetsSeconds
-    ?? (template.defaultSlotUnlockOffsetsSeconds.length === slotsPerNode
-      ? template.defaultSlotUnlockOffsetsSeconds
-      : (new Array<number>(slotsPerNode).fill(0)));
-  const slotMapUnlockOffsetsSeconds = options.slotMapUnlockOffsetsSeconds
-    ?? (template.defaultSlotMapUnlockOffsetsSeconds.length === slotsPerNode
-      ? template.defaultSlotMapUnlockOffsetsSeconds
-      : (new Array<number | null>(slotsPerNode).fill(0)));
+    ?? (slotLayerActive
+      ? deriveAutoDistributedOffsets(slotsPerNode, gameDurationSeconds)
+      : new Array<number>(slotsPerNode).fill(0));
+  const slotMapUnlockOffsetsSeconds: Array<number | null> =
+    options.slotMapUnlockOffsetsSeconds
+    ?? (slotLayerActive
+      ? deriveAutoDistributedOffsets(slotsPerNode, gameDurationSeconds)
+      : new Array<number | null>(slotsPerNode).fill(0));
   validateSlotUnlockOffsetsSeconds(slotUnlockOffsetsSeconds, slotsPerNode);
   validateSlotMapUnlockOffsetsSeconds(
     slotMapUnlockOffsetsSeconds,

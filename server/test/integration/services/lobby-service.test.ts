@@ -194,14 +194,16 @@ describe("lobby-service", () => {
   });
 
   describe("per-slot rules arrays (chunk 5 + Phase L)", () => {
-    it("defaults slotUnlockOffsetsSeconds and slotMapUnlockOffsetsSeconds from the template", async () => {
+    it("auto-distributes slotUnlockOffsetsSeconds and slotMapUnlockOffsetsSeconds across the preset duration", async () => {
       const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
 
-      expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 2400, 4800]);
-      // TTC 2026 Phase L map-reveal defaults; see migration
-      // `20260611120000-add-slot-map-unlock-offsets.cjs`.
-      expect(lobby.config.slotMapUnlockOffsetsSeconds).toEqual([0, 3600, 7200]);
+      // Production preset gameDurationSeconds = 14400, slotsPerNode = 3, so
+      // both claim and map auto-distribute to [0, 4800, 9600]. Template
+      // defaults are no longer consulted on create — see
+      // `createLobby` in `services/lobby-service.ts`.
+      expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 4800, 9600]);
+      expect(lobby.config.slotMapUnlockOffsetsSeconds).toEqual([0, 4800, 9600]);
     });
 
     it("accepts host overrides on create when length matches slotsPerNode", async () => {
