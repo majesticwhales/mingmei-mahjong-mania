@@ -136,8 +136,9 @@ describe("GameSummaryScreen", () => {
     const teamHeadings = screen.getAllByRole("heading", { level: 3 });
     expect(teamHeadings.map((h) => h.textContent)).toEqual(["Team A", "Team B"]);
 
-    expect(screen.getByText("8000")).toBeInTheDocument();
-    expect(screen.getByText("2000")).toBeInTheDocument();
+    expect(screen.getAllByText(/8,?000/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/2,?000/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Winner").length).toBeGreaterThan(0);
     expect(screen.getByText("Won at TKY")).toBeInTheDocument();
     expect(screen.getByText("Won at OSA")).toBeInTheDocument();
     expect(screen.getByText("Riichi")).toBeInTheDocument();

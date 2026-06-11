@@ -45,6 +45,25 @@ const atStation: AtStationDto = {
 };
 
 describe("ClaimWinModal", () => {
+  it("matches waits by suit and rank even when copyIndex differs", () => {
+    const waits: AnalyzedWaitDto[] = [wait("pin", 5, 0)];
+    const station: AtStationDto = {
+      nodeId: "node-1",
+      code: "TKY",
+      tiles: [{ slotIndex: 0, tile: tile({ suit: "pin", rank: 5, copyIndex: 2 }) }],
+    };
+    render(
+      <ClaimWinModal
+        atStation={station}
+        waits={waits}
+        onConfirm={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /claim pin5-2/i })).toBeInTheDocument();
+  });
+
   it("only renders station tiles that match a wait", () => {
     const waits: AnalyzedWaitDto[] = [
       wait("pin", 5, 0),
@@ -59,9 +78,9 @@ describe("ClaimWinModal", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Claim pin5-0")).toBeInTheDocument();
-    expect(screen.getByLabelText("Claim sou9-0")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Claim man3-0")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /claim pin5-0/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /claim sou9-0/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /claim man3-0/i })).not.toBeInTheDocument();
   });
 
   it("defaults selection to the highest-scoring wait", () => {
@@ -78,9 +97,9 @@ describe("ClaimWinModal", () => {
       />,
     );
 
-    expect(screen.getByText(/5 han \/ 30 fu = 8000 points/)).toBeInTheDocument();
-    const sou = screen.getByLabelText("Claim sou9-0");
-    expect(sou.className).toContain("tile-pick--selected");
+    expect(screen.getByText(/5 han \/ 30 fu = 8,?000 points/)).toBeInTheDocument();
+    const sou = screen.getByRole("button", { name: /claim sou9-0/i });
+    expect(sou.className).toContain("claim-win-modal__tile-option--selected");
   });
 
   it("invokes onConfirm with the selected station tile id", async () => {
@@ -98,7 +117,7 @@ describe("ClaimWinModal", () => {
       />,
     );
 
-    await userEvent.click(screen.getByLabelText("Claim pin5-0"));
+    await userEvent.click(screen.getByRole("button", { name: /claim pin5-0/i }));
     await userEvent.click(screen.getByRole("button", { name: /claim winning hand/i }));
 
     expect(onConfirm).toHaveBeenCalledWith("pin-5-0");
