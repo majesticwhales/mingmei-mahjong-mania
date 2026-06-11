@@ -245,4 +245,87 @@ describe("CHALLENGE_COMPLETED handler", () => {
       }),
     ).rejects.toMatchObject({ status: 409, code: "hand_completed" });
   });
+
+  // -------------------------------------------------------------------------
+  // Phase L: geolocation telemetry. Fixture node bay = index 0 → 43.65 /
+  // -79.38, 100 m radius.
+  // -------------------------------------------------------------------------
+
+  it("Phase L: CHALLENGE_COMPLETED with valid in-fence geo lifts geo+warning:false and populates last_known_*", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    const instance = await startInstance({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+    });
+    const sample = { latitude: 43.65, longitude: -79.38, accuracy: 10 };
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CHALLENGE_COMPLETED",
+      payload: { instanceId: instance.id, geo: sample },
+    });
+
+    expect(result.events[0]!.payload).toMatchObject({
+      nodeId: bayId,
+      geo: sample,
+      geolocationWarning: false,
+    });
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBe(43.65);
+    expect(position?.lastKnownAccuracy).toBe(10);
+    expect(position?.lastKnownSeenAt).toBeInstanceOf(Date);
+    // Existing per-session credit semantics still apply (the geo path
+    // rides along on the same position.save).
+    expect(position?.pendingSwapCredit).toBe(true);
+    expect(position?.creditEarnedInSession).toBe(true);
+  });
+
+  it("Phase L: CHALLENGE_COMPLETED with malformed geo silently drops it and still resolves the instance", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    const instance = await startInstance({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+    });
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CHALLENGE_COMPLETED",
+      payload: { instanceId: instance.id, geo: "not-an-object" },
+    });
+
+    expect(result.events[0]!.eventType).toBe("CHALLENGE_COMPLETED");
+    expect(result.events[0]!.payload).not.toHaveProperty("geo");
+    expect(result.events[0]!.payload).not.toHaveProperty("geolocationWarning");
+
+    const refreshed = await GameChallengeInstance.findByPk(instance.id);
+    expect(refreshed?.status).toBe("completed");
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBeNull();
+  });
 });

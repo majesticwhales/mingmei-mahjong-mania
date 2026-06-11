@@ -12,6 +12,7 @@ import { GameTilePlacement } from "../../models/game-tile-placement.ts";
 import { swapPlacements } from "../tile-swap-service.ts";
 import { assertSlotUnlocked } from "../../services/slot-visibility.ts";
 import { assertNotHandCompleted } from "../hand-completed-lock.ts";
+import { recordCommandGeolocation } from "../../services/geolocation.ts";
 
 interface SwapTilePayload {
   /** `game_tiles.id` of a tile currently in the issuing team's hand. */
@@ -22,6 +23,13 @@ interface SwapTilePayload {
    * `games.slots_per_node` tiles; the caller picks which one to take.
    */
   stationTileId: string;
+  /**
+   * Phase L: raw geolocation sample. Routed through
+   * `recordCommandGeolocation` (warn+allow; malformed values are silently
+   * dropped). Held as `unknown` here to avoid double-validating before the
+   * shared helper.
+   */
+  rawGeo: unknown;
 }
 
 function parseTileId(value: unknown, fieldName: string): string {
@@ -45,7 +53,7 @@ function parsePayload(payload: Record<string, unknown>): SwapTilePayload {
       "handTileId and stationTileId must reference different tiles",
     );
   }
-  return { handTileId, stationTileId };
+  return { handTileId, stationTileId, rawGeo: payload.geo };
 }
 
 /**
@@ -56,7 +64,7 @@ function parsePayload(payload: Record<string, unknown>): SwapTilePayload {
  */
 export const swapTileHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
-    const { handTileId, stationTileId } = parsePayload(ctx.payload);
+    const { handTileId, stationTileId, rawGeo } = parsePayload(ctx.payload);
 
     await assertNotHandCompleted({
       gameTeamId: ctx.gameTeamId,
@@ -114,6 +122,17 @@ export const swapTileHandler: CommandHandler = {
         `Station ${position.currentGameNodeId} not found`,
       );
     }
+
+    // Phase L: capture telemetry against the team's current station. The
+    // helper silently drops malformed input and may mutate
+    // `position.lastKnown_*` columns. We save the position below (already
+    // happens conditionally when consuming a swap credit; we OR the geo
+    // path in).
+    const geoResult = recordCommandGeolocation({
+      rawGeo,
+      position,
+      currentStation: station,
+    });
 
     // Per-slot lock check (TDD §3.3 `canSwapSlot`, formalized in chunk 6
     // via `services/slot-visibility.ts`). The station tile occupies some
@@ -179,19 +198,31 @@ export const swapTileHandler: CommandHandler = {
     // "one swap per session"). Both flags clear on CHECK_OUT / CHECK_IN.
     if (challengeCount > 0) {
       position.pendingSwapCredit = false;
+    }
+    // Save the position iff something changed: either credit was consumed
+    // (existing path) or the geo helper recorded a sample (Phase L). We
+    // skip the save when neither applied to keep the original "free-swap
+    // stations don't touch the position row" behaviour.
+    if (challengeCount > 0 || geoResult.geo != null) {
       await position.save({ transaction: ctx.transaction });
+    }
+
+    const eventPayload: Record<string, unknown> = {
+      nodeId: station.id,
+      nodeCode: station.code,
+      handTileId: handPlacement.gameTileId,
+      stationTileId: stationPlacement.gameTileId,
+    };
+    if (geoResult.geo != null) {
+      eventPayload.geo = geoResult.geo;
+      eventPayload.geolocationWarning = geoResult.geolocationWarning;
     }
 
     return {
       events: [
         {
           eventType: "SWAP_TILE",
-          payload: {
-            nodeId: station.id,
-            nodeCode: station.code,
-            handTileId: handPlacement.gameTileId,
-            stationTileId: stationPlacement.gameTileId,
-          },
+          payload: eventPayload,
         },
       ],
     };

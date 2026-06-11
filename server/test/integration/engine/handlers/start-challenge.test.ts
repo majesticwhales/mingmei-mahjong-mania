@@ -312,4 +312,70 @@ describe("START_CHALLENGE handler", () => {
       }),
     ).rejects.toMatchObject({ status: 409, code: "hand_completed" });
   });
+
+  // -------------------------------------------------------------------------
+  // Phase L: geolocation telemetry. Fixture node bay = index 0 → 43.65 /
+  // -79.38, 100 m radius. The shared helper is unit-tested elsewhere; here
+  // we just verify the handler wires it through and lifts the result.
+  // -------------------------------------------------------------------------
+
+  it("Phase L: START_CHALLENGE with valid in-fence geo lifts geo+warning:false onto the event and populates last_known_*", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    await attachChallengeToGameNode({ gameNodeId: bayId });
+    const sample = { latitude: 43.65, longitude: -79.38, accuracy: 10 };
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "START_CHALLENGE",
+      payload: { nodeId: bayId, geo: sample },
+    });
+
+    expect(result.events[0]!.payload).toMatchObject({
+      nodeId: bayId,
+      geo: sample,
+      geolocationWarning: false,
+    });
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBe(43.65);
+    expect(position?.lastKnownAccuracy).toBe(10);
+    expect(position?.lastKnownSeenAt).toBeInstanceOf(Date);
+  });
+
+  it("Phase L: START_CHALLENGE with malformed geo silently drops it and still creates the instance", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    await attachChallengeToGameNode({ gameNodeId: bayId });
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "START_CHALLENGE",
+      payload: { nodeId: bayId, geo: { accuracy: 10 } },
+    });
+
+    expect(result.events[0]!.eventType).toBe("START_CHALLENGE");
+    expect(result.events[0]!.payload).not.toHaveProperty("geo");
+    expect(result.events[0]!.payload).not.toHaveProperty("geolocationWarning");
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBeNull();
+    expect(position?.lastKnownSeenAt).toBeNull();
+  });
 });
