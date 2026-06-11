@@ -52,7 +52,10 @@ export function GameScreen() {
   const [swapOpen, setSwapOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [claimPending, setClaimPending] = useState(false);
-  const [handCompletedOpen, setHandCompletedOpen] = useState(false);
+  const [handCompletedDismissed, setHandCompletedDismissed] = useState(false);
+  const [trackedHandCompletedAt, setTrackedHandCompletedAt] = useState<string | null>(
+    null,
+  );
   const [ending, setEnding] = useState(false);
   const [checkInPending, setCheckInPending] = useState(false);
 
@@ -81,13 +84,16 @@ export function GameScreen() {
     }
   }, [gameEnded, id, navigate]);
 
-  useEffect(() => {
+  // Auto-open the hand-completed modal when a new win snapshot arrives.
+  // Adjust state during render (not in an effect) so eslint's
+  // react-hooks/set-state-in-effect rule stays satisfied.
+  if (handCompleted?.completedAt !== trackedHandCompletedAt) {
+    setTrackedHandCompletedAt(handCompleted?.completedAt ?? null);
     if (handCompleted) {
-      setHandCompletedOpen(true);
-    } else {
-      setHandCompletedOpen(false);
+      setHandCompletedDismissed(false);
     }
-  }, [handCompleted]);
+  }
+  const handCompletedOpen = Boolean(handCompleted) && !handCompletedDismissed;
 
   const handleVisibilityPhaseElapsed = useCallback(() => {
     if (!gameEnded) {
@@ -325,7 +331,7 @@ export function GameScreen() {
             <button
               type="button"
               className="btn btn--secondary game-screen__win-summary-btn"
-              onClick={() => setHandCompletedOpen(true)}
+              onClick={() => setHandCompletedDismissed(false)}
             >
               Your win
             </button>
@@ -359,7 +365,7 @@ export function GameScreen() {
         <HandCompletedModal
           handCompleted={handCompleted}
           teamsCompletedCount={projection.teamsCompleted.length}
-          onClose={() => setHandCompletedOpen(false)}
+          onClose={() => setHandCompletedDismissed(true)}
         />
       )}
       <StationPanel
