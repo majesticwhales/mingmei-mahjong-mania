@@ -22,7 +22,7 @@ import { restClient } from "../../transport/restClient";
 import { ClaimWinModal } from "./ClaimWinModal";
 import { EventLogDrawer } from "./EventLogDrawer";
 import { GameTimer } from "./GameTimer";
-import { HandCompletedBanner } from "./HandCompletedBanner";
+import { HandCompletedModal } from "./HandCompletedModal";
 import { SwapTileModal } from "./SwapTileModal";
 import { VisibilityCountdown } from "./VisibilityCountdown";
 
@@ -46,6 +46,7 @@ export function GameScreen() {
   const [swapOpen, setSwapOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [claimPending, setClaimPending] = useState(false);
+  const [handCompletedOpen, setHandCompletedOpen] = useState(false);
   const [ending, setEnding] = useState(false);
   const [checkInPending, setCheckInPending] = useState(false);
 
@@ -73,6 +74,14 @@ export function GameScreen() {
       navigate(`/games/${id}/summary`, { replace: true });
     }
   }, [gameEnded, id, navigate]);
+
+  useEffect(() => {
+    if (handCompleted) {
+      setHandCompletedOpen(true);
+    } else {
+      setHandCompletedOpen(false);
+    }
+  }, [handCompleted]);
 
   const handleVisibilityPhaseElapsed = useCallback(() => {
     if (!gameEnded) {
@@ -306,6 +315,15 @@ export function GameScreen() {
               Summary
             </Link>
           )}
+          {handCompleted && !handCompletedOpen && (
+            <button
+              type="button"
+              className="btn btn--secondary game-screen__win-summary-btn"
+              onClick={() => setHandCompletedOpen(true)}
+            >
+              Your win
+            </button>
+          )}
           <button
             type="button"
             className="btn btn--secondary game-screen__event-log-btn"
@@ -331,10 +349,11 @@ export function GameScreen() {
           onMapBackgroundClick={viewingNode ? handleClosePanel : undefined}
         />
       </main>
-      {handCompleted && (
-        <HandCompletedBanner
+      {handCompleted && handCompletedOpen && (
+        <HandCompletedModal
           handCompleted={handCompleted}
           teamsCompletedCount={projection.teamsCompleted.length}
+          onClose={() => setHandCompletedOpen(false)}
         />
       )}
       <StationPanel

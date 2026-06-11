@@ -52,65 +52,85 @@ function TeamCard({ team, isWinner, isOwnTeam, rank }: TeamCardProps) {
   const statusLabel = completed
     ? `Won at ${team.winningNodeCode ?? "—"}`
     : tenpai
-      ? "Noten — tenpai (analysis below)"
+      ? "Noten — tenpai"
       : "Noten";
 
   return (
     <article
       className={`game-summary__team${isWinner ? " game-summary__team--winner" : ""}${
         isOwnTeam ? " game-summary__team--own" : ""
-      }`}
+      }${completed ? "" : " game-summary__team--incomplete"}`}
     >
       <header className="game-summary__team-header">
-        <div>
-          <p className="game-summary__team-eyebrow">#{rank} · {team.teamCode}</p>
+        <div className="game-summary__team-intro">
+          <div className="game-summary__team-badges">
+            <span className="game-summary__rank">#{rank}</span>
+            {isWinner && (
+              <span className="game-summary__badge game-summary__badge--winner">Winner</span>
+            )}
+            {isOwnTeam && (
+              <span className="game-summary__badge game-summary__badge--own">Your team</span>
+            )}
+          </div>
           <h3 className="game-summary__team-title">
             {team.displayName ?? team.teamCode}
           </h3>
+          <p className="game-summary__team-code">{team.teamCode}</p>
           <p className="game-summary__team-status">{statusLabel}</p>
         </div>
         <div className="game-summary__team-score">
-          <p className="game-summary__team-points">{team.finalPoints}</p>
+          <p className="game-summary__team-points">
+            {team.finalPoints.toLocaleString()}
+          </p>
           <p className="game-summary__team-points-label">points</p>
         </div>
       </header>
-      <dl className="game-summary__stats">
-        <div>
-          <dt>Han</dt>
-          <dd>{team.finalHan}</dd>
-        </div>
-        <div>
-          <dt>Fu</dt>
-          <dd>{team.isYakuman ? "—" : team.finalFu}</dd>
-        </div>
-        {team.isYakuman && (
-          <div>
-            <dt>Yakuman</dt>
-            <dd>Yes</dd>
+
+      {(completed || team.finalHan > 0 || team.finalYaku.length > 0) && (
+        <dl className="game-summary__stats">
+          <div className="game-summary__stat">
+            <dt>Han</dt>
+            <dd>{team.finalHan}</dd>
           </div>
-        )}
-      </dl>
-      {team.finalYaku.length > 0 && (
-        <ul className="game-summary__yaku-list">
-          {team.finalYaku.map((yaku, idx) => (
-            <li key={`${yaku.name}-${idx}`}>
-              <span>{yaku.name}</span>
-              <span>{yaku.han} han</span>
-            </li>
-          ))}
-        </ul>
+          <div className="game-summary__stat">
+            <dt>Fu</dt>
+            <dd>{team.isYakuman ? "—" : team.finalFu}</dd>
+          </div>
+          <div className="game-summary__stat">
+            <dt>{team.isYakuman ? "Yakuman" : "Score"}</dt>
+            <dd>{team.isYakuman ? "Yes" : team.finalPoints.toLocaleString()}</dd>
+          </div>
+        </dl>
       )}
+
+      {team.finalYaku.length > 0 && (
+        <section className="game-summary__score-breakdown">
+          <h4 className="game-summary__section-title">Yaku</h4>
+          <ul className="game-summary__yaku-list">
+            {team.finalYaku.map((yaku, idx) => (
+              <li key={`${yaku.name}-${idx}`}>
+                <span className="game-summary__yaku-name">{yaku.name}</span>
+                <span className="game-summary__yaku-han">{yaku.han} han</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {team.finalHand.length > 0 && (
         <section className="game-summary__hand">
-          <h4>{completed ? "Winning hand" : "Final hand"}</h4>
+          <h4 className="game-summary__section-title">
+            {completed ? "Winning hand" : "Final hand"}
+          </h4>
           <ul className="game-summary__hand-grid">
             {team.finalHand.map(renderTile)}
           </ul>
         </section>
       )}
+
       {tenpai && team.waits && team.waits.length > 0 && (
         <section className="game-summary__waits">
-          <h4>Waits</h4>
+          <h4 className="game-summary__section-title">Tenpai waits</h4>
           <ul className="game-summary__waits-list">
             {team.waits.map((wait, idx) => (
               <li key={`${wait.tile.suit}-${wait.tile.rank}-${wait.tile.copyIndex}-${idx}`}>
@@ -119,8 +139,13 @@ function TeamCard({ team, isWinner, isOwnTeam, rank }: TeamCardProps) {
                   alt={wait.tile.displayName}
                   className="station-panel__tile-image"
                 />
-                <span>
-                  {wait.tile.displayName} — {wait.isYakuman ? "Yakuman" : `${wait.points} pts`}
+                <span className="game-summary__wait-copy">
+                  <span className="game-summary__wait-name">{wait.tile.displayName}</span>
+                  <span className="game-summary__wait-score">
+                    {wait.isYakuman
+                      ? "Yakuman"
+                      : `${wait.han} han / ${wait.fu} fu · ${wait.points.toLocaleString()} pts`}
+                  </span>
                 </span>
               </li>
             ))}
@@ -205,18 +230,36 @@ export function GameSummaryScreen() {
     const bDone = b.handCompletedAt ? Date.parse(b.handCompletedAt) : Infinity;
     return aDone - bDone;
   });
+  const winningTeam =
+    summary.winningGameTeamId != null
+      ? summary.teams.find((t) => t.gameTeamId === summary.winningGameTeamId) ?? null
+      : null;
 
   return (
     <main className="screen game-summary">
       <header className="game-summary__header">
-        <h1 className="screen__title">Game over</h1>
+        <p className="game-summary__eyebrow">Final results</p>
+        <h1 className="game-summary__title">Game over</h1>
         <p className="game-summary__subtitle">
-          {endReasonLabel(summary.endReason)}{" "}
-          <time dateTime={summary.endedAt}>
-            ({new Date(summary.endedAt).toLocaleString()})
-          </time>
+          {endReasonLabel(summary.endReason)}
         </p>
-        {summary.winningGameTeamId == null && (
+        <time className="game-summary__ended-at" dateTime={summary.endedAt}>
+          Ended {new Date(summary.endedAt).toLocaleString()}
+        </time>
+        {winningTeam ? (
+          <div className="game-summary__winner-banner">
+            <p className="game-summary__winner-label">Winner</p>
+            <p className="game-summary__winner-name">
+              {winningTeam.displayName ?? winningTeam.teamCode}
+            </p>
+            <p className="game-summary__winner-score">
+              {winningTeam.finalPoints.toLocaleString()} points
+              {winningTeam.winningNodeCode
+                ? ` · Won at ${winningTeam.winningNodeCode}`
+                : ""}
+            </p>
+          </div>
+        ) : (
           <p className="game-summary__tie">No outright winner — tie on points.</p>
         )}
       </header>

@@ -109,53 +109,69 @@ export function ClaimWinModal({
             : "Pick the station tile you want to claim as your winning 14th tile."}
         </p>
         {claimable.length > 0 && (
-          <section>
-            <h3>Winning tiles at this station</h3>
-            <ul className="station-panel__tile-grid">
-              {claimable.map((entry) => (
-                <li key={entry.tile.instanceId}>
-                  <button
-                    type="button"
-                    className={`tile-pick${selected === entry.tile.instanceId ? " tile-pick--selected" : ""}`}
-                    onClick={() => setSelected(entry.tile.instanceId)}
-                    disabled={pending}
-                    aria-label={`Claim ${entry.tile.displayName}`}
-                  >
-                    <img
-                      src={tileImagePath(entry.tile)}
-                      alt={entry.tile.displayName}
-                      className="station-panel__tile-image"
-                    />
-                    <span className="claim-win-modal__tile-meta">
-                      <span>{entry.tile.displayName}</span>
-                      <span className="claim-win-modal__tile-points">
-                        {entry.wait.isYakuman
-                          ? "Yakuman"
-                          : `${entry.wait.han} han / ${entry.wait.fu} fu · ${entry.wait.points} pts`}
+          <section className="claim-win-modal__section">
+            <h3 className="claim-win-modal__section-title">
+              Winning tiles at this station
+            </h3>
+            <ul className="claim-win-modal__tile-list">
+              {claimable.map((entry) => {
+                const isSelected = selected === entry.tile.instanceId;
+                const scoreLabel = entry.wait.isYakuman
+                  ? "Yakuman"
+                  : `${entry.wait.han} han / ${entry.wait.fu} fu · ${entry.wait.points.toLocaleString()} pts`;
+                return (
+                  <li key={entry.tile.instanceId}>
+                    <button
+                      type="button"
+                      className={`claim-win-modal__tile-option${isSelected ? " claim-win-modal__tile-option--selected" : ""}`}
+                      onClick={() => setSelected(entry.tile.instanceId)}
+                      disabled={pending}
+                      aria-pressed={isSelected}
+                      aria-label={`Claim ${entry.tile.displayName}, ${scoreLabel}`}
+                    >
+                      <img
+                        src={tileImagePath(entry.tile)}
+                        alt=""
+                        aria-hidden="true"
+                        className="station-panel__tile-image station-panel__tile-image--large"
+                      />
+                      <span className="claim-win-modal__tile-copy">
+                        <span className="claim-win-modal__tile-name">
+                          {entry.tile.displayName}
+                        </span>
+                        <span className="claim-win-modal__tile-score">{scoreLabel}</span>
                       </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
         {selectedClaim && (
           <section className="claim-win-modal__preview">
-            <h3>Score preview</h3>
-            <ul className="claim-win-modal__yaku-list">
-              {selectedClaim.wait.yaku.map((yaku, idx) => (
-                <li key={`${yaku.name}-${idx}`}>
-                  <span>{yaku.name}</span>
-                  <span>{yaku.han} han</span>
-                </li>
-              ))}
-            </ul>
-            <p className="claim-win-modal__total">
-              {selectedClaim.wait.isYakuman
-                ? "Yakuman — locked"
-                : `Total: ${selectedClaim.wait.han} han / ${selectedClaim.wait.fu} fu = ${selectedClaim.wait.points} points`}
-            </p>
+            <h3 className="claim-win-modal__section-title">Score preview</h3>
+            {selectedClaim.wait.isYakuman ? (
+              <p className="claim-win-modal__yakuman">Yakuman — locked</p>
+            ) : (
+              <>
+                <ul className="claim-win-modal__yaku-list">
+                  {selectedClaim.wait.yaku.map((yaku, idx) => (
+                    <li key={`${yaku.name}-${idx}`}>
+                      <span className="claim-win-modal__yaku-name">{yaku.name}</span>
+                      <span className="claim-win-modal__yaku-han">{yaku.han} han</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="claim-win-modal__total">
+                  <span className="claim-win-modal__total-label">Total</span>
+                  <span className="claim-win-modal__total-value">
+                    {selectedClaim.wait.han} han / {selectedClaim.wait.fu} fu ={" "}
+                    {selectedClaim.wait.points.toLocaleString()} points
+                  </span>
+                </p>
+              </>
+            )}
           </section>
         )}
         <footer className="modal__footer">

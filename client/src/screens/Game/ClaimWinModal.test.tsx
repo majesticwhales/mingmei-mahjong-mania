@@ -61,7 +61,7 @@ describe("ClaimWinModal", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Claim pin5-2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /claim pin5-2/i })).toBeInTheDocument();
   });
 
   it("only renders station tiles that match a wait", () => {
@@ -78,9 +78,9 @@ describe("ClaimWinModal", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Claim pin5-0")).toBeInTheDocument();
-    expect(screen.getByLabelText("Claim sou9-0")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Claim man3-0")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /claim pin5-0/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /claim sou9-0/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /claim man3-0/i })).not.toBeInTheDocument();
   });
 
   it("defaults selection to the highest-scoring wait", () => {
@@ -97,9 +97,9 @@ describe("ClaimWinModal", () => {
       />,
     );
 
-    expect(screen.getByText(/5 han \/ 30 fu = 8000 points/)).toBeInTheDocument();
-    const sou = screen.getByLabelText("Claim sou9-0");
-    expect(sou.className).toContain("tile-pick--selected");
+    expect(screen.getByText(/5 han \/ 30 fu = 8,?000 points/)).toBeInTheDocument();
+    const sou = screen.getByRole("button", { name: /claim sou9-0/i });
+    expect(sou.className).toContain("claim-win-modal__tile-option--selected");
   });
 
   it("invokes onConfirm with the selected station tile id", async () => {
@@ -117,7 +117,7 @@ describe("ClaimWinModal", () => {
       />,
     );
 
-    await userEvent.click(screen.getByLabelText("Claim pin5-0"));
+    await userEvent.click(screen.getByRole("button", { name: /claim pin5-0/i }));
     await userEvent.click(screen.getByRole("button", { name: /claim winning hand/i }));
 
     expect(onConfirm).toHaveBeenCalledWith("pin-5-0");
