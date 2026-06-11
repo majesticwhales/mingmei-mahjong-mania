@@ -689,4 +689,88 @@ describe("CLAIM_WIN handler", () => {
     expect(refreshed?.status).toBe("failed");
     expect(refreshed?.cooldownUntil).toBeInstanceOf(Date);
   });
+
+  // -------------------------------------------------------------------------
+  // Phase L: geolocation telemetry. Fixture node bay = index 0 → 43.65 /
+  // -79.38, 100 m radius.
+  // -------------------------------------------------------------------------
+
+  it("Phase L: CLAIM_WIN with valid in-fence geo lifts geo+warning:false onto the event and populates last_known_*", async () => {
+    const fixture = await setupLightweightGame({
+      participantCount: 1,
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    await seedShanponTenpai(fixture.gameId, participant.gameTeamId);
+    const stationTileId = await placeStationTile({
+      gameId: fixture.gameId,
+      gameNodeId: bayId,
+      slotIndex: 0,
+      tile: ["pin", 8, 2],
+    });
+    const sample = { latitude: 43.65, longitude: -79.38, accuracy: 10 };
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CLAIM_WIN",
+      payload: { stationTileId, geo: sample },
+    });
+
+    const claimEvent = result.events.find((e) => e.eventType === "CLAIM_WIN")!;
+    expect(claimEvent.payload).toMatchObject({
+      nodeId: bayId,
+      stationTileId,
+      geo: sample,
+      geolocationWarning: false,
+    });
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBe(43.65);
+    expect(position?.lastKnownAccuracy).toBe(10);
+    expect(position?.lastKnownSeenAt).toBeInstanceOf(Date);
+  });
+
+  it("Phase L: CLAIM_WIN with malformed geo silently drops it and still resolves the win", async () => {
+    const fixture = await setupLightweightGame({
+      participantCount: 1,
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    await seedShanponTenpai(fixture.gameId, participant.gameTeamId);
+    const stationTileId = await placeStationTile({
+      gameId: fixture.gameId,
+      gameNodeId: bayId,
+      slotIndex: 0,
+      tile: ["pin", 8, 2],
+    });
+
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CLAIM_WIN",
+      payload: { stationTileId, geo: { latitude: "not a number" } },
+    });
+
+    const claimEvent = result.events.find((e) => e.eventType === "CLAIM_WIN")!;
+    expect(claimEvent.payload).not.toHaveProperty("geo");
+    expect(claimEvent.payload).not.toHaveProperty("geolocationWarning");
+
+    const team = await GameTeam.findByPk(participant.gameTeamId);
+    expect(team?.handCompletedAt).toBeInstanceOf(Date);
+
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.lastKnownLatitude).toBeNull();
+    expect(position?.lastKnownSeenAt).toBeNull();
+  });
 });
