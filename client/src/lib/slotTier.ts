@@ -55,20 +55,30 @@ export function offsetsMatchAutoDistribute(
 }
 
 /**
- * Returns a `slotMapVisible` array resized to `slotsPerNode`. Slot 0 is
- * always `true` (server-side invariant). Existing entries are preserved
- * by index; new entries default to `true`; trailing entries are dropped.
+ * Phase L §3.13: Returns a `slotMapUnlockOffsetsSeconds` array resized
+ * to `slotsPerNode`. Slot 0 is always `0` (server-side invariant — slot
+ * 0 is immediately on the map at start). Existing entries are preserved
+ * by index; new entries default to `0` (immediately on the map);
+ * trailing entries are dropped.
+ *
+ * Elements may be `null`, signifying "this slot is never on the map"
+ * (the "out of play on map" tier). Server-side, the entries must
+ * additionally satisfy `value === null || value >= claim[k]` — the form
+ * is responsible for keeping the map and claim arrays consistent on
+ * patch.
  */
-export function resizeSlotMapVisible(
-  prev: boolean[],
+export function resizeSlotMapUnlockOffsets(
+  prev: Array<number | null>,
   slotsPerNode: number,
-): boolean[] {
-  const out: boolean[] = [];
+): Array<number | null> {
+  const out: Array<number | null> = [];
   for (let k = 0; k < slotsPerNode; k += 1) {
     if (k === 0) {
-      out.push(true);
+      out.push(0);
+    } else if (k < prev.length) {
+      out.push(prev[k]);
     } else {
-      out.push(prev[k] ?? true);
+      out.push(0);
     }
   }
   return out;

@@ -17,6 +17,7 @@ describe("projectionToNetwork", () => {
           isInterchange: false,
           latitude: 0,
           longitude: 0,
+          tiles: [],
         },
         {
           id: "node-b-uuid",
@@ -30,6 +31,7 @@ describe("projectionToNetwork", () => {
           isInterchange: false,
           latitude: 0,
           longitude: 0,
+          tiles: [],
         },
       ],
       [

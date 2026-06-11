@@ -23,9 +23,9 @@ import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
  *     short-circuited to `null` when phase is off.
  *
  * The slot layer is exercised via `slotUnlockOffsetsSeconds` /
- * `slotMapVisible` snapshots passed at game creation; we then build
- * the projection at `t = startedAt` (before slot 1 unlocks) so the
- * on/off behaviour of the slot gate is observable in `atStation`.
+ * `slotMapUnlockOffsetsSeconds` snapshots passed at game creation; we
+ * then build the projection at `t = startedAt` (before slot 1 unlocks)
+ * so the on/off behaviour of the slot gate is observable in `atStation`.
  */
 
 async function seedFaceUp(
@@ -69,7 +69,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
         nodeTilesByCode: { a: 2, b: 2 },
         slotsPerNode: 2,
         slotUnlockOffsetsSeconds: [0, 60 * 60],
-        slotMapVisible: [true, false],
+        slotMapUnlockOffsetsSeconds: [0, null],
         visibilityMode: "both",
       });
       const participant = fixture.participants[0]!;
@@ -86,12 +86,29 @@ describe("buildGameStateProjection (visibility mode)", () => {
         { now: new Date() },
       );
 
-      // Phase fog: only `a` (face-up) shows a tile entry, `b` is hidden.
+      // Phase L §3.13: every slot the node has appears in `tiles[]`.
+      // `a` is face-up so slot 0 is visible (mapOffset = 0 elapsed);
+      // slot 1's `mapOffset` is null → permanently hidden (and locked,
+      // because the claim timer is still pending). `b` is fogged by
+      // phase visibility regardless of timer state.
       const aNode = projection.mapNodes.find((n) => n.code === "a")!;
       const bNode = projection.mapNodes.find((n) => n.code === "b")!;
-      expect(aNode.tiles).toHaveLength(1);
-      expect(aNode.tiles![0]!.slotIndex).toBe(0);
-      expect(bNode.tiles).toBeUndefined();
+      expect(aNode.tiles).toHaveLength(2);
+      expect(aNode.tiles[0]!).toMatchObject({
+        slotIndex: 0,
+        visible: true,
+        locked: false,
+      });
+      expect(aNode.tiles[0]!.tile).not.toBeNull();
+      expect(aNode.tiles[1]!).toEqual({
+        slotIndex: 1,
+        tile: null,
+        visible: false,
+        locked: true,
+      });
+      expect(bNode.tiles).toHaveLength(2);
+      expect(bNode.tiles.map((t) => t.visible)).toEqual([false, false]);
+      expect(bNode.tiles.map((t) => t.tile)).toEqual([null, null]);
 
       expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
         0, 1,
@@ -114,7 +131,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
         // reset both prevent it), but we test against a contrived
         // stale value to pin the projection's behaviour.
         slotUnlockOffsetsSeconds: [0, 60 * 60],
-        slotMapVisible: [true, true],
+        slotMapUnlockOffsetsSeconds: [0, 60 * 60],
         visibilityMode: "phase",
       });
       const participant = fixture.participants[0]!;
@@ -133,10 +150,16 @@ describe("buildGameStateProjection (visibility mode)", () => {
 
       const aNode = projection.mapNodes.find((n) => n.code === "a")!;
       const bNode = projection.mapNodes.find((n) => n.code === "b")!;
-      // Phase fog still hides `b`.
-      expect(bNode.tiles).toBeUndefined();
-      // Slot off => both slots at `a` are exposed on the map.
-      expect(aNode.tiles?.map((t) => t.slotIndex)).toEqual([0, 1]);
+      // Phase fog still hides every slot at `b`.
+      expect(bNode.tiles).toHaveLength(2);
+      expect(bNode.tiles.map((t) => t.visible)).toEqual([false, false]);
+      expect(bNode.tiles.map((t) => t.tile)).toEqual([null, null]);
+      // Slot off => both slots at `a` are exposed on the map, and the
+      // claim-unlock timer is ignored (locked: false everywhere).
+      expect(aNode.tiles).toHaveLength(2);
+      expect(aNode.tiles.map((t) => t.slotIndex)).toEqual([0, 1]);
+      expect(aNode.tiles.map((t) => t.visible)).toEqual([true, true]);
+      expect(aNode.tiles.map((t) => t.locked)).toEqual([false, false]);
       // Slot off => both slots at the station regardless of unlock offset.
       expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
         0,
@@ -155,7 +178,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
         nodeTilesByCode: { a: 2, b: 2 },
         slotsPerNode: 2,
         slotUnlockOffsetsSeconds: [0, 60 * 60],
-        slotMapVisible: [true, false],
+        slotMapUnlockOffsetsSeconds: [0, null],
         visibilityMode: "slot",
       });
       const participant = fixture.participants[0]!;
@@ -177,8 +200,14 @@ describe("buildGameStateProjection (visibility mode)", () => {
       const aNode = projection.mapNodes.find((n) => n.code === "a")!;
       const bNode = projection.mapNodes.find((n) => n.code === "b")!;
       // Slot rules still apply: slot 1 is map-hidden, slot 0 is exposed.
-      expect(aNode.tiles?.map((t) => t.slotIndex)).toEqual([0]);
-      expect(bNode.tiles?.map((t) => t.slotIndex)).toEqual([0]);
+      // `locked` reflects the claim-unlock timer (slot 1's claim offset
+      // is 60 min and the test runs at `now`).
+      expect(aNode.tiles).toHaveLength(2);
+      expect(aNode.tiles.map((t) => t.visible)).toEqual([true, false]);
+      expect(aNode.tiles.map((t) => t.locked)).toEqual([false, true]);
+      expect(bNode.tiles).toHaveLength(2);
+      expect(bNode.tiles.map((t) => t.visible)).toEqual([true, false]);
+      expect(bNode.tiles.map((t) => t.locked)).toEqual([false, true]);
 
       // Checked in at `a`: every station tile is visible in the sidebar.
       expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
@@ -197,7 +226,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
         nodeTilesByCode: { a: 2, b: 2 },
         slotsPerNode: 2,
         slotUnlockOffsetsSeconds: [0, 60 * 60],
-        slotMapVisible: [true, false],
+        slotMapUnlockOffsetsSeconds: [0, null],
         visibilityMode: "none",
       });
       const participant = fixture.participants[0]!;
@@ -214,9 +243,14 @@ describe("buildGameStateProjection (visibility mode)", () => {
 
       const aNode = projection.mapNodes.find((n) => n.code === "a")!;
       const bNode = projection.mapNodes.find((n) => n.code === "b")!;
-      // Both layers off: every node face-up, every slot map-visible.
-      expect(aNode.tiles?.map((t) => t.slotIndex)).toEqual([0, 1]);
-      expect(bNode.tiles?.map((t) => t.slotIndex)).toEqual([0, 1]);
+      // Both layers off: every node face-up, every slot map-visible,
+      // every slot unlocked (claim timer ignored).
+      expect(aNode.tiles).toHaveLength(2);
+      expect(aNode.tiles.map((t) => t.visible)).toEqual([true, true]);
+      expect(aNode.tiles.map((t) => t.locked)).toEqual([false, false]);
+      expect(bNode.tiles).toHaveLength(2);
+      expect(bNode.tiles.map((t) => t.visible)).toEqual([true, true]);
+      expect(bNode.tiles.map((t) => t.locked)).toEqual([false, false]);
       // Slot off: both station slots exposed, ignoring the unlock offset.
       expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
         0,
@@ -244,12 +278,24 @@ describe("buildGameStateProjection (visibility mode)", () => {
 
       const aNode = projection.mapNodes.find((n) => n.code === "a")!;
       const bNode = projection.mapNodes.find((n) => n.code === "b")!;
-      // Phase off + single slot: both nodes expose their tile via `tile`
-      // (single-slot convention; not `tiles[]`).
-      expect(aNode.tile?.instanceId).toBe(
+      // Phase off + single slot: every node exposes its lone slot via
+      // the exhaustive `tiles[]` (Phase L §3.13 — no more singular `tile`).
+      expect(aNode.tiles).toHaveLength(1);
+      expect(aNode.tiles[0]!).toMatchObject({
+        slotIndex: 0,
+        visible: true,
+        locked: false,
+      });
+      expect(aNode.tiles[0]!.tile?.instanceId).toBe(
         fixture.nodeTiles.find((t) => t.nodeCode === "a")!.gameTileId,
       );
-      expect(bNode.tile?.instanceId).toBe(
+      expect(bNode.tiles).toHaveLength(1);
+      expect(bNode.tiles[0]!).toMatchObject({
+        slotIndex: 0,
+        visible: true,
+        locked: false,
+      });
+      expect(bNode.tiles[0]!.tile?.instanceId).toBe(
         fixture.nodeTiles.find((t) => t.nodeCode === "b")!.gameTileId,
       );
     });

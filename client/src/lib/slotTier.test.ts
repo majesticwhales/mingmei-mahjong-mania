@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveAutoDistributedOffsets,
   offsetsMatchAutoDistribute,
-  resizeSlotMapVisible,
+  resizeSlotMapUnlockOffsets,
 } from "./slotTier";
 
 describe("deriveAutoDistributedOffsets", () => {
@@ -52,21 +52,26 @@ describe("offsetsMatchAutoDistribute", () => {
   });
 });
 
-describe("resizeSlotMapVisible", () => {
-  it("returns [true] for slotsPerNode = 1", () => {
-    expect(resizeSlotMapVisible([true], 1)).toEqual([true]);
-    expect(resizeSlotMapVisible([false], 1)).toEqual([true]);
+describe("resizeSlotMapUnlockOffsets", () => {
+  it("returns [0] for slotsPerNode = 1", () => {
+    expect(resizeSlotMapUnlockOffsets([0], 1)).toEqual([0]);
+    // Slot 0 invariant: even if the prior array had `null` or a positive
+    // value, the resized slot 0 is always `0`.
+    expect(resizeSlotMapUnlockOffsets([3600], 1)).toEqual([0]);
+    expect(resizeSlotMapUnlockOffsets([null], 1)).toEqual([0]);
   });
 
-  it("preserves existing entries when growing", () => {
-    expect(resizeSlotMapVisible([true, false], 4)).toEqual([true, false, true, true]);
+  it("preserves existing numeric and null entries when growing", () => {
+    expect(resizeSlotMapUnlockOffsets([0, 1800], 4)).toEqual([0, 1800, 0, 0]);
+    expect(resizeSlotMapUnlockOffsets([0, null], 3)).toEqual([0, null, 0]);
   });
 
   it("trims trailing entries when shrinking", () => {
-    expect(resizeSlotMapVisible([true, false, true, true], 2)).toEqual([true, false]);
+    expect(resizeSlotMapUnlockOffsets([0, 1800, 3600, null], 2)).toEqual([0, 1800]);
   });
 
-  it("forces slot 0 to true", () => {
-    expect(resizeSlotMapVisible([false, false], 2)).toEqual([true, false]);
+  it("forces slot 0 to 0", () => {
+    expect(resizeSlotMapUnlockOffsets([3600, null], 2)).toEqual([0, null]);
+    expect(resizeSlotMapUnlockOffsets([null, 1800], 2)).toEqual([0, 1800]);
   });
 });

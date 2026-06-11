@@ -89,18 +89,26 @@ export class Lobby extends BaseModel {
   declare slotUnlockOffsetsSeconds: number[];
 
   /**
-   * Per-slot map-visibility flags. Length === `slotsPerNode`; first entry is
-   * `true` (slot 0 follows phase rules). When false, that slot index never
-   * shows face-up on the map regardless of phase; it's only visible to a
-   * team checked in at the station. Sourced from
-   * `mapTemplate.defaultSlotMapVisible` on lobby creation, editable by host.
+   * Per-slot map-reveal offsets in seconds from `games.started_at` (Phase L
+   * §3.13). Length === `slotsPerNode`; first entry is `0` (slot 0 always
+   * on-map at start); each entry must either be `>= slotUnlockOffsetsSeconds[k]`
+   * (map reveal not earlier than claim reveal) or `NULL` (slot is never on
+   * the map — the "out of play on map" tier). Sourced from
+   * `mapTemplate.defaultSlotMapUnlockOffsetsSeconds` on lobby creation,
+   * editable by host, snapshotted to `games.slotMapUnlockOffsetsSeconds` at
+   * start.
+   *
+   * Independent of `slotUnlockOffsetsSeconds` (which gates engine
+   * claimability + station-side reveal). The split lets a host opt into
+   * tier-2 (claim immediately, reveal on map later) and tier-3 (out of play
+   * until t1, then visible on map at t2) without coupling the two surfaces.
    */
   @Column({
-    type: DataType.ARRAY(DataType.BOOLEAN),
+    type: DataType.ARRAY(DataType.INTEGER),
     allowNull: false,
-    defaultValue: [true],
+    defaultValue: [0],
   })
-  declare slotMapVisible: boolean[];
+  declare slotMapUnlockOffsetsSeconds: Array<number | null>;
 
   /**
    * Size of the per-game dead wall snapshotted to `games.dead_wall_size`

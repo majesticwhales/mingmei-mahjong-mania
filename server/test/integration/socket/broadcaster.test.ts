@@ -194,8 +194,16 @@ describe("SocketBroadcaster", () => {
 
       const aNodeA = projA.mapNodes.find((n) => n.code === "a")!;
       const aNodeB = projB.mapNodes.find((n) => n.code === "a")!;
-      expect(aNodeA.tile).toBeDefined();
-      expect(aNodeB.tile).toBeUndefined();
+      // Phase L Chunk 3 reshape: MapNodeDto.tiles is exhaustive per slot
+      // with { tile: TileDto | null, visible, locked }. Team A's face-up
+      // phase visibility reveals the seeded tile (non-null + visible);
+      // team B sees the same slot fog-gated (null + invisible).
+      expect(aNodeA.tiles).toHaveLength(1);
+      expect(aNodeA.tiles[0]!.tile).not.toBeNull();
+      expect(aNodeA.tiles[0]!.visible).toBe(true);
+      expect(aNodeB.tiles).toHaveLength(1);
+      expect(aNodeB.tiles[0]!.tile).toBeNull();
+      expect(aNodeB.tiles[0]!.visible).toBe(false);
     } finally {
       clientA.disconnect();
       clientB.disconnect();

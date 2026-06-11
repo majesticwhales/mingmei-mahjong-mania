@@ -9,7 +9,7 @@ const baseConfig: LobbyConfigDto = {
   visibilityPhaseCount: 4,
   slotsPerNode: 1,
   slotUnlockOffsetsSeconds: [0],
-  slotMapVisible: [true],
+  slotMapUnlockOffsetsSeconds: [0],
   deadWallSize: 14,
   teamAssignmentMode: "pick",
   visibilityMode: "both",
@@ -27,7 +27,7 @@ describe("lobbyConfig", () => {
       visibilityPhaseCount: 4,
       slotsPerNode: 1,
       slotUnlockOffsetsSeconds: [0],
-      slotMapVisible: [true],
+      slotMapUnlockOffsetsSeconds: [0],
       deadWallSize: 14,
       teamAssignmentMode: "pick",
       visibilityMode: "both",
@@ -64,7 +64,7 @@ describe("lobbyConfig", () => {
   it("omits slot knobs from the patch when visibility mode excludes slot", () => {
     const patch = lobbyConfigPatchFromDto({ ...baseConfig, visibilityMode: "phase" });
     expect(patch).not.toHaveProperty("slotUnlockOffsetsSeconds");
-    expect(patch).not.toHaveProperty("slotMapVisible");
+    expect(patch).not.toHaveProperty("slotMapUnlockOffsetsSeconds");
     expect(patch.visibilityPhaseCount).toBe(4);
   });
 });

@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DEVELOPERS = ["Max", "Evelyn", "Edward", "Shubham"] as const;
-const NON_DEVELOPERS = ["Mingmei", "Victor", "Ruth", "John"] as const;
+const NON_DEVELOPERS = ["Mingmei", "Victor", "Ruth", "Andrew"] as const;
 
 type Developer = (typeof DEVELOPERS)[number];
 type NonDeveloper = (typeof NON_DEVELOPERS)[number];

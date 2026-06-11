@@ -13,7 +13,7 @@ import {
 import {
   deriveAutoDistributedOffsets,
   offsetsMatchAutoDistribute,
-  resizeSlotMapVisible,
+  resizeSlotMapUnlockOffsets,
 } from "../../lib/slotTier";
 import { restClient } from "../../transport/restClient";
 import type {
@@ -104,7 +104,10 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
           prev.gameDurationSeconds,
           autoDistribute,
         ),
-        slotMapVisible: resizeSlotMapVisible(prev.slotMapVisible, next),
+        slotMapUnlockOffsetsSeconds: resizeSlotMapUnlockOffsets(
+          prev.slotMapUnlockOffsetsSeconds,
+          next,
+        ),
       }));
     },
     [autoDistribute],
@@ -144,13 +147,42 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
     });
   }, []);
 
-  const updateSlotMapVisible = useCallback((slotIndex: number, value: boolean) => {
-    setDraft((prev) => {
-      const next = prev.slotMapVisible.slice();
-      next[slotIndex] = slotIndex === 0 ? true : value;
-      return { ...prev, slotMapVisible: next };
-    });
-  }, []);
+  /**
+   * Phase L (§3.13) map-unlock editor. Two affordances per slot:
+   *
+   *   1. "Never on map" checkbox — toggles the slot's map offset between
+   *      `null` (never) and a numeric value (default 0).
+   *   2. Numeric input — disabled when `null` (the "never" state) or
+   *      slot 0 (always 0 by server invariant); otherwise edits the
+   *      offset directly.
+   *
+   * The two helpers below are the same component-local mutator split
+   * into "toggle null" and "set numeric" so the JSX stays readable.
+   */
+  const updateSlotMapOffsetValue = useCallback(
+    (slotIndex: number, value: number) => {
+      setDraft((prev) => {
+        const next = prev.slotMapUnlockOffsetsSeconds.slice();
+        next[slotIndex] = slotIndex === 0 ? 0 : value;
+        return { ...prev, slotMapUnlockOffsetsSeconds: next };
+      });
+    },
+    [],
+  );
+
+  const updateSlotMapNeverOnMap = useCallback(
+    (slotIndex: number, neverOnMap: boolean) => {
+      setDraft((prev) => {
+        if (slotIndex === 0) return prev;
+        const next = prev.slotMapUnlockOffsetsSeconds.slice();
+        next[slotIndex] = neverOnMap
+          ? null
+          : (prev.slotUnlockOffsetsSeconds[slotIndex] ?? 0);
+        return { ...prev, slotMapUnlockOffsetsSeconds: next };
+      });
+    },
+    [],
+  );
 
   const saveDraft = useCallback(async () => {
     if (!lobbyConfigHasPendingChanges(draft, config)) return;
@@ -257,7 +289,11 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
         {draft.slotUnlockOffsetsSeconds.map((offset, slotIndex) => {
           const isSlotZero = slotIndex === 0;
           const offsetDisabled = isSlotZero || autoDistribute || !slotLayerActive;
-          const visibleDisabled = isSlotZero || !slotLayerActive;
+          const mapOffsetRaw = draft.slotMapUnlockOffsetsSeconds[slotIndex];
+          const neverOnMap = mapOffsetRaw === null;
+          const mapOffsetDisabled =
+            isSlotZero || !slotLayerActive || neverOnMap;
+          const neverDisabled = isSlotZero || !slotLayerActive;
           const offsetTitle = !slotLayerActive
             ? slotLockTitle
             : autoDistribute && !isSlotZero
@@ -265,11 +301,13 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
               : isSlotZero
                 ? "Slot 0 unlocks at game start"
                 : undefined;
-          const visibleTitle = !slotLayerActive
+          const mapOffsetTitle = !slotLayerActive
             ? slotLockTitle
             : isSlotZero
-              ? "Slot 0 follows phase rules"
-              : undefined;
+              ? "Slot 0 is immediately on the map"
+              : neverOnMap
+                ? "Slot is never shown on the map"
+                : undefined;
           return (
             <div className="form__slot-row" key={slotIndex}>
               <label className="form__field">
@@ -284,13 +322,34 @@ export const ConfigForm = forwardRef<ConfigFormHandle, Props>(function ConfigFor
                 />
               </label>
               <label className="form__field">
-                <span>{`Slot ${slotIndex} map visible`}</span>
+                <span>{`Slot ${slotIndex} map reveal (sec)`}</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={mapOffsetRaw ?? 0}
+                  disabled={mapOffsetDisabled}
+                  title={mapOffsetTitle}
+                  onChange={(e) =>
+                    updateSlotMapOffsetValue(slotIndex, Number(e.target.value))
+                  }
+                />
+              </label>
+              <label className="form__field">
+                <span>{`Slot ${slotIndex} never on map`}</span>
                 <input
                   type="checkbox"
-                  checked={draft.slotMapVisible[slotIndex] ?? true}
-                  disabled={visibleDisabled}
-                  title={visibleTitle}
-                  onChange={(e) => updateSlotMapVisible(slotIndex, e.target.checked)}
+                  checked={neverOnMap}
+                  disabled={neverDisabled}
+                  title={
+                    !slotLayerActive
+                      ? slotLockTitle
+                      : isSlotZero
+                        ? "Slot 0 is always on the map"
+                        : undefined
+                  }
+                  onChange={(e) =>
+                    updateSlotMapNeverOnMap(slotIndex, e.target.checked)
+                  }
                 />
               </label>
             </div>

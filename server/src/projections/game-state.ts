@@ -23,9 +23,9 @@ import {
 } from "../scoring/index.ts";
 import { teamCodeToWindRank } from "../scoring/seat-wind.ts";
 import {
-  mapVisibleSlotIndices,
+  isSlotUnlocked,
+  mapUnlockedSlotIndices,
   phaseDrivenMapVisibleSlotIndices,
-  unlockedSlotIndices,
 } from "../services/slot-visibility.ts";
 import {
   RED_FIVES_RULE_KEY,
@@ -44,7 +44,7 @@ import {
  *
  * No mutation. No transaction. No fog re-derivation inside callers — the
  * projection layer is the only place that applies team visibility, slot
- * unlock, and slot map-visibility rules to user-facing tile data.
+ * claim-unlock, and slot map-unlock rules to user-facing tile data.
  */
 
 export interface TileDto {
@@ -58,9 +58,42 @@ export interface TileDto {
 }
 
 /** Multi-slot map / station entry. */
+/**
+ * Legacy "visible tile at slot k" entry, still used by
+ * `AtStationDto.tiles[]` until Phase L chunk L4 rewires `atStation`
+ * onto the shared `buildNodeView` shape.
+ */
 export interface SlotTileDto {
   slotIndex: number;
   tile: TileDto;
+}
+
+/**
+ * Phase L §3.13: exhaustive per-slot map view, server-resolved. Every
+ * slot the node has (`0 .. slots_per_node - 1`) appears in
+ * `MapNodeDto.tiles[]`, in ascending order. The pre-Phase-L "omit hidden
+ * slots" pattern is gone — the client renders by reading these flags
+ * directly rather than re-deriving visibility from phase / slot math.
+ *
+ * - `tile` is present iff `visible: true` AND a tile occupies the slot;
+ *   `null` otherwise (hidden slot, or empty slot with no placement).
+ * - `visible` is true iff `faceUpOnMap(team, node)` is true AND the
+ *   slot's map-reveal timer has elapsed
+ *   (`slot_map_unlock_offsets_seconds[slotIndex]` is non-`NULL` and
+ *   `now >= started_at + offset * 1000`). Mode-off layers
+ *   short-circuit to true (see [§3.13](docs/TDD_server.md#313-server-authoritative-tile-visibility)).
+ * - `locked` is true iff the slot's claim-unlock timer has not yet
+ *   elapsed (`now < started_at + slot_unlock_offsets_seconds[slotIndex] * 1000`).
+ *   The DB constraint `mapOffset[k] IS NULL OR mapOffset[k] >= claimOffset[k]`
+ *   means `visible: true` implies `locked: false`; `locked` is mostly
+ *   useful when `visible: false` so the client can render a
+ *   "claim opens in X" countdown without re-deriving the math.
+ */
+export interface MapNodeTileDto {
+  slotIndex: number;
+  tile: TileDto | null;
+  visible: boolean;
+  locked: boolean;
 }
 
 /** Layout + visibility-gated tile data for a single map node. */
@@ -77,10 +110,14 @@ export interface MapNodeDto {
   isInterchange: boolean;
   latitude: number;
   longitude: number;
-  /** Present when `slots_per_node === 1` and the node is face-up for the team. */
-  tile?: TileDto;
-  /** Present when `slots_per_node > 1` and the node is face-up for the team. */
-  tiles?: SlotTileDto[];
+  /**
+   * Phase L §3.13: exhaustive per-slot view. `tiles.length` always
+   * equals `slots_per_node`. UI rendering paths must read
+   * `tiles[].visible` / `tiles[].locked` directly — never re-derive from
+   * `visibilityPhase` / `phaseDrivenSlotMap` (those survive only as
+   * telemetry, see `GameStateProjection`).
+   */
+  tiles: MapNodeTileDto[];
 }
 
 export interface MapLineDto {
@@ -215,15 +252,28 @@ export interface GameStateProjection {
    * client uses this for the visibility-countdown banner.
    */
   nextVisibilityChangeAt: string | null;
-  /** Current visibility phase index `[0, visibilityPhaseCount)`. */
+  /**
+   * **Telemetry only as of Phase L §3.13.** Current visibility phase
+   * index `[0, visibilityPhaseCount)`. Surfaces "phase k of n" copy in
+   * the `VisibilityCountdown` component and event log; UI rendering
+   * paths must read `mapNodes[].tiles[].visible` directly rather than
+   * re-deriving per-slot visibility from this field.
+   */
   visibilityPhase: number;
-  /** Snapshotted phase count; equals `slotsPerNode` in the tile-slot mode. */
+  /**
+   * **Telemetry only as of Phase L §3.13.** Snapshotted phase count;
+   * equals `slotsPerNode` in the tile-slot mode. Surfaces "phase k of n"
+   * copy; see `visibilityPhase` for why UI paths must not consume it.
+   */
   visibilityPhaseCount: number;
   /**
-   * When true, the map exposes exactly one station slot per visibility
-   * phase (`visibility_mode` includes `phase` and
-   * `visibilityPhaseCount === slotsPerNode`). The client uses this to
-   * avoid re-filtering tiles that slot-unlock mode already exposes.
+   * **Telemetry only as of Phase L §3.13** — UI rendering paths must
+   * read `mapNodes[].tiles[].visible` directly. Retained so
+   * `VisibilityCountdown` and event-log copy can still render
+   * "phase k of n" text. When true (`visibility_mode` includes `phase`
+   * and `visibilityPhaseCount === slotsPerNode`) the projection's
+   * per-slot visibility math used a phase-driven path; the client must
+   * not re-derive that decision.
    */
   phaseDrivenSlotMap: boolean;
   mapNodes: MapNodeDto[];
@@ -520,8 +570,37 @@ export async function buildGameStateProjection(
     nowMs,
   });
 
+  // Phase L §3.13: per-slot map-reveal set, as a Set for O(1) lookup
+  // inside the per-node loop below. Identical for every node — the slot
+  // tier is uniform across the map.
+  const mapVisibleSlotSet = new Set(mapVisibleSlots);
+
   const mapNodes: MapNodeDto[] = nodes.map((node) => {
-    const dto: MapNodeDto = {
+    // When the phase layer is off, every node is treated as face-up
+    // — the team's `game_location_team_visibility` rows are absent
+    // because `bootstrapGameVisibility` was skipped at start, so we
+    // bypass the gate entirely rather than checking the empty set.
+    const nodeFaceUp = !phaseLayerActive || faceUpNodeIds.has(node.id);
+    const bySlot = tilesByNodeSlot.get(node.id);
+
+    // Phase L §3.13: every slot the node has appears in `tiles[]`, in
+    // ascending order. `tile` is null when the slot is hidden, empty,
+    // or both. `visible` folds phase fog + per-slot map-reveal timer;
+    // `locked` mirrors the claim-unlock timer (independent of visible).
+    const tiles: MapNodeTileDto[] = [];
+    for (let slotIndex = 0; slotIndex < slotsPerNode; slotIndex += 1) {
+      const visible = nodeFaceUp && mapVisibleSlotSet.has(slotIndex);
+      const locked = slotLayerActive && !isSlotUnlocked(game, slotIndex, nowMs);
+      const placement = bySlot?.get(slotIndex) ?? null;
+      tiles.push({
+        slotIndex,
+        tile: visible ? placement : null,
+        visible,
+        locked,
+      });
+    }
+
+    return {
       id: node.id,
       code: node.code,
       name: node.name,
@@ -533,40 +612,8 @@ export async function buildGameStateProjection(
       isInterchange: node.isInterchange,
       latitude: node.latitude,
       longitude: node.longitude,
+      tiles,
     };
-
-    // When the phase layer is off, every node is treated as face-up
-    // — the team's `game_location_team_visibility` rows are absent
-    // because `bootstrapGameVisibility` was skipped at start, so we
-    // bypass the gate entirely rather than checking the empty set.
-    if (phaseLayerActive && !faceUpNodeIds.has(node.id)) {
-      return dto;
-    }
-
-    const bySlot = tilesByNodeSlot.get(node.id);
-    if (!bySlot) {
-      return dto;
-    }
-
-    if (multiSlot) {
-      const entries: SlotTileDto[] = [];
-      for (const slotIndex of mapVisibleSlots) {
-        const tile = bySlot.get(slotIndex);
-        if (tile) {
-          entries.push({ slotIndex, tile });
-        }
-      }
-      if (entries.length > 0) {
-        dto.tiles = entries;
-      }
-    } else {
-      const tile = bySlot.get(0);
-      if (tile) {
-        dto.tile = tile;
-      }
-    }
-
-    return dto;
   });
 
   const mapLines: MapLineDto[] = lines.map((line) => ({
@@ -803,9 +850,11 @@ function resolveMapVisibleSlotIndices(params: {
     return Array.from({ length: slotsPerNode }, (_v, k) => k);
   }
 
-  const allowed = mapVisibleSlotIndices(game.slotMapVisible, slotsPerNode);
-  const unlocked = new Set(unlockedSlotIndices(game, slotsPerNode, nowMs));
-  return allowed.filter((slotIndex) => unlocked.has(slotIndex));
+  // Phase L: `slot_map_unlock_offsets_seconds[k]` carries both "ever
+  // on the map?" (`null` = never — the "out of play on map" tier) and
+  // "when?" (non-negative offset in seconds from `started_at`). See
+  // migration `20260611120000-add-slot-map-unlock-offsets.cjs`.
+  return mapUnlockedSlotIndices(game, slotsPerNode, nowMs);
 }
 
 function buildAtStation(params: {

@@ -11,7 +11,7 @@ const PATCH_KEYS = [
   "visibilityPhaseCount",
   "slotsPerNode",
   "slotUnlockOffsetsSeconds",
-  "slotMapVisible",
+  "slotMapUnlockOffsetsSeconds",
   "deadWallSize",
   "teamAssignmentMode",
   "visibilityMode",
@@ -52,7 +52,7 @@ export function lobbyConfigPatchFromDto(config: LobbyConfigDto): LobbyConfigPatc
 
   if (visibilityIncludes(config.visibilityMode, "slot")) {
     patch.slotUnlockOffsetsSeconds = config.slotUnlockOffsetsSeconds;
-    patch.slotMapVisible = config.slotMapVisible;
+    patch.slotMapUnlockOffsetsSeconds = config.slotMapUnlockOffsetsSeconds;
   }
 
   return patch;

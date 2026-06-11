@@ -12,7 +12,8 @@ export type ScheduledJobType =
   | "VISIBILITY_PHASE_ADVANCE"
   | "GAME_END"
   | "NOTIFICATION"
-  | "SLOT_UNLOCKED";
+  | "SLOT_UNLOCKED"
+  | "SLOT_MAP_UNLOCKED";
 
 export type ScheduledJobStatus =
   | "pending"

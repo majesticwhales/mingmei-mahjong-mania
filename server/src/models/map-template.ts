@@ -68,18 +68,26 @@ export class MapTemplate extends BaseModel {
   declare defaultSlotUnlockOffsetsSeconds: number[];
 
   /**
-   * Per-slot map-visibility flags, one entry per `slot_index`. When false,
-   * that slot never appears face-up on the map regardless of phase; tiles in
-   * it are only visible to a team checked in at the station. Length must
-   * equal `defaultSlotsPerNode`; the first entry must be `true` (slot 0
-   * follows phase visibility). Lobbies inherit this as `slotMapVisible`.
+   * Per-slot map-reveal offsets in seconds from `games.started_at`, one
+   * entry per `slot_index`. Length must equal `defaultSlotsPerNode`; the
+   * first entry must be `0` (slot 0 always immediately on-map at start);
+   * each entry must either be `>= defaultSlotUnlockOffsetsSeconds[k]` (map
+   * reveal not earlier than claim reveal) or `NULL` (slot is never on the
+   * map regardless of timer — the "out of play on map" tier). Lobbies
+   * inherit this as `slotMapUnlockOffsetsSeconds`.
+   *
+   * Per Phase L (§3.13): this is the **map**-side reveal timer, independent
+   * of `defaultSlotUnlockOffsetsSeconds` which gates engine claimability +
+   * station-side reveal. The split lets a template express tier-2 (claim
+   * immediately, reveal on map later) and tier-3 (out of play until t1,
+   * then visible on map at t2) without coupling the two surfaces.
    */
   @Column({
-    type: DataType.ARRAY(DataType.BOOLEAN),
+    type: DataType.ARRAY(DataType.INTEGER),
     allowNull: false,
-    defaultValue: [true],
+    defaultValue: [0],
   })
-  declare defaultSlotMapVisible: boolean[];
+  declare defaultSlotMapUnlockOffsetsSeconds: Array<number | null>;
 
   /** Station code on this template where all teams spawn (e.g. "bay"). */
   @Column({ type: DataType.STRING(64), allowNull: true })

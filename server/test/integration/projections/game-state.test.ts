@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { buildGameStateProjection } from "../../../src/projections/game-state.ts";
 import { appendEvent } from "../../../src/engine/event-log.ts";
+import { Game } from "../../../src/models/game.ts";
 import { GameEdge } from "../../../src/models/game-edge.ts";
 import { GameLine } from "../../../src/models/game-line.ts";
 import { GameLocationTeamVisibility } from "../../../src/models/game-location-team-visibility.ts";
@@ -101,8 +102,14 @@ describe("buildGameStateProjection", () => {
     expect(projection.mapNodes).toHaveLength(2);
     expect(projection.mapNodes.map((n) => n.code)).toEqual(["a", "b"]);
     expect(projection.mapNodes[0]!.lineIds).toEqual(["L1", "L2"]);
-    expect(projection.mapNodes[0]!.tile).toBeUndefined();
-    expect(projection.mapNodes[0]!.tiles).toBeUndefined();
+    // Phase L §3.13: `tiles[]` is exhaustive (`slotsPerNode = 1` here);
+    // both nodes are fogged because nobody seeded `face_up`.
+    expect(projection.mapNodes[0]!.tiles).toEqual([
+      { slotIndex: 0, tile: null, visible: false, locked: false },
+    ]);
+    expect(projection.mapNodes[1]!.tiles).toEqual([
+      { slotIndex: 0, tile: null, visible: false, locked: false },
+    ]);
     expect(projection.mapLines.map((l) => l.code)).toEqual(["L1", "L2"]);
     expect(projection.mapEdges).toEqual([{ fromNodeId: aId, toNodeId: bId }]);
     expect(projection.atStation).toBeNull();
@@ -111,7 +118,7 @@ describe("buildGameStateProjection", () => {
     expect(projection.nextVisibilityChangeAt).toBeNull();
   });
 
-  it("single-slot: includes `tile` on face-up nodes and omits it on fogged nodes", async () => {
+  it("single-slot: tiles[0].tile is set on face-up nodes and null on fogged nodes", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["a", "b"],
       nodeTilesByCode: { a: 1, b: 1 },
@@ -127,11 +134,18 @@ describe("buildGameStateProjection", () => {
 
     const aNode = projection.mapNodes.find((n) => n.code === "a")!;
     const bNode = projection.mapNodes.find((n) => n.code === "b")!;
-    expect(aNode.tile?.instanceId).toBe(
+
+    expect(aNode.tiles).toHaveLength(1);
+    expect(aNode.tiles[0]!.slotIndex).toBe(0);
+    expect(aNode.tiles[0]!.visible).toBe(true);
+    expect(aNode.tiles[0]!.locked).toBe(false);
+    expect(aNode.tiles[0]!.tile?.instanceId).toBe(
       fixture.nodeTiles.find((t) => t.nodeCode === "a")!.gameTileId,
     );
-    expect(aNode.tiles).toBeUndefined();
-    expect(bNode.tile).toBeUndefined();
+
+    expect(bNode.tiles).toHaveLength(1);
+    expect(bNode.tiles[0]!.visible).toBe(false);
+    expect(bNode.tiles[0]!.tile).toBeNull();
   });
 
   it("single-slot: atStation always reveals the station tile, even when the node is fogged on the map", async () => {
@@ -150,7 +164,9 @@ describe("buildGameStateProjection", () => {
     );
 
     const aNode = projection.mapNodes.find((n) => n.code === "a")!;
-    expect(aNode.tile).toBeUndefined();
+    expect(aNode.tiles).toHaveLength(1);
+    expect(aNode.tiles[0]!.visible).toBe(false);
+    expect(aNode.tiles[0]!.tile).toBeNull();
     expect(projection.atStation).not.toBeNull();
     expect(projection.atStation).toEqual({
       nodeId: aId,
@@ -276,12 +292,14 @@ describe("buildGameStateProjection", () => {
     expect(plainInstance.isRedFive).toBe(false);
   });
 
-  it("multi-slot map: hides slots whose slot_map_visible[k] is false", async () => {
+  it("multi-slot map: hides slots whose slotMapUnlockOffsetsSeconds[k] is null", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["a"],
       nodeTilesByCode: { a: 2 },
       slotsPerNode: 2,
-      slotMapVisible: [true, false],
+      // Phase L: null = "never on the map", subsumes the legacy
+      // `slot_map_visible[k] = false` semantics.
+      slotMapUnlockOffsetsSeconds: [0, null],
     });
     const participant = fixture.participants[0]!;
     const aId = fixture.nodeIdByCode.get("a")!;
@@ -293,12 +311,24 @@ describe("buildGameStateProjection", () => {
     );
 
     const aNode = projection.mapNodes.find((n) => n.code === "a")!;
-    expect(aNode.tile).toBeUndefined();
-    expect(aNode.tiles).toHaveLength(1);
-    expect(aNode.tiles![0]!.slotIndex).toBe(0);
-    expect(aNode.tiles![0]!.tile.instanceId).toBe(
-      fixture.nodeTiles.find((t) => t.slotIndex === 0)!.gameTileId,
-    );
+    expect(aNode.tiles).toHaveLength(2);
+    // Slot 0: visible (mapOffset=0 elapsed), populated.
+    expect(aNode.tiles[0]!).toEqual({
+      slotIndex: 0,
+      tile: expect.objectContaining({
+        instanceId: fixture.nodeTiles.find((t) => t.slotIndex === 0)!.gameTileId,
+      }),
+      visible: true,
+      locked: false,
+    });
+    // Slot 1: mapOffset=null → permanently hidden on the map even
+    // though a tile occupies the slot in the DB.
+    expect(aNode.tiles[1]!).toEqual({
+      slotIndex: 1,
+      tile: null,
+      visible: false,
+      locked: false,
+    });
   });
 
   it("multi-slot atStation: reveals every tile at the checked-in station", async () => {
@@ -325,10 +355,99 @@ describe("buildGameStateProjection", () => {
       slot0Id,
       slot1Id,
     ]);
-    // Map still respects slot unlock times.
-    expect(
-      projection.mapNodes.find((n) => n.code === "a")!.tiles?.map((t) => t.slotIndex),
-    ).toEqual([0]);
+    // Map still respects slot unlock times. Phase L: slot 1 is in the
+    // exhaustive `tiles[]` with `visible: false` AND `locked: true`
+    // (claim-unlock timer hasn't elapsed).
+    const aNode = projection.mapNodes.find((n) => n.code === "a")!;
+    expect(aNode.tiles).toHaveLength(2);
+    expect(aNode.tiles[0]!).toMatchObject({
+      slotIndex: 0,
+      visible: true,
+      locked: false,
+    });
+    expect(aNode.tiles[0]!.tile).not.toBeNull();
+    expect(aNode.tiles[1]!).toEqual({
+      slotIndex: 1,
+      tile: null,
+      visible: false,
+      locked: true,
+    });
+  });
+
+  it("Phase L §3.13: hidden-and-locked when both map-reveal and claim-unlock timers are pending", async () => {
+    // Pin the projection clock between game start (t=0) and the
+    // claim-unlock moment (t=60min). The DB constraint
+    // `mapOffset[k] >= claimOffset[k]` means visible-and-locked is
+    // unreachable; the typical "early-game" combo is hidden-and-locked
+    // on the pending slot.
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["a"],
+      nodeTilesByCode: { a: 2 },
+      slotsPerNode: 2,
+      visibilityMode: "slot",
+      slotUnlockOffsetsSeconds: [0, 60 * 60],
+      slotMapUnlockOffsetsSeconds: [0, 60 * 60],
+    });
+    const participant = fixture.participants[0]!;
+    const aId = fixture.nodeIdByCode.get("a")!;
+    await seedFaceUp(participant.gameTeamId, [aId]);
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+      { now: new Date() },
+    );
+
+    const aNode = projection.mapNodes.find((n) => n.code === "a")!;
+    expect(aNode.tiles[0]!).toMatchObject({
+      slotIndex: 0,
+      visible: true,
+      locked: false,
+    });
+    expect(aNode.tiles[0]!.tile).not.toBeNull();
+    expect(aNode.tiles[1]!).toEqual({
+      slotIndex: 1,
+      tile: null,
+      visible: false,
+      locked: true,
+    });
+  });
+
+  it("Phase L §3.13: status='ended' reveals every slot regardless of timer state", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["a"],
+      nodeTilesByCode: { a: 2 },
+      slotsPerNode: 2,
+      visibilityMode: "both",
+      slotUnlockOffsetsSeconds: [0, 60 * 60],
+      // Slot 1 would normally be permanently hidden on the map.
+      slotMapUnlockOffsetsSeconds: [0, null],
+    });
+    const participant = fixture.participants[0]!;
+    const aId = fixture.nodeIdByCode.get("a")!;
+    await seedFaceUp(participant.gameTeamId, [aId]);
+    // End the game without touching the timers — the projection's
+    // game-end branch must reveal every slot.
+    await Game.update(
+      { status: "ended", endedAt: new Date() },
+      { where: { id: fixture.gameId } },
+    );
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+      { now: new Date() },
+    );
+
+    const aNode = projection.mapNodes.find((n) => n.code === "a")!;
+    expect(aNode.tiles).toHaveLength(2);
+    // Both slots visible (game-end reveals everything); slot 1 is
+    // still `locked: true` (the claim-unlock timer is independent of
+    // game status, but Swap is also gated by `status === "active"` in
+    // the engine, so this is a cosmetic flag at this point).
+    expect(aNode.tiles.map((t) => t.visible)).toEqual([true, true]);
+    expect(aNode.tiles[0]!.tile).not.toBeNull();
+    expect(aNode.tiles[1]!.tile).not.toBeNull();
   });
 
   it("nextVisibilityChangeAt: surfaces the earliest pending VISIBILITY_PHASE_ADVANCE runAt", async () => {

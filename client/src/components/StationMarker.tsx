@@ -7,6 +7,14 @@ export interface TileSlotDisplay {
   imagePath: string;
   label?: string;
   visible: boolean;
+  /**
+   * Phase L §3.13: claim-unlock timer state, mirrored from
+   * `MapNodeTileDto.locked`. Independent of `visible` — a slot can be
+   * both visible AND locked (preview tier). When true, the marker
+   * stamps `data-locked="true"` on the slot wrapper so styling can
+   * grey the frame / show a lock affordance without changing layout.
+   */
+  locked?: boolean;
 }
 
 interface Props {
@@ -226,13 +234,19 @@ export function StationMarker({
             const slot = tileSlots?.[slotIndex];
             const imagePath = slot?.imagePath ?? TILE_BACK_IMAGE_PATH;
             const x = slotIndex * (SLOT_WIDTH + SLOT_GAP);
+            const className = [
+              "station-marker__tile-slot",
+              slot?.visible ? "" : "station-marker__tile-slot--hidden",
+              slot?.locked ? "station-marker__tile-slot--locked" : "",
+            ]
+              .filter(Boolean)
+              .join(" ");
             return (
               <g
                 key={slotIndex}
-                className={`station-marker__tile-slot${
-                  slot?.visible ? "" : " station-marker__tile-slot--hidden"
-                }`}
+                className={className}
                 transform={`translate(${x} 0)`}
+                data-locked={slot?.locked ? "true" : undefined}
               >
                 <rect
                   className="station-marker__tile-shadow"

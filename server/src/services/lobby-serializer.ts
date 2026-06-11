@@ -48,11 +48,14 @@ export interface LobbyConfigDto {
    */
   slotUnlockOffsetsSeconds: number[];
   /**
-   * Per-slot map-visibility flags. Length equals `slotsPerNode`. Entry
-   * `[0]` is always `true`. When `false`, slot k's tile is never face-up
-   * on the map regardless of phase. Snapshotted to `games.slot_map_visible`.
+   * Per-slot map-reveal offsets in seconds from game start (Phase L
+   * §3.13). Length equals `slotsPerNode`. Entry `[0]` is always `0`.
+   * Each entry is either a non-negative integer (map reveal at offset)
+   * or `null` (slot is never on the map regardless of timer — the
+   * "out of play on map" tier). Snapshotted to
+   * `games.slot_map_unlock_offsets_seconds`.
    */
-  slotMapVisible: boolean[];
+  slotMapUnlockOffsetsSeconds: Array<number | null>;
   /**
    * Size of the per-game dead wall (number of tiles parked outside nodes
    * and team hands). Snapshotted to `games.dead_wall_size` at start. The
@@ -250,7 +253,7 @@ export function serializeLobbyDetail(
       visibilityPhaseCount: lobby.visibilityPhaseCount,
       slotsPerNode: lobby.slotsPerNode,
       slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
-      slotMapVisible: lobby.slotMapVisible,
+      slotMapUnlockOffsetsSeconds: lobby.slotMapUnlockOffsetsSeconds,
       deadWallSize: lobby.deadWallSize,
       visibilityMode: lobby.visibilityMode,
       teamAssignmentMode: lobby.teamAssignmentMode,

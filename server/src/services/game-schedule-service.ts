@@ -31,12 +31,23 @@ export interface ScheduleGameJobsInput {
    * `payload = { slotIndex: k }`.
    */
   slotUnlockOffsetsSeconds: number[];
+  /**
+   * Per-slot map-reveal offsets (Phase L §3.13). Same shape rules as
+   * `slotUnlockOffsetsSeconds` (length, slot-0 = 0) except elements may
+   * be `null` (slot is never on the map; no job seeded). A
+   * `SLOT_MAP_UNLOCKED` job is seeded for every slot `k >= 1` whose
+   * offset is non-null, positive, AND differs from
+   * `slotUnlockOffsetsSeconds[k]` — coincident timers dedupe to a
+   * single `SLOT_UNLOCKED` job so the client doesn't see two events at
+   * the same wall-clock instant for the same slot.
+   */
+  slotMapUnlockOffsetsSeconds: Array<number | null>;
   notifications: ScheduledNotificationInput[];
   /**
    * Snapshotted from `games.visibility_mode`. Gates the
-   * `VISIBILITY_PHASE_ADVANCE` and `SLOT_UNLOCKED` job loops: phase-off
-   * games skip the advances, slot-off games skip the unlocks. GAME_END
-   * and NOTIFICATION jobs always seed.
+   * `VISIBILITY_PHASE_ADVANCE` / `SLOT_UNLOCKED` / `SLOT_MAP_UNLOCKED`
+   * job loops: phase-off games skip the advances, slot-off games skip
+   * both unlock variants. GAME_END and NOTIFICATION jobs always seed.
    */
   visibilityMode: VisibilityMode;
 }
@@ -56,6 +67,12 @@ export interface ScheduleGameJobsInput {
  *   `payload = { slotIndex: k }`. Slot 0 is always unlocked at start so
  *   no job is seeded for it. The CHECK on slot-0-is-always-0 is enforced
  *   by the lobby config flow (chunk 5).
+ * - SLOT_MAP_UNLOCKED (Phase L §3.13): one job per slot `k` (1-indexed)
+ *   where `slotMapUnlockOffsetsSeconds[k]` is non-null AND positive AND
+ *   differs from `slotUnlockOffsetsSeconds[k]`. Coincident timers dedupe
+ *   to a single `SLOT_UNLOCKED` job (the projection treats slot-unlock
+ *   as also revealing on the map when the map offset matches). Null map
+ *   offsets mean "never on the map" — no job seeded.
  */
 export async function scheduleGameJobs(
   input: ScheduleGameJobsInput,
@@ -68,6 +85,7 @@ export async function scheduleGameJobs(
     visibilityPhaseIntervalSeconds,
     visibilityPhaseCount,
     slotUnlockOffsetsSeconds,
+    slotMapUnlockOffsetsSeconds,
     notifications,
     visibilityMode,
   } = input;
@@ -93,6 +111,31 @@ export async function scheduleGameJobs(
     if (!Number.isInteger(offset) || offset < 0) {
       throw new Error(
         `slotUnlockOffsetsSeconds[${k}] must be a non-negative integer, got ${offset}`,
+      );
+    }
+  }
+  if (slotMapUnlockOffsetsSeconds.length !== slotUnlockOffsetsSeconds.length) {
+    throw new Error(
+      `slotMapUnlockOffsetsSeconds length (${slotMapUnlockOffsetsSeconds.length}) must match slotUnlockOffsetsSeconds length (${slotUnlockOffsetsSeconds.length})`,
+    );
+  }
+  if (slotMapUnlockOffsetsSeconds[0] !== 0) {
+    throw new Error(
+      `slotMapUnlockOffsetsSeconds[0] must be 0 (slot 0 is always immediately on the map); got ${slotMapUnlockOffsetsSeconds[0]}`,
+    );
+  }
+  for (let k = 0; k < slotMapUnlockOffsetsSeconds.length; k += 1) {
+    const offset = slotMapUnlockOffsetsSeconds[k];
+    if (offset === null) continue;
+    if (!Number.isInteger(offset) || offset < 0) {
+      throw new Error(
+        `slotMapUnlockOffsetsSeconds[${k}] must be a non-negative integer or null, got ${offset}`,
+      );
+    }
+    const claim = slotUnlockOffsetsSeconds[k]!;
+    if (offset < claim) {
+      throw new Error(
+        `slotMapUnlockOffsetsSeconds[${k}] (${offset}) must be >= slotUnlockOffsetsSeconds[${k}] (${claim})`,
       );
     }
   }
@@ -137,6 +180,24 @@ export async function scheduleGameJobs(
       jobs.push({
         gameId,
         jobType: "SLOT_UNLOCKED",
+        runAt: new Date(startedAtMs + offset * 1000),
+        status: "pending",
+        payload: { slotIndex: k },
+      });
+    }
+    // Phase L: SLOT_MAP_UNLOCKED jobs for slots whose map-reveal timer
+    // differs from the claim timer. Skip null offsets (slot never on the
+    // map) and zero offsets (slot starts on the map). Skip offsets that
+    // coincide with the claim offset since the SLOT_UNLOCKED event
+    // already covers the same wall-clock instant and surface.
+    for (let k = 1; k < slotMapUnlockOffsetsSeconds.length; k += 1) {
+      const offset = slotMapUnlockOffsetsSeconds[k];
+      if (offset == null || offset === 0) continue;
+      const claim = slotUnlockOffsetsSeconds[k]!;
+      if (offset === claim) continue;
+      jobs.push({
+        gameId,
+        jobType: "SLOT_MAP_UNLOCKED",
         runAt: new Date(startedAtMs + offset * 1000),
         status: "pending",
         payload: { slotIndex: k },

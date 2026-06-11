@@ -66,7 +66,10 @@ async function updateExistingTemplate(queryInterface, templateId) {
       default_dead_wall_size: 15,
       default_visibility_mode: 'slot',
       default_slot_unlock_offsets_seconds: slotUnlockOffsetsSeconds,
-      default_slot_map_visible: [true, true, true],
+      // Phase L (§3.13): map-reveal timer staggered later than claim
+      // reveal, expressing tier-2 (slot 1 claim now / map at 60min) and
+      // tier-3 (slot 2 claim at 40min / map at 120min) defaults.
+      default_slot_map_unlock_offsets_seconds: [0, 3600, 7200],
       default_start_node_code: 'bay',
       updated_at: now,
     },
@@ -137,7 +140,9 @@ module.exports = {
         default_dead_wall_size: 15,
         default_visibility_mode: 'slot',
         default_slot_unlock_offsets_seconds: slotUnlockOffsetsSeconds,
-        default_slot_map_visible: [true, true, true],
+        // Phase L (§3.13): map-reveal timer staggered later than claim
+        // reveal. See `updateExistingTemplate` for rationale.
+        default_slot_map_unlock_offsets_seconds: [0, 3600, 7200],
         default_start_node_code: 'bay',
         created_at: now,
         updated_at: now,

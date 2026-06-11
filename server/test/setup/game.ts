@@ -55,7 +55,7 @@ export async function createGameShell(
       visibilityPhaseCount: lobby.visibilityPhaseCount,
       visibilityPhaseIntervalSeconds: lobby.visibilityPhaseIntervalSeconds,
       slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
-      slotMapVisible: lobby.slotMapVisible,
+      slotMapUnlockOffsetsSeconds: lobby.slotMapUnlockOffsetsSeconds,
       deadWallSize: lobby.deadWallSize,
       visibilityMode: lobby.visibilityMode,
       configVersion: 1,
@@ -420,14 +420,16 @@ export interface LightweightGameOptions {
    */
   slotUnlockOffsetsSeconds?: number[];
   /**
-   * `games.slot_map_visible` snapshot. Defaults to `[true, true, …]` with
-   * `slotsPerNode` entries (every slot is map-visible), matching the
-   * column default. Entry `[0]` MUST be `true`; phase-zero slot always
-   * follows phase visibility. Set later entries to `false` to exercise
-   * the "always fogged on map, visible at station once unlocked" tier in
-   * projection tests.
+   * `games.slot_map_unlock_offsets_seconds` snapshot (Phase L §3.13).
+   * Defaults to `[0, 0, …]` with `slotsPerNode` entries (every slot is
+   * immediately on the map, matching the pre-Phase-L "always map-visible"
+   * behaviour). Entry `[0]` MUST be `0`. Set later entries to a positive
+   * integer to delay map reveal, or `null` to express "never on the map"
+   * (the "out of play on map" tier). The fixture does NOT seed
+   * `SLOT_MAP_UNLOCKED` scheduled jobs — scheduler tests that need those
+   * should use `setupStartedGame`.
    */
-  slotMapVisible?: boolean[];
+  slotMapUnlockOffsetsSeconds?: Array<number | null>;
   /**
    * `games.visibility_mode` snapshot. Defaults to `"both"` so existing
    * tests keep their current behaviour. Pass `"none" | "phase" | "slot"`
@@ -527,8 +529,15 @@ export async function setupLightweightGame(
   const visibilityPhaseCount = options.visibilityPhaseCount ?? 4;
   const slotUnlockOffsetsSeconds =
     options.slotUnlockOffsetsSeconds ?? new Array(slotsPerNode).fill(0);
-  const slotMapVisible =
-    options.slotMapVisible ?? new Array(slotsPerNode).fill(true);
+  // Default the map-reveal timer to mirror the claim-unlock timer
+  // (Phase L §3.13's "map reveals coincide with claim unlock" semantic —
+  // matches both the pre-Phase-L behavior, where a single offset drove
+  // both, and the migration's backfill rule). Tests that want a distinct
+  // map-reveal timeline (later reveals or "never on map" nulls) pass
+  // `slotMapUnlockOffsetsSeconds` explicitly.
+  const slotMapUnlockOffsetsSeconds: Array<number | null> =
+    options.slotMapUnlockOffsetsSeconds ??
+    slotUnlockOffsetsSeconds.slice();
   const visibilityMode = options.visibilityMode ?? "both";
   const markTeamHandCompleted = options.markTeamHandCompleted;
   const reservedTileTypes = options.reservedTileTypes ?? [];
@@ -543,15 +552,25 @@ export async function setupLightweightGame(
       `setupLightweightGame: slotUnlockOffsetsSeconds[0] must be 0; got ${slotUnlockOffsetsSeconds[0]}`,
     );
   }
-  if (slotMapVisible.length !== slotsPerNode) {
+  if (slotMapUnlockOffsetsSeconds.length !== slotsPerNode) {
     throw new Error(
-      `setupLightweightGame: slotMapVisible length (${slotMapVisible.length}) must equal slotsPerNode (${slotsPerNode})`,
+      `setupLightweightGame: slotMapUnlockOffsetsSeconds length (${slotMapUnlockOffsetsSeconds.length}) must equal slotsPerNode (${slotsPerNode})`,
     );
   }
-  if (slotMapVisible[0] !== true) {
+  if (slotMapUnlockOffsetsSeconds[0] !== 0) {
     throw new Error(
-      `setupLightweightGame: slotMapVisible[0] must be true; got ${slotMapVisible[0]}`,
+      `setupLightweightGame: slotMapUnlockOffsetsSeconds[0] must be 0; got ${slotMapUnlockOffsetsSeconds[0]}`,
     );
+  }
+  for (let k = 0; k < slotMapUnlockOffsetsSeconds.length; k += 1) {
+    const m = slotMapUnlockOffsetsSeconds[k];
+    if (m === null) continue;
+    const c = slotUnlockOffsetsSeconds[k]!;
+    if (m < c) {
+      throw new Error(
+        `setupLightweightGame: slotMapUnlockOffsetsSeconds[${k}] (${m}) must be >= slotUnlockOffsetsSeconds[${k}] (${c})`,
+      );
+    }
   }
   for (const count of Object.values(nodeTilesByCode)) {
     if (count > slotsPerNode) {
@@ -629,7 +648,7 @@ export async function setupLightweightGame(
         visibilityPhaseCount,
         visibilityPhaseIntervalSeconds: ONE_HOUR_SECONDS,
         slotUnlockOffsetsSeconds,
-        slotMapVisible,
+        slotMapUnlockOffsetsSeconds,
         visibilityMode,
         configVersion: 1,
       },

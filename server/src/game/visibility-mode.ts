@@ -9,15 +9,17 @@
  *     (no `game_node_visibility_groups` / `game_team_home_groups` /
  *     phase-0 `game_location_team_visibility` rows seeded).
  *   - `game-schedule-service` skips `VISIBILITY_PHASE_ADVANCE` jobs when
- *     phase is off; skips `SLOT_UNLOCKED` jobs when slot is off.
+ *     phase is off; skips `SLOT_UNLOCKED` / `SLOT_MAP_UNLOCKED` jobs when
+ *     slot is off.
  *   - The `game.state` projection short-circuits the corresponding
  *     visibility gate when its layer is off.
  *
  * Lobby validation (chunk 2) additionally locks the irrelevant knobs:
  * a lobby in `slot` mode cannot edit `visibility_phase_count` /
  * `visibility_phase_interval_seconds`; a lobby in `phase` mode cannot
- * set non-zero `slot_unlock_offsets_seconds[k>0]` or `false` in
- * `slot_map_visible[k>0]`. This keeps mode + knobs internally consistent.
+ * set non-zero / null entries in `slot_unlock_offsets_seconds[k>0]` or
+ * `slot_map_unlock_offsets_seconds[k>0]`. This keeps mode + knobs
+ * internally consistent.
  *
  * No DB access here; pure types + a single bit-check helper.
  */

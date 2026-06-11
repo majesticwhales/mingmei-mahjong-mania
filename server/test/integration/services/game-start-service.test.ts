@@ -66,10 +66,16 @@ describe("startFromLobby", () => {
     expect(lobby?.status).toBe("closed");
     expect(tileCount).toBe(136);
     expect(nodeCount).toBe(84);
-    // both mode: 2 phase advances + 2 slot unlocks + preset notifications + GAME_END
-    expect(jobCount).toBe(
-      2 + 2 + PRODUCTION_LOBBY_PRESET.notifications.length + 1,
-    );
+    // Production preset (14400s, 3 phases, 3 time_warning notifications,
+    // visibilityMode "both") with auto-distributed slot offsets:
+    //   - 1 GAME_END
+    //   - 2 SLOT_UNLOCKED (slots 1, 2 with positive claim offsets
+    //     [0, 4800, 9600])
+    //   - 0 SLOT_MAP_UNLOCKED (the map timeline mirrors the claim
+    //     timeline by default, so the scheduler dedupes per Phase L §3.13)
+    //   - 2 VISIBILITY_PHASE_ADVANCE (k=1, k=2)
+    //   - 3 NOTIFICATION (PRODUCTION_LOBBY_PRESET.notifications)
+    expect(jobCount).toBe(8);
 
     const game = await Game.findByPk(result.gameId);
     expect(game?.status).toBe("active");
@@ -199,7 +205,7 @@ describe("startFromLobby", () => {
         (job.payload as { template?: string; data?: { minutesLeft?: number } })
           .template === "time_warning" &&
         (job.payload as { data?: { minutesLeft?: number } }).data?.minutesLeft ===
-          10,
+        10,
     );
     expect(hostWarningJob?.runAt.getTime()).toBe(
       game!.startedAt.getTime() + 600 * 1000,
