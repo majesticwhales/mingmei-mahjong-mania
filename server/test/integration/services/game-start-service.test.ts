@@ -3,9 +3,6 @@ import { PRODUCTION_LOBBY_PRESET } from "../../../src/game/lobby-presets.ts";
 import * as lobbyService from "../../../src/services/lobby-service.ts";
 import * as notificationService from "../../../src/services/lobby-notification-service.ts";
 import { startFromLobby } from "../../../src/services/game-start-service.ts";
-import { Challenge } from "../../../src/models/challenge.ts";
-import { ChallengeDeck } from "../../../src/models/challenge-deck.ts";
-import { ChallengeType } from "../../../src/models/challenge-type.ts";
 import { Game } from "../../../src/models/game.ts";
 import { GameNode } from "../../../src/models/game-node.ts";
 import { GameParticipant } from "../../../src/models/game-participant.ts";
@@ -20,35 +17,19 @@ import { GameTeamHomeGroup } from "../../../src/models/game-team-home-group.ts";
 import { GameTeamPosition } from "../../../src/models/game-team-position.ts";
 import { GameTile } from "../../../src/models/game-tile.ts";
 import { Lobby } from "../../../src/models/lobby.ts";
-import { MapTemplateNode } from "../../../src/models/map-template-node.ts";
 import { MapTemplateNodeChallenge } from "../../../src/models/map-template-node-challenge.ts";
 import { buildGameStateProjection } from "../../../src/projections/game-state.ts";
 import { createLobbyWithFourPlayers } from "../../setup/lobby.ts";
 import { registerUser, setUserAdmin } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 
-const START_TEST_DECK_CODE = "start-test-deck";
-const START_TEST_CARD_CODE = "start-test-card";
-
-async function clearStartTestCatalog(): Promise<void> {
-  const stale = await Challenge.findAll({ where: { code: START_TEST_CARD_CODE } });
-  if (stale.length > 0) {
-    await MapTemplateNodeChallenge.destroy({
-      where: { challengeId: stale.map((c) => c.id) },
-    });
-  }
-  await ChallengeDeck.destroy({ where: { code: START_TEST_DECK_CODE } });
-}
-
 describe("startFromLobby", () => {
   beforeEach(async () => {
     await truncateMutableTables(await getSequelize());
-    await clearStartTestCatalog();
   });
 
   afterEach(async () => {
     await truncateMutableTables(await getSequelize());
-    await clearStartTestCatalog();
   });
 
   // will update this as the phases progress
@@ -115,44 +96,22 @@ describe("startFromLobby", () => {
   });
 
   it("snapshots map_template_node_challenges into game_node_challenges per cloned game node", async () => {
-    const type = await ChallengeType.findOne();
-    if (!type) throw new Error("expected at least one seeded challenge_type");
-    const deck = await ChallengeDeck.create({
-      code: START_TEST_DECK_CODE,
-      name: "Start test deck",
-      isActive: true,
-      sortOrder: 0,
-    });
-    const card = await Challenge.create({
-      challengeDeckId: deck.id,
-      challengeTypeId: type.id,
-      code: START_TEST_CARD_CODE,
-      title: "Start test card",
-      description: null,
-      flavorText: "flavour",
-      parameters: {},
-      sortOrder: 0,
-      isActive: true,
-    });
-
-    // Attach to exactly two template nodes so we can assert per-node fidelity
-    // without depending on the full seeded template size.
-    const templateNodes = await MapTemplateNode.findAll({
-      attributes: ["id"],
-      order: [["code", "ASC"]],
-      limit: 2,
-    });
-    expect(templateNodes).toHaveLength(2);
-    await MapTemplateNodeChallenge.bulkCreate(
-      templateNodes.map((node) => ({
-        mapTemplateNodeId: node.id,
-        challengeId: card.id,
-        sortOrder: 0,
-      })),
-    );
-
+    // The integration suite's globalSetup seeds the TTC 2026 challenge
+    // catalog into `map_template_node_challenges`. Treat that table as
+    // the source of truth at runtime so this stays green as the JSON
+    // authoring file evolves.
     const { lobbyId, hostId } = await createLobbyWithFourPlayers();
     const result = await startFromLobby(lobbyId, hostId);
+
+    const gameNodes = await GameNode.findAll({
+      where: { gameId: result.gameId },
+      attributes: ["id", "templateNodeId"],
+    });
+    const templateNodeIds = gameNodes.map((n) => n.templateNodeId);
+    const seededBindings = await MapTemplateNodeChallenge.findAll({
+      where: { mapTemplateNodeId: templateNodeIds },
+    });
+    expect(seededBindings.length).toBeGreaterThan(0);
 
     const queueRows = await GameNodeChallenge.findAll({
       include: [
@@ -163,12 +122,24 @@ describe("startFromLobby", () => {
         },
       ],
     });
-    expect(queueRows).toHaveLength(2);
-    const templateIds = new Set(templateNodes.map((n) => n.id));
+    expect(queueRows).toHaveLength(seededBindings.length);
+
+    const tripleKey = (
+      templateNodeId: string,
+      challengeId: string,
+      sortOrder: number,
+    ): string => `${templateNodeId}:${challengeId}:${sortOrder}`;
+    const seededKeys = new Set(
+      seededBindings.map((b) =>
+        tripleKey(b.mapTemplateNodeId, b.challengeId, b.sortOrder),
+      ),
+    );
     for (const row of queueRows) {
-      expect(row.challengeId).toBe(card.id);
-      expect(row.sortOrder).toBe(0);
-      expect(templateIds.has(row.gameNode!.templateNodeId)).toBe(true);
+      expect(
+        seededKeys.has(
+          tripleKey(row.gameNode!.templateNodeId, row.challengeId, row.sortOrder),
+        ),
+      ).toBe(true);
     }
   });
 
