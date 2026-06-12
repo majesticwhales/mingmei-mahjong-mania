@@ -40,16 +40,11 @@ export function ChallengeModal({
           {description && <p className="challenge-modal__description">{description}</p>}
           {flavorText && <p className="challenge-modal__flavor">{flavorText}</p>}
 
-          <div
-            className={`challenge-modal__image${imageUrl ? "" : " challenge-modal__image--empty"}`}
-            aria-label={imageUrl ? "Challenge illustration" : "Challenge illustration placeholder"}
-          >
-            {imageUrl ? (
+          {imageUrl && (
+            <div className="challenge-modal__image" aria-label="Challenge illustration">
               <img src={imageUrl} alt="" className="challenge-modal__image-media" />
-            ) : (
-              <span className="challenge-modal__image-placeholder">Image optional</span>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <footer className="modal__footer challenge-modal__footer">
