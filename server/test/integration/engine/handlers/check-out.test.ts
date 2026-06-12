@@ -44,6 +44,7 @@ describe("CHECK_OUT handler", () => {
     expect(event!.payload).toEqual({
       nodeId: bayNode!.id,
       nodeCode: "bay",
+      nodeName: "bay",
       implicit: false,
     });
     expect(event!.actorGameTeamId).toBe(participant.gameTeamId);
@@ -174,6 +175,7 @@ describe("CHECK_OUT handler", () => {
     expect(event.payload).toEqual({
       nodeId: bayNode!.id,
       nodeCode: "bay",
+      nodeName: "bay",
       implicit: false,
       geo: sample,
       geolocationWarning: false,
@@ -255,6 +257,7 @@ describe("CHECK_OUT handler", () => {
     expect(event.payload).toEqual({
       nodeId: bayNode!.id,
       nodeCode: "bay",
+      nodeName: "bay",
       implicit: false,
     });
 

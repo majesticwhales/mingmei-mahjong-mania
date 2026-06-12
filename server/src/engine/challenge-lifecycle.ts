@@ -52,7 +52,7 @@ export async function autoForfeitActiveChallenge(args: {
           {
             model: GameNode,
             required: true,
-            attributes: ["id", "code"],
+            attributes: ["id", "code", "name"],
           },
         ],
       },
@@ -83,6 +83,7 @@ export async function autoForfeitActiveChallenge(args: {
     payload: {
       nodeId: node.id,
       nodeCode: node.code,
+      nodeName: node.name,
       challengeId: active.challengeId,
       instanceId: active.id,
       cooldownUntil: cooldownUntil.toISOString(),

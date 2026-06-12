@@ -77,7 +77,11 @@ describe("VISIBILITY_PHASE_ADVANCE handler", () => {
     const events = await GameEvent.findAll({ where: { gameId } });
     expect(events).toHaveLength(1);
     expect(events[0]!.eventType).toBe("VISIBILITY_PHASE_ADVANCED");
-    expect(events[0]!.payload).toEqual({ previousPhase: 0, phase: 1 });
+    expect(events[0]!.payload).toEqual({
+      previousPhase: 0,
+      phase: 1,
+      visibilityPhaseCount: 3,
+    });
     expect(events[0]!.actorUserId).toBeNull();
 
     expect(broadcaster.emitEvent).toHaveBeenCalledTimes(1);
@@ -85,7 +89,10 @@ describe("VISIBILITY_PHASE_ADVANCE handler", () => {
   });
 
   it("drains a 3-phase sequence in order", async () => {
-    const { gameId } = await setupLightweightGame({ participantCount: 0 });
+    const { gameId } = await setupLightweightGame({
+      participantCount: 0,
+      visibilityPhaseCount: 3,
+    });
     await clearJobs(gameId);
     const base = Date.now() - 60 * 1000;
     await insertJob(
@@ -100,27 +107,20 @@ describe("VISIBILITY_PHASE_ADVANCE handler", () => {
       { targetPhase: 2 },
       { runAt: new Date(base + 1) },
     );
-    await insertJob(
-      gameId,
-      "VISIBILITY_PHASE_ADVANCE",
-      { targetPhase: 3 },
-      { runAt: new Date(base + 2) },
-    );
 
     const result = await runSchedulerTick({});
-    expect(result).toEqual({ processed: 3, failed: 0 });
+    expect(result).toEqual({ processed: 2, failed: 0 });
 
     const game = await Game.findByPk(gameId);
-    expect(game?.visibilityPhase).toBe(3);
+    expect(game?.visibilityPhase).toBe(2);
 
     const events = await GameEvent.findAll({
       where: { gameId, eventType: "VISIBILITY_PHASE_ADVANCED" },
       order: [["sequence", "ASC"]],
     });
     expect(events.map((e) => e.payload)).toEqual([
-      { previousPhase: 0, phase: 1 },
-      { previousPhase: 1, phase: 2 },
-      { previousPhase: 2, phase: 3 },
+      { previousPhase: 0, phase: 1, visibilityPhaseCount: 3 },
+      { previousPhase: 1, phase: 2, visibilityPhaseCount: 3 },
     ]);
   });
 
@@ -521,12 +521,12 @@ describe("builtinSchedulerHandlers end-to-end", () => {
     await truncateMutableTables(await getSequelize());
   });
 
-  it("drains the full set of jobs scheduled at game start (3 advances + preset notifications + end)", async () => {
+  it("drains the full set of jobs scheduled at game start (2 advances + preset notifications + end)", async () => {
     // Intentionally uses `setupStartedGame` because this test asserts the
     // jobs that `startFromLobby` seeds for a phase-only lobby.
     const { gameId } = await setupStartedGame({
       visibilityMode: "phase",
-      visibilityPhaseCount: 4,
+      visibilityPhaseCount: 3,
     });
     // The default lobby schedules every job in the future relative to startedAt;
     // pull them into the past so this tick can claim all four at once.
@@ -541,10 +541,10 @@ describe("builtinSchedulerHandlers end-to-end", () => {
       broadcaster,
     });
 
-    expect(result).toEqual({ processed: 7, failed: 0 });
+    expect(result).toEqual({ processed: 6, failed: 0 });
 
     const game = await Game.findByPk(gameId);
-    expect(game?.visibilityPhase).toBe(3);
+    expect(game?.visibilityPhase).toBe(2);
     expect(game?.status).toBe("ended");
 
     const events = await GameEvent.findAll({
@@ -552,7 +552,6 @@ describe("builtinSchedulerHandlers end-to-end", () => {
       order: [["sequence", "ASC"]],
     });
     expect(events.map((e) => e.eventType)).toEqual([
-      "VISIBILITY_PHASE_ADVANCED",
       "VISIBILITY_PHASE_ADVANCED",
       "VISIBILITY_PHASE_ADVANCED",
       "GAME_ENDED",

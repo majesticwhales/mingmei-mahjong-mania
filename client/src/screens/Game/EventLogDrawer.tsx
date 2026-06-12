@@ -1,19 +1,13 @@
+import { formatEventMessage } from "../../lib/formatEventMessage";
 import type { RecentEventDto } from "../../wire/projection";
 
 interface Props {
   events: RecentEventDto[];
+  stationNamesByCode?: Readonly<Record<string, string>>;
   open: boolean;
   onClose: () => void;
   /** Events with sequence greater than this were unseen when the drawer opened. */
   unseenBoundarySequence?: number | null;
-}
-
-function formatEvent(event: RecentEventDto) {
-  const parts = [event.type];
-  if (event.teamCode) parts.push(`team ${event.teamCode}`);
-  if (event.nodeCode) parts.push(`@ ${event.nodeCode}`);
-  if (event.template) parts.push(event.template);
-  return parts.join(" ");
 }
 
 function oldEventsStartIndex(
@@ -30,6 +24,7 @@ function oldEventsStartIndex(
 
 export function EventLogDrawer({
   events,
+  stationNamesByCode,
   open,
   onClose,
   unseenBoundarySequence = null,
@@ -52,7 +47,7 @@ export function EventLogDrawer({
               <hr className="event-log__new-divider" aria-hidden="true" />
             )}
             <time>{new Date(event.at).toLocaleTimeString()}</time>
-            <span>{formatEvent(event)}</span>
+            <span>{formatEventMessage(event, { stationNamesByCode })}</span>
           </li>
         ))}
       </ol>

@@ -48,7 +48,11 @@ describe("CHECK_IN handler", () => {
     expect(result.events).toHaveLength(1);
     const [event] = result.events;
     expect(event!.eventType).toBe("CHECK_IN");
-    expect(event!.payload).toEqual({ nodeId: bayId, nodeCode: "bay" });
+    expect(event!.payload).toEqual({
+      nodeId: bayId,
+      nodeCode: "bay",
+      nodeName: "bay",
+    });
     expect(event!.actorGameTeamId).toBe(participant.gameTeamId);
     expect(event!.actorUserId).toBe(participant.userId);
 
@@ -95,6 +99,7 @@ describe("CHECK_IN handler", () => {
     expect(checkInEvent!.payload).toEqual({
       nodeId: targetNode.id,
       nodeCode: "bloor-yonge",
+      nodeName: "bloor-yonge",
     });
 
     const position = await GameTeamPosition.findOne({
@@ -288,7 +293,11 @@ describe("CHECK_IN handler", () => {
     });
 
     const checkInEvent = result.events.find((e) => e.eventType === "CHECK_IN")!;
-    expect(checkInEvent.payload).toEqual({ nodeId: bayId, nodeCode: "bay" });
+    expect(checkInEvent.payload).toEqual({
+      nodeId: bayId,
+      nodeCode: "bay",
+      nodeName: "bay",
+    });
 
     const position = await GameTeamPosition.findOne({
       where: { gameTeamId: participant.gameTeamId },
@@ -322,7 +331,11 @@ describe("CHECK_IN handler", () => {
     const checkInEvent = result.events.find((e) => e.eventType === "CHECK_IN")!;
     // Malformed → event payload looks the same as the "no geo" path: no
     // `geo`, no warning flags.
-    expect(checkInEvent.payload).toEqual({ nodeId: bayId, nodeCode: "bay" });
+    expect(checkInEvent.payload).toEqual({
+      nodeId: bayId,
+      nodeCode: "bay",
+      nodeName: "bay",
+    });
 
     const position = await GameTeamPosition.findOne({
       where: { gameTeamId: participant.gameTeamId },

@@ -48,4 +48,19 @@ describe("gameReducer", () => {
       expect(next.eventLog).toHaveLength(1);
     }
   });
+
+  it("ignores game.state updates for a different game", () => {
+    const active = gameReducer(
+      { status: "loading", id: "g1" },
+      { type: "game/loaded", id: "g1", gameTeamId: "t1", projection },
+    );
+    const next = gameReducer(active, {
+      type: "game/state",
+      projection: { ...projection, gameId: "g2", status: "ended" },
+    });
+    if (next.status === "active") {
+      expect(next.projection.status).toBe("active");
+      expect(next.projection.gameId).toBe("g1");
+    }
+  });
 });

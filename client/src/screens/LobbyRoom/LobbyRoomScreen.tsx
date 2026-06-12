@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { HttpError } from "../../transport/httpError";
@@ -7,19 +7,22 @@ import { useGame } from "../../state/game/hooks";
 import { useIsHost, useLobby, useLobbyMembers } from "../../state/lobby/hooks";
 import { MemberList } from "./MemberList";
 import { TeamPicker } from "./TeamPicker";
+import { lobbyJoinErrorMessage } from "./useLobbyAutoJoin";
+import type { LobbyStatus } from "../../wire/lobby";
 
 export function LobbyRoomScreen() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
   const { state: authState } = useAuth();
-  const { state, loadLobby, createLobby, joinLobby, pickTeam, startLobby } = useLobby();
+  const { state, loadLobby, createLobby, pickTeam, startLobby } = useLobby();
   const { leaveGame } = useGame();
   const isHost = useIsHost();
   const isAdmin = useIsAdmin();
   const members = useLobbyMembers();
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const prevLobbyStatusRef = useRef<LobbyStatus | null>(null);
   const testGame =
     (location.state as { testGame?: boolean } | null)?.testGame === true;
 
@@ -38,21 +41,33 @@ export function LobbyRoomScreen() {
     void loadLobby(id);
   }, [id, loadLobby, createLobby, navigate, authState, testGame]);
 
-  // Auto-navigate every lobby member (host included) to the game screen
-  // once the server flips the lobby out of `waiting` and the `lobby.config`
-  // broadcast carries a non-null `gameId`. This is what makes non-host
-  // clients leave the lobby UI when the host clicks Start — the host's
-  // own REST-driven `navigate` in `handleStart` is then just a redundant
-  // safety net for the same gameId.
-  const targetGameId =
-    state.status === "ready" && state.lobby.status !== "waiting"
-      ? state.lobby.gameId
-      : null;
+  // Drop any in-memory game session when entering a lobby so a prior
+  // ended game cannot leak into the next start/join flow.
   useEffect(() => {
-    if (targetGameId) {
-      navigate(`/games/${targetGameId}`);
+    if (!id || id === "new") return;
+    prevLobbyStatusRef.current = null;
+    leaveGame();
+  }, [id, leaveGame]);
+
+  // Navigate to the game only when this lobby actually starts — not when
+  // reopening an already-closed lobby whose game may have ended.
+  useEffect(() => {
+    if (state.status !== "ready") return;
+
+    const { status, gameId } = state.lobby;
+    const previousStatus = prevLobbyStatusRef.current;
+    prevLobbyStatusRef.current = status;
+
+    if (!gameId) return;
+
+    const justStarted =
+      previousStatus === "waiting" && status !== "waiting";
+    const joinedDuringStart = previousStatus == null && status === "starting";
+
+    if (justStarted || joinedDuringStart) {
+      navigate(`/games/${gameId}`);
     }
-  }, [targetGameId, navigate]);
+  }, [navigate, state]);
 
   const myTeamSlot = useMemo(() => {
     if (authState.status !== "authenticated" || state.status !== "ready") return null;
@@ -80,10 +95,10 @@ export function LobbyRoomScreen() {
   if (state.status === "error") {
     return (
       <main className="screen">
-        <p>{state.error.message}</p>
-        <button type="button" className="btn btn--secondary" onClick={() => void joinLobby(id)}>
-          Try join
-        </button>
+        <p>{lobbyJoinErrorMessage(state.error)}</p>
+        <Link to="/lobbies" className="btn btn--secondary">
+          Back to lobbies
+        </Link>
       </main>
     );
   }
@@ -91,6 +106,30 @@ export function LobbyRoomScreen() {
   if (state.status !== "ready") return null;
 
   const { lobby } = state;
+
+  if (lobby.status === "closed" && lobby.gameId) {
+    return (
+      <main className="screen screen--hub">
+        <header className="screen__header">
+          <Link to="/lobbies" className="btn btn--ghost">
+            Back
+          </Link>
+          <ConnectionBadge />
+        </header>
+        <h1 className="screen__title">Lobby {lobby.id.slice(0, 8)}</h1>
+        <p className="screen__subtitle">
+          This lobby&apos;s game has already started or finished. Wait here for the host to
+          create a new lobby, or open the previous game below.
+        </p>
+        <Link to={`/games/${lobby.gameId}`} className="btn btn--secondary">
+          Open game
+        </Link>
+        <Link to={`/games/${lobby.gameId}/summary`} className="btn btn--ghost">
+          View summary
+        </Link>
+      </main>
+    );
+  }
 
   async function handleStart() {
     setError(null);

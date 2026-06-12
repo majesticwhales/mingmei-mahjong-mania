@@ -156,6 +156,7 @@ export const completeChallengeHandler: CommandHandler = {
     const eventPayload: Record<string, unknown> = {
       nodeId: node.id,
       nodeCode: node.code,
+      nodeName: node.name,
       challengeId: instance.challengeId,
       instanceId: instance.id,
       cooldownUntil: cooldownUntil.toISOString(),

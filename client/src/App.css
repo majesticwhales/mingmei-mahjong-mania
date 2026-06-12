@@ -677,7 +677,6 @@ body {
   }
 
   .game-screen__header .app__title,
-  .game-screen__header .legend,
   .game-screen__header .connection-badge {
     display: none;
   }
@@ -715,6 +714,46 @@ body {
   color: var(--panel-muted);
   font-size: 0.75rem;
   white-space: nowrap;
+}
+
+.game-header-tiles {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.game-header-tiles__item {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.game-header-tiles__label {
+  color: var(--panel-muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.game-header-tiles__tile {
+  display: block;
+  width: 28px;
+  height: auto;
+  padding: 2px;
+  border: 1px solid #d8d0c4;
+  border-radius: 4px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(232, 224, 211, 0.98)),
+    #f5efe5;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.9),
+    inset -1px -1px 0 rgba(176, 164, 148, 0.35),
+    0 1px 0 #b8aa98,
+    0 2px 5px rgba(0, 0, 0, 0.25);
 }
 
 .event-log {

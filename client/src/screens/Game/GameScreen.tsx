@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
-import { Legend } from "../../components/Legend";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
 import { stationHasClaimableWait } from "../../lib/claimWin";
@@ -28,6 +27,7 @@ import { restClient } from "../../transport/restClient";
 import { ChallengeModal } from "./ChallengeModal";
 import { ClaimWinModal } from "./ClaimWinModal";
 import { EventLogDrawer } from "./EventLogDrawer";
+import { GameHeaderTiles } from "./GameHeaderTiles";
 import { GameTimer } from "./GameTimer";
 import { HandCompletedModal } from "./HandCompletedModal";
 import { SwapTileModal } from "./SwapTileModal";
@@ -87,7 +87,10 @@ export function GameScreen() {
   // for a frame after navigating to a freshly-started game, which wrongly
   // bounced users to /summary before joinGame finished.
   const gameEnded =
-    state.status === "active" && state.id === id && projection?.status === "ended";
+    state.status === "active" &&
+    state.id === id &&
+    projection?.gameId === id &&
+    projection.status === "ended";
 
   // Phase J — once the game flips to `ended`, send everyone to the
   // summary. The game screen is read-only at this point (the projection
@@ -128,9 +131,21 @@ export function GameScreen() {
     );
   }, [projection]);
 
+  const stationNamesByCode = useMemo(() => {
+    if (!projection) return undefined;
+    return Object.fromEntries(projection.mapNodes.map((node) => [node.code, node.name]));
+  }, [projection]);
+
   const isCheckInSynced = Boolean(
     pendingCheckInNodeId && atStation?.nodeId === pendingCheckInNodeId,
   );
+  // Drop the optimistic check-in target once the projection catches up.
+  // Adjust state during render (not in an effect) so eslint's
+  // react-hooks/set-state-in-effect rule stays satisfied. Without this, a
+  // stale `pendingCheckInNodeId` survives checkout and locks every station.
+  if (isCheckInSynced) {
+    setPendingCheckInNodeId(null);
+  }
   const navigatingToNodeId = isCheckInSynced ? null : pendingCheckInNodeId;
   const panelSelectedNodeId = isCheckInSynced ? null : selectedNodeId;
 
@@ -372,6 +387,7 @@ export function GameScreen() {
     await runCommand(async () => {
       await checkOutCommand({});
       setSelectedNodeId(null);
+      setPendingCheckInNodeId(null);
     });
   }
 
@@ -408,8 +424,7 @@ export function GameScreen() {
     setEnding(true);
     try {
       await restClient.endGame(id);
-      leaveGame();
-      navigate("/lobbies");
+      navigate(`/games/${id}/summary`, { replace: true });
     } catch (error) {
       const message =
         error instanceof HttpError ? error.message : "Could not end game — try again";
@@ -437,13 +452,15 @@ export function GameScreen() {
           {gameEnded ? "Back to lobbies" : isAdmin ? (ending ? "Ending…" : "End game") : "Leave"}
         </button>
         <h1 className="app__title">Mingmei&apos;s Mahjong Mania</h1>
-        <Legend lines={network.lines} />
         <div className="game-screen__header-end">
+          <GameHeaderTiles
+            seatWind={projection.seatWind}
+            roundWind={projection.roundWind}
+            doraIndicator={projection.doraIndicator}
+          />
           <GameTimer endsAt={projection.endsAt} ended={gameEnded} />
           {!gameEnded && (
             <VisibilityCountdown
-              visibilityPhase={projection.visibilityPhase}
-              visibilityPhaseCount={projection.visibilityPhaseCount}
               nextVisibilityChangeAt={projection.nextVisibilityChangeAt}
               onElapsed={handleVisibilityPhaseElapsed}
             />
@@ -516,6 +533,7 @@ export function GameScreen() {
       />
       <EventLogDrawer
         events={eventLog}
+        stationNamesByCode={stationNamesByCode}
         open={eventLogOpen}
         onClose={handleCloseEventLog}
         unseenBoundarySequence={eventLogUnseenBoundary}

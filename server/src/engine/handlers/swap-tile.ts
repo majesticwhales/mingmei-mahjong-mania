@@ -10,6 +10,7 @@ import { GameNodeChallenge } from "../../models/game-node-challenge.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { GameTilePlacement } from "../../models/game-tile-placement.ts";
 import { swapPlacements } from "../tile-swap-service.ts";
+import { displayNamesForGameTiles } from "../tile-display-name.ts";
 import { assertSlotUnlocked } from "../../services/slot-visibility.ts";
 import { assertNotHandCompleted } from "../hand-completed-lock.ts";
 import { recordCommandGeolocation } from "../../services/geolocation.ts";
@@ -193,6 +194,11 @@ export const swapTileHandler: CommandHandler = {
       stationPlacement.gameTileId,
     );
 
+    const tileNames = await displayNamesForGameTiles(
+      [handPlacement.gameTileId, stationPlacement.gameTileId],
+      ctx.transaction,
+    );
+
     // Consume the credit. `credit_earned_in_session` stays true so the
     // team can't earn a second credit within the same check-in (TDD §3.8
     // "one swap per session"). Both flags clear on CHECK_OUT / CHECK_IN.
@@ -210,8 +216,11 @@ export const swapTileHandler: CommandHandler = {
     const eventPayload: Record<string, unknown> = {
       nodeId: station.id,
       nodeCode: station.code,
+      nodeName: station.name,
       handTileId: handPlacement.gameTileId,
       stationTileId: stationPlacement.gameTileId,
+      handTileDisplayName: tileNames.get(handPlacement.gameTileId),
+      stationTileDisplayName: tileNames.get(stationPlacement.gameTileId),
     };
     if (geoResult.geo != null) {
       eventPayload.geo = geoResult.geo;

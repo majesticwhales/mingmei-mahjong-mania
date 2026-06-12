@@ -15,6 +15,7 @@ import type {
   LobbyConfigPatch,
   LobbyDetailDto,
 } from "../../wire/lobby";
+import { useAutoJoinAttemptTracker } from "../../screens/LobbyRoom/useLobbyAutoJoin";
 import { useAuth } from "../auth/hooks";
 import { useConnection } from "../connection/hooks";
 import { lobbyReducer } from "./reducer";
@@ -48,6 +49,7 @@ export function LobbyProvider({ children }: { children: ReactNode }) {
   const { state: authState } = useAuth();
   const { state: connState } = useConnection();
   const userId = authState.status === "authenticated" ? authState.user.id : null;
+  const { shouldAutoJoin, markAutoJoinAttempted } = useAutoJoinAttemptTracker(userId);
 
   useEffect(() => {
     return onSocketEvent("lobby.config", (lobby) => {
@@ -66,16 +68,40 @@ export function LobbyProvider({ children }: { children: ReactNode }) {
       ]);
       dispatch({ type: "lobby/loaded", id, lobby: socketLobby ?? lobby });
     } catch (error) {
+      const httpError =
+        error instanceof HttpError
+          ? error
+          : new HttpError("unknown_error", "Failed to load lobby", 0);
+
+      if (shouldAutoJoin(id, httpError)) {
+        markAutoJoinAttempted(id);
+        try {
+          const { lobby } = await restClient.joinLobby(id);
+          dispatch({ type: "lobby/loaded", id, lobby });
+          if (connState.status === "connected") {
+            await emitLobbyJoin(id).catch(() => undefined);
+          }
+          return;
+        } catch (joinError) {
+          dispatch({
+            type: "lobby/load/failed",
+            id,
+            error:
+              joinError instanceof HttpError
+                ? joinError
+                : new HttpError("unknown_error", "Failed to join lobby", 0),
+          });
+          return;
+        }
+      }
+
       dispatch({
         type: "lobby/load/failed",
         id,
-        error:
-          error instanceof HttpError
-            ? error
-            : new HttpError("unknown_error", "Failed to load lobby", 0),
+        error: httpError,
       });
     }
-  }, [connState.status]);
+  }, [connState.status, shouldAutoJoin, markAutoJoinAttempted]);
 
   const prevConnStatus = useRef(connState.status);
   useEffect(() => {

@@ -181,6 +181,7 @@ export const startChallengeHandler: CommandHandler = {
     const eventPayload: Record<string, unknown> = {
       nodeId: node.id,
       nodeCode: node.code,
+      nodeName: node.name,
       challengeId: topChallenge.challengeId,
       instanceId: instance.id,
     };

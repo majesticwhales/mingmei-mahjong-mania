@@ -100,6 +100,11 @@ async function handleGameJoin(
     );
   }
 
+  const previousGameId = socket.data.gameId;
+  if (previousGameId && previousGameId !== gameId) {
+    await socket.leave(gameRoom(previousGameId));
+  }
+
   socket.data.gameId = gameId;
   socket.data.gameTeamId = participant.gameTeamId;
   await socket.join(gameRoom(gameId));
