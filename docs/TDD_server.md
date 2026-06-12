@@ -388,6 +388,22 @@ Stations with **zero** rows in `game_node_challenges` skip the credit gate entir
 
 See [§4.8](#48-challenges-schema-honor-system--reserved-resolver-flow). The honor-system flow uses `challenges` + `challenge_decks` + the new `map_template_node_challenges` / `game_node_challenges` join tables; per-team state lives on `game_challenge_instances` (new `game_node_challenge_id` FK, new `cooldown_until` column, extended `status` enum). The reserved resolver tables (`challenge_types`, `game_challenge_submissions`) stay migrated but unused on the v1 write path.
 
+#### Content authoring
+
+Challenge content (titles, descriptions, flavour text, illustration URLs, per-station bindings) lives in JSON under `server/seeders/data/challenges/<template>.json` — `ttc-2026.json` is the canonical file today. The JSON is the **source of truth**; the database is a derived view of the file, materialised by an idempotent seeder.
+
+Authoring workflow:
+
+1. Edit `server/seeders/data/challenges/ttc-2026.json`. Each entry under `stations[<nodeCode>]` is an array of challenges; array index becomes `sort_order` on `map_template_node_challenges`. The first element is the only one the MVP engine serves (`LIMIT 1 ORDER BY sort_order ASC`); additional entries pre-stage the future "discard the top card" multi-card mechanic without a schema change.
+2. (Optional) Drop illustration files into `client/public/challenges/<filename>` and reference them from the JSON as `"imageUrl": "/challenges/<filename>"`. Vite copies the directory into the build, so the path is the same in `vite dev` and the production bundle. External URLs (e.g. CDN) are accepted verbatim — the column is unconstrained TEXT.
+3. Re-run the seeder: `npm run db:seed:challenges` (alias for `sequelize-cli db:seed --seed 20260612000000-seed-challenges-ttc-2026.cjs`). The seeder upserts the deck + challenges + bindings idempotently:
+   - `challenge_decks` keyed by `code`.
+   - `challenges` keyed by `(challenge_deck_id, code)` — JSON edits to `title` / `description` / `flavor_text` / `image_url` propagate to existing rows on re-run.
+   - `map_template_node_challenges` keyed by `(map_template_node_id, sort_order)` — re-pointing a slot at a different `challenge_code` updates the binding in place.
+4. The seeder logs + skips any `nodeCode` it can't resolve against the template (so the JSON can drift ahead of the map seeder without breaking the run); it errors loudly when the template itself or a referenced `challenge_types.code` is missing.
+
+Test coverage: `server/test/integration/seeders/challenges-ttc-2026.test.ts` runs the seeder against a tmpdir JSON fixture and asserts (a) first-run insertion, (b) second-run no-op with the same row ids, (c) field propagation on JSON edit, (d) in-place re-binding when a slot's code changes, (e) unknown-node skip path, (f) unknown-type hard error.
+
 ### 3.9 Mahjong hand evaluation (Riichi)
 
 A self-contained **scoring module** at `server/src/scoring/` evaluates a mahjong hand and returns structured scoring metadata. The client **never** computes score — only displays server results. The module is **shipped as of Phase I** and is wired into the `game.state` projection (§6.3: `handAnalysis`, `roundWind`, `seatWind`, `doraIndicator`). End-of-game integration with `GET /api/games/:id/summary` lands with **Phase J** — see [§3.10](#310-game-end-and-hand-completion).
@@ -1266,7 +1282,7 @@ Global catalog: `code`, `name`, `resolver_key`. Reserved — dispatches the futu
 
 ##### `challenges`
 
-`challenge_deck_id`, `challenge_type_id`, `code` (unique per deck), `title`, `description` (nullable TEXT), `flavor_text` (nullable TEXT — added Phase H for the UI's flavour-line above the description), `parameters` (JSONB), `sort_order`, `is_active`.
+`challenge_deck_id`, `challenge_type_id`, `code` (unique per deck), `title`, `description` (nullable TEXT), `flavor_text` (nullable TEXT — added Phase H for the UI's flavour-line above the description), `image_url` (nullable TEXT — added Phase H content seeding; surfaced on `AtStationChallengeDto.imageUrl` and rendered inside `ChallengeModal`. Typically an absolute path like `/challenges/<station>.png` served by the client static bundle from `client/public/challenges/`, but external URLs are accepted verbatim — no validation, no FK to `media_assets`.), `parameters` (JSONB), `sort_order`, `is_active`.
 
 #### Per-template queue (honor-system binding)
 
@@ -1341,7 +1357,10 @@ Phase H adds two booleans to `game_team_positions` (documented here alongside th
 
 Both reset to false on every `CHECK_IN` and `CHECK_OUT` (explicit or implicit). See §3.8.
 
-Seeder: `challenge_types` only (`travel`, `photo`, `tile_swap`); decks/cards/queue bindings live in template-specific seeders that product owns.
+Seeders:
+
+- `challenge_types`: `travel`, `photo`, `task` (resolver_keys identical to the codes; see `server/seeders/20260517199000-seed-challenge-types.cjs`). The honor-system flow ignores `resolver_key` entirely — these rows exist so the future resolver workflow has dispatch targets.
+- `challenge_decks` + `challenges` + `map_template_node_challenges`: authored in JSON under `server/seeders/data/challenges/<template>.json` (the file is the source of truth) and seeded idempotently by `server/seeders/20260612000000-seed-challenges-ttc-2026.cjs`. See §3.8 *Content authoring* for the JSON shape + edit workflow.
 
 ### 4.9 Events and command queue
 
@@ -2014,8 +2033,8 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
 - [x] Add visibility + positions tables
 - [x] Add `game_events`, `game_command_queue`, `game_scheduled_jobs`
 - [x] Add `media_assets`
-- [x] Add challenge tables (challenge_types seeder; decks/cards empty)
-- [x] Seeds: `team_definitions`, `tile_types` (136 rows for the standard riichi catalog), `challenge_types`
+- [x] Add challenge tables (`challenge_types` / `challenge_decks` / `challenges` seeded — see §3.8 *Content authoring* for the JSON-in-repo authoring loop).
+- [x] Seeds: `team_definitions`, `tile_types` (136 rows for the standard riichi catalog), `challenge_types`, `challenges` (TTC 2026 deck + per-station bindings via `20260612000000-seed-challenges-ttc-2026.cjs`, idempotent against `server/seeders/data/challenges/ttc-2026.json`).
 - [x] Seed: `map_template` **TTC 2026** (`server/seeders/data/ttc2026-network.cjs` → `20260517202000-seed-map-template-ttc2026.cjs`). All 84 stations have entrance `latitude`/`longitude` plus schematic `x`/`y`/`labelAnchor` in the seed file, which is the canonical map source for the DB-backed client.
 - [x] Phase D abstraction-layer relaxation (`20260524000000-relax-abstraction-layer.cjs`):
   - Drop unique index `game_tile_placements_game_node_id_unique`; add non-unique index on `game_node_id`.
@@ -2107,6 +2126,7 @@ The infra layer is intentionally rule-agnostic. Items marked **rule layer** desc
 - **Failure mode under guild outage:** outbox grows; engine continues unaffected. Operator alert when `delivery_attempts > 5` for any row over 10 minutes old (Phase K observability item).
 - **Local development:** `DISCORD_ENABLED_FOR_DEV=false` short-circuits `discordOutbox.insert` regardless of the game flag, so localhost runs without ever touching Discord. The bot process is just not started in `dev`.
 
+- [x] Phase H challenge images (`20260612000000-add-challenge-image-url.cjs`): adds `challenges.image_url TEXT NULL` so challenge content can carry an optional illustration. Free-text — the client renders absolute paths like `/challenges/<station>.png` (served from `client/public/challenges/`) verbatim, but external CDN URLs work too. Surfaced on `AtStationChallengeDto.imageUrl` (always present on the wire; `null` when unset) and rendered inside `ChallengeModal`. No data backfill needed — every existing row gets `NULL`, which matches the conditional render branch.
 - [x] Phase L tile-visibility (`20260611120000-add-slot-map-unlock-offsets.cjs`): replaces the boolean `slot_map_visible[]` column on `map_templates` / `lobbies` / `games` with a nullable-element `slot_map_unlock_offsets_seconds INTEGER[] NOT NULL DEFAULT '{0}'` timeline, seeds TTC2026 with `{0, 3600, 7200}` so the second / third slot reveal an hour apart, and extends `game_scheduled_jobs.job_type` CHECK to include `'SLOT_MAP_UNLOCKED'`. Wrapped in a single transaction. Existing rows are backfilled from the legacy `(slot_unlock_offsets_seconds, slot_map_visible)` pair before any CHECKs land: `slot_map_visible[k] = TRUE → slot_map_unlock_offsets_seconds[k] = slot_unlock_offsets_seconds[k]` (map reveal coincides with claim unlock, matching the pre-Phase-L behavior) and `slot_map_visible[k] = FALSE → NULL` (the new "never on map" tier carries the old boolean cap). The backfill is required for dev DBs because the column default `'{0}'` would mis-length the array for any row with `slots_per_node > 1` (notably TTC2026, which seeds with `default_slots_per_node = 3`). New CHECKs per table: `cardinality(<map_offsets>) = <slots_per_node>`, `<map_offsets>[1] = 0`, and `<map_offsets>[k] IS NULL OR <map_offsets>[k] >= <claim_offsets>[k]` for every `k`. The companion job-type extension lets `game-schedule-service` enqueue `SLOT_MAP_UNLOCKED` rows for slots whose map-reveal timer differs from the claim timer (coincident timers are deduped to avoid double broadcasts). The `down()` path inverts the backfill (`slot_map_unlock_offsets_seconds[k] IS NULL → FALSE`, otherwise `TRUE`) so an emergency rollback doesn't lose the "never on map" information. Server-side: `slot-visibility.ts` gains `slotMapUnlockAtMs` / `isSlotMapUnlocked` / `mapUnlockedSlotIndices` to replace the removed `isSlotMapVisible` / `mapVisibleSlotIndices`; the projection's `resolveMapVisibleSlotIndices` calls `mapUnlockedSlotIndices` (no behavior change when every entry is `0`); `slot-map-unlocked.ts` handler emits the new event. Client mirrors: `LobbyConfigDto.slotMapUnlockOffsetsSeconds` (numeric + null entries), `ConfigForm` swaps the "map visible" checkbox for a "map reveal (sec)" number input + a "never on map" checkbox per slot, `slotTier.resizeSlotMapUnlockOffsets` replaces `resizeSlotMapVisible` (pad with `0`, slot 0 forced to `0`).
 - [x] Per-slot rules chunk 5 of the rollout (`20260530190000-add-config-array-checks.cjs`): lobby config flow + array-length / slot-0 invariants. Wrapped in a single transaction.
   - Migration adds five CHECK constraints to each of `map_templates`, `lobbies`, `games`: `cardinality(<offsets>) = <slots_per_node>`, `<offsets>[1] = 0`, `0 <= ALL(<offsets>)`, `cardinality(<map_visible>) = <slots_per_node>`, `<map_visible>[1] = TRUE` (the `<map_visible>` CHECKs are dropped alongside the column in Phase L). Postgres arrays are 1-indexed, so `[1]` is our 0-indexed slot 0. Pre-existing rows satisfy all five (slots_per_node=1, defaults `[0]`/`[true]`).
