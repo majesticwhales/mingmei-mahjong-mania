@@ -128,6 +128,7 @@ export const checkInHandler: CommandHandler = {
       const checkOutPayload: Record<string, unknown> = {
         nodeId: position.currentGameNodeId,
         nodeCode: previousNode?.code ?? null,
+        nodeName: previousNode?.name ?? null,
         implicit: true,
       };
       // Phase L: lift the parent CHECK_IN's geo sample onto the implicit
@@ -161,6 +162,7 @@ export const checkInHandler: CommandHandler = {
     const checkInPayload: Record<string, unknown> = {
       nodeId: targetNode.id,
       nodeCode: targetNode.code,
+      nodeName: targetNode.name,
     };
     if (geoResult.geo != null) {
       // Phase L: lift the raw sample onto the event payload (never

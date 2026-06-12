@@ -28,6 +28,7 @@ import { triggerSchedulerNow } from "../../scheduler/worker.ts";
 import { assertSlotUnlocked } from "../../services/slot-visibility.ts";
 import { RED_FIVES_RULE_KEY } from "../../tiles/red-five.ts";
 import { autoForfeitActiveChallenge } from "../challenge-lifecycle.ts";
+import { displayNamesForGameTiles } from "../tile-display-name.ts";
 import { assertNotHandCompleted } from "../hand-completed-lock.ts";
 import { loadTeamHandTiles } from "../team-hand-tiles.ts";
 import { recordCommandGeolocation } from "../../services/geolocation.ts";
@@ -428,11 +429,15 @@ export const claimWinHandler: CommandHandler = {
       });
     }
 
+    const tileNames = await displayNamesForGameTiles([stationTileId], ctx.transaction);
+
     const claimWinPayload: Record<string, unknown> = {
       nodeId: station.id,
       nodeCode: station.code,
+      nodeName: station.name,
       stationTileId,
       slotIndex: stationSlotIndex,
+      stationTileDisplayName: tileNames.get(stationTileId),
       finalHan: winning.han,
       finalFu: winning.fu,
       finalPoints: winning.points,

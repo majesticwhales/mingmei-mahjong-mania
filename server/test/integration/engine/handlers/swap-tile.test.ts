@@ -46,8 +46,11 @@ describe("SWAP_TILE handler", () => {
     expect(event!.payload).toEqual({
       nodeId: bayId,
       nodeCode: "bay",
+      nodeName: expect.any(String),
       handTileId,
       stationTileId,
+      handTileDisplayName: expect.any(String),
+      stationTileDisplayName: expect.any(String),
     });
 
     const [refreshedHand, refreshedStation] = await Promise.all([
