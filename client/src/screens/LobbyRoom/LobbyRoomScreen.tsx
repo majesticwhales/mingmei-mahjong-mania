@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { HttpError } from "../../transport/httpError";
 import { useAuth, useIsAdmin } from "../../state/auth/hooks";
 import { useGame } from "../../state/game/hooks";
@@ -114,7 +113,6 @@ export function LobbyRoomScreen() {
           <Link to="/lobbies" className="btn btn--ghost">
             Back
           </Link>
-          <ConnectionBadge />
         </header>
         <h1 className="screen__title">Lobby {lobby.id.slice(0, 8)}</h1>
         <p className="screen__subtitle">
@@ -151,7 +149,6 @@ export function LobbyRoomScreen() {
         <Link to="/lobbies" className="btn btn--ghost">
           Back
         </Link>
-        <ConnectionBadge />
       </header>
       <h1 className="screen__title">
         Lobby {lobby.id.slice(0, 8)} {isHost ? "HOST" : ""}
