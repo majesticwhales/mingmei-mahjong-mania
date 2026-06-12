@@ -4,7 +4,7 @@ import { tileImagePath } from "../../lib/tileImages";
 import type {
   AnalyzedWaitDto,
   AtStationDto,
-  SlotTileDto,
+  MapNodeTileDto,
   TileDto,
 } from "../../wire/projection";
 
@@ -22,27 +22,30 @@ interface ClaimableTile {
   wait: AnalyzedWaitDto;
 }
 
-function resolveStationSlots(atStation: AtStationDto): SlotTileDto[] {
-  if (atStation.tiles?.length) return atStation.tiles;
-  if (atStation.tile) return [{ slotIndex: 0, tile: atStation.tile }];
-  return [];
-}
-
 /**
- * Phase J — pick the station tile to claim as the winning 14th. We
- * filter the station's exposed slots to those whose tile type matches
- * a tenpai wait by `(suit, rank)`. The wait's `copyIndex` is the
- * orchestrator's scoring preference for a hypothetical 14th tile; the
- * physical station copy may differ (e.g. non-red 5p while the wait
- * lists copyIndex 0). The server re-scores using the claimed instance.
+ * Phase J — pick the station tile to claim as the winning 14th.
+ *
+ * Phase L Chunk 4 B-2: consumes the exhaustive
+ * `MapNodeTileDto[]` shape from `atStation.tiles[]`. Hidden / locked
+ * slots have `tile: null` — those are never claimable, so we skip
+ * them before matching against the team's tenpai waits.
+ *
+ * We filter the station's exposed slots to those whose tile type
+ * matches a tenpai wait by `(suit, rank)`. The wait's `copyIndex`
+ * is the orchestrator's scoring preference for a hypothetical 14th
+ * tile; the physical station copy may differ (e.g. non-red 5p while
+ * the wait lists copyIndex 0). The server re-scores using the
+ * claimed instance.
  */
 function selectClaimableTiles(
-  slots: ReadonlyArray<SlotTileDto>,
+  slots: ReadonlyArray<MapNodeTileDto>,
   waits: ReadonlyArray<AnalyzedWaitDto>,
 ): ClaimableTile[] {
   const matches: ClaimableTile[] = [];
   for (const slot of slots) {
-    const matchingWaits = waits.filter((wait) => waitMatchesTile(wait, slot.tile));
+    if (slot.tile == null) continue;
+    const tile = slot.tile;
+    const matchingWaits = waits.filter((wait) => waitMatchesTile(wait, tile));
     if (matchingWaits.length === 0) continue;
     matchingWaits.sort((a, b) => {
       if (b.points !== a.points) return b.points - a.points;
@@ -51,7 +54,7 @@ function selectClaimableTiles(
     });
     matches.push({
       slotIndex: slot.slotIndex,
-      tile: slot.tile,
+      tile,
       wait: matchingWaits[0]!,
     });
   }
@@ -75,7 +78,7 @@ export function ClaimWinModal({
   pending = false,
 }: Props) {
   const claimable = useMemo(
-    () => selectClaimableTiles(resolveStationSlots(atStation), waits),
+    () => selectClaimableTiles(atStation.tiles, waits),
     [atStation, waits],
   );
   const [selected, setSelected] = useState<string | null>(

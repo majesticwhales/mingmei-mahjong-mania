@@ -8,9 +8,13 @@ import {
   SCAFFOLD_CHALLENGE_ID,
 } from "./challengeContext";
 
+// Phase L Chunk 4 B-2: `AtStationDto.tiles[]` is required. The
+// challenge-context helpers only read `currentChallenge` /
+// `pendingSwapCredit`, so an empty tiles array is fine here.
 const baseAtStation: AtStationDto = {
   nodeId: "node-1",
   code: "BLY",
+  tiles: [],
 };
 
 describe("resolveCheckedInChallenge", () => {

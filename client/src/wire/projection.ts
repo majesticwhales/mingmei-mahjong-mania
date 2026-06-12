@@ -12,16 +12,6 @@ export interface TileDto {
 }
 
 /**
- * Legacy "visible tile at slot k" entry, still emitted by
- * `AtStationDto.tiles[]` until Phase L chunk L4 rewires `atStation`
- * onto the shared `buildNodeView` shape.
- */
-export interface SlotTileDto {
-  slotIndex: number;
-  tile: TileDto;
-}
-
-/**
  * Phase L §3.13: server-resolved per-slot map view. The server emits
  * one entry per slot the node has (`0 .. slots_per_node - 1`), in
  * ascending order. UI rendering paths must read `visible` / `locked`
@@ -95,8 +85,16 @@ export interface AtStationChallengeDto {
 export interface AtStationDto {
   nodeId: string;
   code: string;
-  tile?: TileDto;
-  tiles?: SlotTileDto[];
+  /**
+   * Phase L Chunk 4 B-2: exhaustive per-slot view. Same shape and
+   * server-side fog/timer redaction as `mapNodes[teamNode].tiles[]`
+   * — when the team is at this node, `atStation.tiles[k]` is the
+   * identical entry from `mapNodes[teamNode].tiles[k]`. The pre-L4
+   * `tile?: TileDto` (single-slot) and `tiles?: SlotTileDto[]`
+   * (visible-only) shapes are gone; UI consumers read
+   * `tile / visible / locked` directly per slot.
+   */
+  tiles: MapNodeTileDto[];
   currentChallenge?: AtStationChallengeDto | null;
   pendingSwapCredit?: boolean;
   creditEarnedInSession?: boolean;

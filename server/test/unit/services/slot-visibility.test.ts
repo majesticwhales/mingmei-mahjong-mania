@@ -166,10 +166,12 @@ describe("slot-visibility", () => {
   });
 
   describe("phaseDrivenMapVisibleSlotIndices", () => {
-    it("returns one slot per phase when phase count matches slots per node", () => {
+    it("accumulates revealed slots — phase k exposes [0..k]", () => {
+      // Tier 1 (slot 0) is visible from the start; each subsequent
+      // phase ADDS a tier without hiding the lower ones.
       expect(phaseDrivenMapVisibleSlotIndices(0, 3, 3)).toEqual([0]);
-      expect(phaseDrivenMapVisibleSlotIndices(1, 3, 3)).toEqual([1]);
-      expect(phaseDrivenMapVisibleSlotIndices(2, 3, 3)).toEqual([2]);
+      expect(phaseDrivenMapVisibleSlotIndices(1, 3, 3)).toEqual([0, 1]);
+      expect(phaseDrivenMapVisibleSlotIndices(2, 3, 3)).toEqual([0, 1, 2]);
     });
 
     it("returns null when counts do not match or slotsPerNode <= 1", () => {

@@ -62,7 +62,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
   });
 
   describe("mode = 'both' (baseline)", () => {
-    it("respects phase fog on the map while exposing every tile at the checked-in station", async () => {
+    it("respects phase fog on the map; atStation mirrors mapNodes[teamNode].tiles[]", async () => {
       const fixture = await setupLightweightGame({
         nodeCodes: ["a", "b"],
         startNodeCodeBySlot: { 1: "a" },
@@ -110,9 +110,10 @@ describe("buildGameStateProjection (visibility mode)", () => {
       expect(bNode.tiles.map((t) => t.visible)).toEqual([false, false]);
       expect(bNode.tiles.map((t) => t.tile)).toEqual([null, null]);
 
-      expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
-        0, 1,
-      ]);
+      // Phase L Chunk 4 B-2: atStation is a thin alias of the team's
+      // mapNodes entry — same fog/timer redaction, no at-station
+      // privilege.
+      expect(projection.atStation?.tiles).toEqual(aNode.tiles);
 
       expect(projection.nextVisibilityChangeAt).not.toBeNull();
     });
@@ -209,10 +210,10 @@ describe("buildGameStateProjection (visibility mode)", () => {
       expect(bNode.tiles.map((t) => t.visible)).toEqual([true, false]);
       expect(bNode.tiles.map((t) => t.locked)).toEqual([false, true]);
 
-      // Checked in at `a`: every station tile is visible in the sidebar.
-      expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
-        0, 1,
-      ]);
+      // Checked in at `a`: atStation mirrors aNode — slot 0 is
+      // visible, slot 1's `slot_map_unlock_offsets_seconds = null`
+      // hides it from atStation too (no pre-L4 "at-station privilege").
+      expect(projection.atStation?.tiles).toEqual(aNode.tiles);
 
       expect(projection.nextVisibilityChangeAt).toBeNull();
     });

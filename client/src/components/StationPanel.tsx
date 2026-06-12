@@ -7,8 +7,6 @@ import type {
   HandTileDto,
   MapNodeDto,
   MapNodeTileDto,
-  SlotTileDto,
-  TileDto,
 } from "../wire/projection";
 
 interface Props {
@@ -38,36 +36,22 @@ interface Props {
 }
 
 /**
- * Phase L §3.13: `MapNodeTileDto[]` is the server-resolved exhaustive
- * per-slot view. Project it down to the legacy `SlotTileDto[]` shape
- * (only the slots with a visible placement) so the existing render
- * helpers can stay unchanged. `atStation.tiles[]` is still legacy
- * `SlotTileDto[]` in L3; see TDD §3.13 for the L4 rewire.
+ * Phase L Chunk 4 B-2: every render path now reads
+ * `viewingNode.tiles[]` directly (the server emits the exhaustive
+ * per-slot `MapNodeTileDto[]`, byte-identical between map view and
+ * atStation view). Pre-L4 the panel had a special "at the checked-in
+ * station => see every tile regardless of fog/timer" branch; that
+ * privilege is gone — locked-and-hidden slots render as "Unknown"
+ * even when the team is standing at the station.
  */
-function nodeTilesToSlotTiles(tiles: MapNodeTileDto[]): SlotTileDto[] {
-  const out: SlotTileDto[] = [];
-  for (const entry of tiles) {
-    if (entry.visible && entry.tile != null) {
-      out.push({ slotIndex: entry.slotIndex, tile: entry.tile });
-    }
-  }
-  return out;
-}
-
-function tilesBySlot(tiles: SlotTileDto[] | undefined) {
-  const bySlot = new Map<number, TileDto>();
+function renderTripleStationSlots(tiles: MapNodeTileDto[] | undefined) {
+  const bySlot = new Map<number, MapNodeTileDto>();
   if (tiles) {
-    for (const entry of tiles) {
-      bySlot.set(entry.slotIndex, entry.tile);
-    }
+    for (const entry of tiles) bySlot.set(entry.slotIndex, entry);
   }
-  return bySlot;
-}
-
-function renderTripleStationSlots(tiles: SlotTileDto[] | undefined) {
-  const known = tilesBySlot(tiles);
   return Array.from({ length: TILES_PER_STATION }, (_, slotIndex) => {
-    const tile = known.get(slotIndex);
+    const entry = bySlot.get(slotIndex);
+    const tile = entry?.tile ?? null;
     if (tile) {
       return (
         <div key={slotIndex} className="station-panel__slot">
@@ -95,60 +79,28 @@ function renderTripleStationSlots(tiles: SlotTileDto[] | undefined) {
   });
 }
 
-function renderLegacyStationTiles(
-  tiles: SlotTileDto[] | undefined,
-  single?: TileDto,
-) {
-  if (tiles?.length) {
-    return tiles.map((slot) => (
-      <div key={slot.slotIndex} className="station-panel__slot">
-        <span className="station-panel__slot-label">Slot {slot.slotIndex + 1}</span>
-        <img
-          src={tileImagePath(slot.tile)}
-          alt={slot.tile.displayName}
-          className="station-panel__tile-image station-panel__tile-image--large"
-        />
-        <p className="station-panel__tile-name">{slot.tile.displayName}</p>
-      </div>
-    ));
-  }
-  if (single) {
-    return (
-      <div className="station-panel__slot">
-        <img
-          src={tileImagePath(single)}
-          alt={single.displayName}
-          className="station-panel__tile-image station-panel__tile-image--large"
-        />
-        <p className="station-panel__tile-name">{single.displayName}</p>
-      </div>
-    );
-  }
-  return null;
+function renderLegacyStationTiles(tiles: MapNodeTileDto[] | undefined) {
+  if (!tiles?.length) return null;
+  const visibleEntries = tiles.filter((entry) => entry.tile != null);
+  if (visibleEntries.length === 0) return null;
+  return visibleEntries.map((entry) => (
+    <div key={entry.slotIndex} className="station-panel__slot">
+      <span className="station-panel__slot-label">Slot {entry.slotIndex + 1}</span>
+      <img
+        src={tileImagePath(entry.tile!)}
+        alt={entry.tile!.displayName}
+        className="station-panel__tile-image station-panel__tile-image--large"
+      />
+      <p className="station-panel__tile-name">{entry.tile!.displayName}</p>
+    </div>
+  ));
 }
 
-function stationTilesForView(
-  viewingNode: MapNodeDto,
-  atStation: AtStationDto | null,
-  isViewingCheckedInStation: boolean,
-) {
-  // Phase L §3.13: when the team is at the station, the engine
-  // overrides the per-slot map gate (every station tile is visible at
-  // atStation regardless of map fog); use the legacy `atStation.tiles`
-  // path. Otherwise we project the exhaustive `MapNodeTileDto[]` down
-  // to the visible-only `SlotTileDto[]` shape the renderer expects.
-  if (isViewingCheckedInStation && atStation) {
-    if (isTileStation(viewingNode.code)) {
-      return renderTripleStationSlots(atStation.tiles);
-    }
-    return renderLegacyStationTiles(atStation.tiles, atStation.tile);
-  }
-
-  const slotTiles = nodeTilesToSlotTiles(viewingNode.tiles);
+function stationTilesForView(viewingNode: MapNodeDto) {
   if (isTileStation(viewingNode.code)) {
-    return renderTripleStationSlots(slotTiles);
+    return renderTripleStationSlots(viewingNode.tiles);
   }
-  return renderLegacyStationTiles(slotTiles);
+  return renderLegacyStationTiles(viewingNode.tiles);
 }
 
 export function StationPanel({
@@ -179,9 +131,7 @@ export function StationPanel({
   const isBrowsingElsewhere =
     viewingId != null && checkedInId != null && viewingId !== checkedInId;
   const showCheckIn = viewingId != null && !isViewingCheckedInStation;
-  const stationTiles = viewingNode
-    ? stationTilesForView(viewingNode, atStation, isViewingCheckedInStation)
-    : null;
+  const stationTiles = viewingNode ? stationTilesForView(viewingNode) : null;
   const stationSlotsTriple = Boolean(viewingNode && isTileStation(viewingNode.code));
   const actionsDisabled = commandsPending || commandsDisabled || checkInPending;
 

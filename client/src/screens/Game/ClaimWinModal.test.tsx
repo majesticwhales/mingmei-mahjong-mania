@@ -34,13 +34,32 @@ function wait(
   };
 }
 
+// Phase L Chunk 4 B-2: `AtStationDto.tiles[]` is the exhaustive
+// `MapNodeTileDto[]` shape (`{ slotIndex, tile, visible, locked }`).
+// All three slots are visible+unlocked here so the modal's claimable
+// filter (which skips `tile === null`) sees them.
 const atStation: AtStationDto = {
   nodeId: "node-1",
   code: "TKY",
   tiles: [
-    { slotIndex: 0, tile: tile({ suit: "pin", rank: 5, copyIndex: 0 }) },
-    { slotIndex: 1, tile: tile({ suit: "sou", rank: 9, copyIndex: 0 }) },
-    { slotIndex: 2, tile: tile({ suit: "man", rank: 3, copyIndex: 0 }) },
+    {
+      slotIndex: 0,
+      tile: tile({ suit: "pin", rank: 5, copyIndex: 0 }),
+      visible: true,
+      locked: false,
+    },
+    {
+      slotIndex: 1,
+      tile: tile({ suit: "sou", rank: 9, copyIndex: 0 }),
+      visible: true,
+      locked: false,
+    },
+    {
+      slotIndex: 2,
+      tile: tile({ suit: "man", rank: 3, copyIndex: 0 }),
+      visible: true,
+      locked: false,
+    },
   ],
 };
 
@@ -50,7 +69,14 @@ describe("ClaimWinModal", () => {
     const station: AtStationDto = {
       nodeId: "node-1",
       code: "TKY",
-      tiles: [{ slotIndex: 0, tile: tile({ suit: "pin", rank: 5, copyIndex: 2 }) }],
+      tiles: [
+        {
+          slotIndex: 0,
+          tile: tile({ suit: "pin", rank: 5, copyIndex: 2 }),
+          visible: true,
+          locked: false,
+        },
+      ],
     };
     render(
       <ClaimWinModal

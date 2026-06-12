@@ -57,17 +57,6 @@ export interface TileDto {
   isRedFive: boolean;
 }
 
-/** Multi-slot map / station entry. */
-/**
- * Legacy "visible tile at slot k" entry, still used by
- * `AtStationDto.tiles[]` until Phase L chunk L4 rewires `atStation`
- * onto the shared `buildNodeView` shape.
- */
-export interface SlotTileDto {
-  slotIndex: number;
-  tile: TileDto;
-}
-
 /**
  * Phase L §3.13: exhaustive per-slot map view, server-resolved. Every
  * slot the node has (`0 .. slots_per_node - 1`) appears in
@@ -166,10 +155,15 @@ export interface AtStationChallengeDto {
 export interface AtStationDto {
   nodeId: string;
   code: string;
-  /** Present when `slots_per_node === 1`. */
-  tile?: TileDto;
-  /** Present when `slots_per_node > 1`. */
-  tiles?: SlotTileDto[];
+  /**
+   * Phase L §3.13: exhaustive per-slot view, byte-identical to the
+   * matching `mapNodes[].tiles[]` entry for the team's current node.
+   * `tiles.length` always equals `slots_per_node`. The pre-Phase-L
+   * conditional `tile` / `tiles?` shape is gone — UI rendering paths
+   * now read `tiles[].visible` / `tiles[].locked` / `tiles[].tile`
+   * directly. See `MapNodeTileDto` for the per-entry contract.
+   */
+  tiles: MapNodeTileDto[];
   /**
    * Phase H: top challenge at the station + the team's current
    * relationship with it (TDD §3.8). `null` when the station has no
@@ -475,7 +469,6 @@ export async function buildGameStateProjection(
 
   const redFivesEnabled = redFivesFlag?.enabled ?? false;
   const slotsPerNode = game.slotsPerNode;
-  const multiSlot = slotsPerNode > 1;
 
   // Per-game visibility-mode flags. The two layers are independently
   // gated at this projection: phase off means every node is face-up
@@ -654,14 +647,18 @@ export async function buildGameStateProjection(
       })
       : null;
 
+  // Phase L §3.13: `atStation.tiles[]` is sourced from the team's
+  // already-resolved `mapNodes[]` entry — same fog + timer math, no
+  // recomputation. `mapNodes` is built scoped to this team so the
+  // visibility flags inherit per-team redaction automatically.
+  const teamMapNode = teamPosition?.currentGameNodeId
+    ? mapNodes.find((n) => n.id === teamPosition.currentGameNodeId) ?? null
+    : null;
   const atStation = handCompletedFlag
     ? null
     : buildAtStation({
-      game,
       teamPosition,
-      nodes,
-      tilesByNodeSlot,
-      multiSlot,
+      teamNode: teamMapNode,
       currentChallenge,
     });
 
@@ -858,62 +855,30 @@ function resolveMapVisibleSlotIndices(params: {
 }
 
 function buildAtStation(params: {
-  game: Game;
   teamPosition: GameTeamPosition | null;
-  nodes: GameNode[];
-  tilesByNodeSlot: Map<string, Map<number, TileDto>>;
-  multiSlot: boolean;
+  teamNode: MapNodeDto | null;
   currentChallenge: AtStationChallengeDto | null;
 }): AtStationDto | null {
-  const {
-    game,
-    teamPosition,
-    nodes,
-    tilesByNodeSlot,
-    multiSlot,
-    currentChallenge,
-  } = params;
-  const nodeId = teamPosition?.currentGameNodeId;
-  if (!nodeId) {
+  const { teamPosition, teamNode, currentChallenge } = params;
+  if (!teamPosition?.currentGameNodeId || !teamNode) {
     return null;
   }
-  const node = nodes.find((n) => n.id === nodeId);
-  if (!node) {
-    return null;
-  }
-  const bySlot = tilesByNodeSlot.get(node.id);
-  const dto: AtStationDto = {
-    nodeId: node.id,
-    code: node.code,
+  // Phase L §3.13: `atStation.tiles[]` is the same exhaustive per-slot
+  // view the projection emitted for `mapNodes[teamNode].tiles[]` — the
+  // station-side surface inherits whatever map fog + slot timer state
+  // the team's `mapNodes` entry resolved to, guaranteeing the two
+  // surfaces never drift. Map-fog gating produces the same `null`
+  // tile / `visible: false` rows here that the map shows, but the
+  // station UI surfaces them as "locked / hidden slot" rather than
+  // collapsing them out (the team needs to see the locked countdown).
+  return {
+    nodeId: teamNode.id,
+    code: teamNode.code,
+    tiles: teamNode.tiles,
     currentChallenge,
     pendingSwapCredit: teamPosition.pendingSwapCredit,
     creditEarnedInSession: teamPosition.creditEarnedInSession,
   };
-
-  if (multiSlot) {
-    // Checked-in teams see every tile at the station. Map fog and slot
-    // unlock times still gate what appears on `mapNodes`; swap
-    // eligibility is enforced separately in the engine.
-    const entries: SlotTileDto[] = [];
-    if (bySlot) {
-      for (let slotIndex = 0; slotIndex < game.slotsPerNode; slotIndex += 1) {
-        const tile = bySlot.get(slotIndex);
-        if (tile) {
-          entries.push({ slotIndex, tile });
-        }
-      }
-    }
-    if (entries.length > 0) {
-      dto.tiles = entries;
-    }
-  } else if (bySlot) {
-    const tile = bySlot.get(0);
-    if (tile) {
-      dto.tile = tile;
-    }
-  }
-
-  return dto;
 }
 
 /**

@@ -1380,9 +1380,9 @@ Delivered on join/reconnect and after every processed command (v1: **full snapsh
 3. **One realtime channel, not a separate “station” API for v1.** After `CHECK_IN`, the next `game.state` includes an **`atStation`** block with the tile(s). A second HTTP call would duplicate state and risk drift between Socket and REST.
 4. **Split map view vs station view** in the JSON shape:
    - **`mapNodes`** — one entry per `game_node`; `tile`/`tiles` present only when **phase-visible on the map** (`faceUpOnMap`).
-   - **`atStation`** — present when checked in; always includes the **current station tile(s)** even if that node is fogged on the map.
+   - **`atStation`** — present when checked in; carries the same exhaustive `MapNodeTileDto[]` shape as `mapNodes[teamNode].tiles[]`. **Phase L Chunk 4 B-2:** the pre-L4 "at-station privilege" (every station tile visible regardless of map fog/timer) is gone — locked or map-fogged slots arrive with `tile: null, visible: false` on both surfaces, and the UI surfaces them as a "locked / hidden slot" countdown.
 
-> When `games.slots_per_node = 1` (the default), projections currently expose a singular `tile` field on `mapNodes[]` and `atStation`. When `slots_per_node > 1`, the field becomes `tiles[]`; sites that issue `SWAP_TILE` must address a specific tile via `stationTileId`. The wire shape change is scoped to the projection phase (Phase G); the engine accepts the new payload from chunk 7 of the Phase D refactor onward.
+> **Phase L Chunk 4 B-2:** the conditional `tile?` / `tiles?` shape is gone. Both `mapNodes[].tiles[]` and `atStation.tiles[]` always emit an exhaustive `MapNodeTileDto[]` of length `games.slots_per_node`; sites that issue `SWAP_TILE` / `CLAIM_WIN` still address a specific tile via `stationTileId`. A 1-slot game emits a 1-entry `tiles[]` array; the singular `tile?` field on both DTOs is removed.
 
 The client renders the map from `mapNodes` and the station panel from `atStation` without re-deriving visibility rules.
 
@@ -1395,7 +1395,7 @@ The client renders the map from `mapNodes` and the station panel from `atStation
 | `mapNodes[]` | Layout fields per `game_node`; `lineIds[]` (string codes); `tile` (default config) or `tiles[]` (when `slots_per_node > 1`) only if phase-visible on map |
 | `mapLines[]` | Line catalog (`code`, `name`, `shortName`, `color`, `renderMetadata`) — sent once / on reconnect |
 | `mapEdges[]` | Static graph (`fromNodeId`, `toNodeId`) — sent once / on reconnect |
-| `atStation` | When checked in: `nodeId`, `code`, `tile` / `tiles[]`, plus Phase H `currentChallenge` + `pendingSwapCredit` + `creditEarnedInSession` |
+| `atStation` | When checked in: `nodeId`, `code`, `tiles: MapNodeTileDto[]` (Phase L B-2: byte-identical to `mapNodes[teamNode].tiles[]`), plus Phase H `currentChallenge` + `pendingSwapCredit` + `creditEarnedInSession` |
 | `handTiles[]` | Own team, pre-sorted |
 | `recentEvents[]` | Shared metadata (no photo URLs). Phase H lifts `challengeId` + `instanceId` to top-level on START / COMPLETED / FORFEITED events. |
 | `roundWind`, `seatWind` | Wind ranks `1..4` (East/South/West/North) — round wind is the game-wide randomized value, seat wind is derived from the team's `team_definition.code` |
@@ -1465,7 +1465,7 @@ includedTiles =
     : []
 ```
 
-- A slot whose `slot_map_unlock_offsets_seconds[k]` is `NULL` is **never** included here, regardless of phase. Its tile is only ever surfaced via `atStation.tiles[]` to a checked-in team after the slot unlocks for claim.
+- A slot whose `slot_map_unlock_offsets_seconds[k]` is `NULL` is **never** map-visible, regardless of phase. **Phase L Chunk 4 B-2:** the same `null` map-reveal also hides the slot from `atStation.tiles[]` (no at-station privilege); the engine still accepts a `CLAIM_WIN` / `SWAP_TILE` targeting that slot if the team is willing to fire the command blindly (e.g. they learned the tile's `instanceId` from a previous projection where the slot was visible) — server-driven visibility gates the *render path*, not the command surface.
 - A slot whose map-reveal timer has not yet elapsed (`slot_map_unlock_offsets_seconds[k]` non-`NULL` and `now < started_at + offset * 1000`) is also omitted; clients render it as locked/empty.
 - `slotIndex` is required on every entry so the client can render slot-shaped UI (e.g. multi-tile stacks) without re-deriving order.
 - The fog rule still gates the whole array: when `faceUpOnMap` is false, `tiles` is omitted/`null` exactly as the singular `tile` would be.
@@ -1517,9 +1517,9 @@ includedTiles =
 ```
 
 - A still-locked slot (`now < started_at + slot_unlock_offsets_seconds[k] * 1000`) is omitted; the station UI must indicate the slot exists and show a countdown, not the tile.
-- `slot_map_unlock_offsets_seconds` does **not** gate `atStation` — once a slot's claim timer has elapsed, a station-visible tile is shown to the checked-in team even when the slot is still off the map (or never on it). That's the whole point of the per-slot "claim before reveal" tier.
-- For `slots_per_node = 1` the singular `tile` field is retained; the array shape only appears when the game opts into multiple slots.
-- **Mode gate:** When `games.visibility_mode` excludes the slot layer (`none` / `phase`), the projection treats every slot as unlocked at `atStation` regardless of the `slot_unlock_offsets_seconds` snapshot. The map-side `tiles[]` builder similarly ignores `slot_map_unlock_offsets_seconds` and exposes every slot index. See §3.3.
+- **Phase L Chunk 4 B-2:** `slot_map_unlock_offsets_seconds` **does** gate `atStation` now (B-2 deleted the pre-L4 "at-station privilege"). `atStation.tiles[k]` mirrors `mapNodes[teamNode].tiles[k]` exactly — locked-and-fogged slots arrive with `tile: null, visible: false, locked: true`, and the client renders them as a "locked / hidden slot" countdown rather than the tile face. The original "claim before reveal" tier is preserved at the engine surface (a team that already knows the tile's `instanceId` can still issue `CLAIM_WIN`), but it's gone from the render path.
+- For every game (including `slots_per_node = 1`) the wire shape is the exhaustive `MapNodeTileDto[]`; a 1-slot game emits a 1-entry array.
+- **Mode gate:** When `games.visibility_mode` excludes the slot layer (`none` / `phase`), the slot-layer helpers short-circuit to "always unlocked / always map-visible" — both `mapNodes[].tiles[]` and `atStation.tiles[]` expose every slot index with `visible: true, locked: false`, ignoring the `slot_unlock_offsets_seconds` / `slot_map_unlock_offsets_seconds` snapshots. See §3.3.
 
 The `SWAP_TILE` payload (`{ handTileId, stationTileId }`) already addresses a specific tile by id, so the array shape requires no payload change — clients pick which slot's tile to swap by passing its `stationTileId`.
 

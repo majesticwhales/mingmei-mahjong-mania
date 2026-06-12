@@ -22,7 +22,12 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
     await truncateMutableTables(await getSequelize());
   });
 
-  it("exposes only the slot matching the current visibility phase on the map", async () => {
+  it("accumulates revealed slots across visibility phases — phase k exposes [0..k]", async () => {
+    // Tier 1 (slot 0) is visible throughout the game; phase 1 adds
+    // Tier 2 (slot 1) without hiding Tier 1; phase 2 would add Tier 3.
+    // This replaces the pre-2026-06-11 "each phase shows exactly one
+    // slot" behaviour, which made the previous tier vanish at each
+    // breakpoint.
     const fixture = await setupLightweightGame({
       nodeCodes: ["a", "b"],
       nodeTilesByCode: { a: 3, b: 3 },
@@ -55,7 +60,9 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
       const node = projection.mapNodes.find((n) => n.code === code)!;
       expect(node.tiles).toHaveLength(3);
       expect(node.tiles.map((t) => t.slotIndex)).toEqual([0, 1, 2]);
-      expect(node.tiles.map((t) => t.visible)).toEqual([false, true, false]);
+      // Cumulative reveal: slots 0 (Tier 1) and 1 (Tier 2) are
+      // visible at phase 1; slot 2 (Tier 3) waits for phase 2.
+      expect(node.tiles.map((t) => t.visible)).toEqual([true, true, false]);
       // mode = "phase" → slot layer off → `locked` is false everywhere.
       expect(node.tiles.map((t) => t.locked)).toEqual([false, false, false]);
     }
@@ -91,7 +98,7 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
     expect(node.tiles.map((t) => t.locked)).toEqual([false, true, true]);
   });
 
-  it("slot mode shows every tile at the checked-in station from the start", async () => {
+  it("slot mode: atStation mirrors mapNodes[teamNode] from the start (Phase L B-2 — no at-station privilege)", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["a"],
       startNodeCodeBySlot: { 1: "a" },
@@ -109,12 +116,12 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
       { now: new Date() },
     );
 
-    expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
-      0, 1, 2,
-    ]);
     const aNode = projection.mapNodes.find((n) => n.code === "a")!;
     expect(aNode.tiles.map((t) => t.visible)).toEqual([true, false, false]);
     expect(aNode.tiles.map((t) => t.locked)).toEqual([false, true, true]);
+    // atStation is the same per-slot view as the team's mapNodes entry
+    // — slots 1 and 2 are hidden-and-locked, not pre-revealed.
+    expect(projection.atStation?.tiles).toEqual(aNode.tiles);
   });
 
   it("slot mode adds map tiles as each slot unlocks", async () => {

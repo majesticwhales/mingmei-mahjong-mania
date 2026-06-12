@@ -331,7 +331,13 @@ describe("buildGameStateProjection", () => {
     });
   });
 
-  it("multi-slot atStation: reveals every tile at the checked-in station", async () => {
+  it("multi-slot atStation: tiles[] mirrors mapNodes[teamNode].tiles[] byte-for-byte", async () => {
+    // Phase L Chunk 4 B-2: `atStation.tiles[]` is the same array the
+    // projection emitted for `mapNodes[teamNode].tiles[]`. The pre-L4
+    // "checked-in teams see every tile regardless of fog/timer"
+    // privilege is gone — a locked slot is hidden in `atStation` too,
+    // so the client renders a "locked, opens in X" countdown rather
+    // than the tile face.
     const fixture = await setupLightweightGame({
       nodeCodes: ["a"],
       startNodeCodeBySlot: { 1: "a" },
@@ -342,31 +348,26 @@ describe("buildGameStateProjection", () => {
     });
     const participant = fixture.participants[0]!;
     const slot0Id = fixture.nodeTiles.find((t) => t.slotIndex === 0)!.gameTileId;
-    const slot1Id = fixture.nodeTiles.find((t) => t.slotIndex === 1)!.gameTileId;
 
     const projection = await buildGameStateProjection(
       fixture.gameId,
       participant.gameTeamId,
       { now: new Date() },
     );
-    expect(projection.atStation?.tiles).toHaveLength(2);
-    expect(projection.atStation?.tiles?.map((e) => e.slotIndex)).toEqual([0, 1]);
-    expect(projection.atStation?.tiles?.map((e) => e.tile.instanceId)).toEqual([
-      slot0Id,
-      slot1Id,
-    ]);
-    // Map still respects slot unlock times. Phase L: slot 1 is in the
-    // exhaustive `tiles[]` with `visible: false` AND `locked: true`
-    // (claim-unlock timer hasn't elapsed).
+
     const aNode = projection.mapNodes.find((n) => n.code === "a")!;
-    expect(aNode.tiles).toHaveLength(2);
-    expect(aNode.tiles[0]!).toMatchObject({
+    expect(projection.atStation?.tiles).toEqual(aNode.tiles);
+    // Spot-check the per-slot shape so a future refactor that breaks
+    // the mapNodes[teamNode] computation surfaces here too rather than
+    // only in the map-side tests.
+    expect(projection.atStation?.tiles).toHaveLength(2);
+    expect(projection.atStation?.tiles[0]).toMatchObject({
       slotIndex: 0,
       visible: true,
       locked: false,
     });
-    expect(aNode.tiles[0]!.tile).not.toBeNull();
-    expect(aNode.tiles[1]!).toEqual({
+    expect(projection.atStation?.tiles[0]?.tile?.instanceId).toBe(slot0Id);
+    expect(projection.atStation?.tiles[1]).toEqual({
       slotIndex: 1,
       tile: null,
       visible: false,

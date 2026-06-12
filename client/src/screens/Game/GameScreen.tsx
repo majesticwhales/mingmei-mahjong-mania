@@ -190,12 +190,10 @@ export function GameScreen() {
 
   const canClaimWin = useMemo(() => {
     if (!claimWinWaits || !atStation) return false;
-    const slots = atStation.tiles?.length
-      ? atStation.tiles
-      : atStation.tile
-        ? [{ slotIndex: 0, tile: atStation.tile }]
-        : [];
-    return stationHasClaimableWait(slots, claimWinWaits);
+    // Phase L Chunk 4 B-2: `atStation.tiles` is the exhaustive per-slot
+    // `MapNodeTileDto[]`; `stationHasClaimableWait` filters out the
+    // null-tile (hidden/locked) entries internally.
+    return stationHasClaimableWait(atStation.tiles, claimWinWaits);
   }, [claimWinWaits, atStation]);
 
   const challengeGateActive = useMemo(
@@ -542,7 +540,6 @@ export function GameScreen() {
         <SwapTileModal
           handTiles={projection.handTiles}
           stationTiles={atStation.tiles}
-          stationTile={atStation.tile}
           onConfirm={handleSwap}
           onClose={() => setSwapOpen(false)}
         />

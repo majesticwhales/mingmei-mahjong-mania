@@ -1,34 +1,51 @@
 import { useMemo, useState } from "react";
 import { tileImagePath } from "../../lib/tileImages";
-import type { HandTileDto, SlotTileDto, TileDto } from "../../wire/projection";
+import type {
+  HandTileDto,
+  MapNodeTileDto,
+  TileDto,
+} from "../../wire/projection";
+
+interface SwappableSlot {
+  slotIndex: number;
+  tile: TileDto;
+}
 
 interface Props {
   handTiles: HandTileDto[];
-  stationTiles: SlotTileDto[] | undefined;
-  stationTile: TileDto | undefined;
+  /**
+   * Phase L Chunk 4 B-2: exhaustive per-slot `MapNodeTileDto[]` from
+   * `atStation.tiles[]`. Hidden / locked entries (those with
+   * `tile === null`) are filtered out below — only slots with a
+   * visible tile become swap targets.
+   */
+  stationTiles: MapNodeTileDto[] | undefined;
   onConfirm: (handTileId: string, stationTileId: string, slotIndex?: number) => void;
   onClose: () => void;
 }
 
 function resolveStationSlots(
-  stationTiles: SlotTileDto[] | undefined,
-  stationTile: TileDto | undefined,
-): SlotTileDto[] {
-  if (stationTiles?.length) return stationTiles;
-  if (stationTile) return [{ slotIndex: 0, tile: stationTile }];
-  return [];
+  stationTiles: MapNodeTileDto[] | undefined,
+): SwappableSlot[] {
+  if (!stationTiles?.length) return [];
+  const out: SwappableSlot[] = [];
+  for (const entry of stationTiles) {
+    if (entry.tile != null) {
+      out.push({ slotIndex: entry.slotIndex, tile: entry.tile });
+    }
+  }
+  return out;
 }
 
 export function SwapTileModal({
   handTiles,
   stationTiles,
-  stationTile,
   onConfirm,
   onClose,
 }: Props) {
   const slots = useMemo(
-    () => resolveStationSlots(stationTiles, stationTile),
-    [stationTiles, stationTile],
+    () => resolveStationSlots(stationTiles),
+    [stationTiles],
   );
   const defaultStation = slots.length === 1 ? slots[0]! : null;
 
