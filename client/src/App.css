@@ -618,6 +618,18 @@ body {
   flex-shrink: 0;
 }
 
+.game-screen__exit-btn {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 15;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: rgba(18, 24, 33, 0.92);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(8px);
+}
+
 .game-screen__event-log-btn {
   position: relative;
 }
@@ -1794,10 +1806,25 @@ body {
   background: #d8d0c4;
 }
 
+.station-panel--hand {
+  max-height: 50dvh;
+}
+
+.station-panel__tile-grid--hand {
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 0.5rem;
+}
+
+.station-panel__tile-image--hand {
+  width: 40px;
+  padding: 3px;
+  border-radius: 6px;
+}
+
 /* ---------- Desktop: sidebar ---------- */
 
 @media (min-width: 900px) {
-  .app {
+  .app.game-screen--panel-open {
     grid-template-columns: 1fr var(--sidebar-width);
     grid-template-rows: var(--header-height) 1fr;
     grid-template-areas:
@@ -1805,15 +1832,15 @@ body {
       "map    panel";
   }
 
-  .app__header {
+  .app.game-screen--panel-open .app__header {
     grid-area: header;
   }
 
-  .app__map {
+  .app.game-screen--panel-open .app__map {
     grid-area: map;
   }
 
-  .station-panel {
+  .app.game-screen--panel-open .station-panel {
     grid-area: panel;
     position: relative;
     border-radius: 0;
@@ -1827,7 +1854,11 @@ body {
     overflow: hidden;
   }
 
-  .station-panel__handle {
+  .app.game-screen--panel-open .station-panel__handle {
     display: none;
+  }
+
+  .app.game-screen--panel-open .station-panel--hand {
+    max-height: none;
   }
 }
