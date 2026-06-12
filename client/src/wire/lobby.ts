@@ -39,12 +39,6 @@ export interface LobbyConfigDto {
    */
   slotMapUnlockOffsetsSeconds: Array<number | null>;
   deadWallSize: number;
-  /**
-   * Per-(team, challenge) cooldown floor in seconds applied after a
-   * challenge resolves. Snapshotted to `games.challenge_cooldown_seconds`
-   * at start; production preset = 300, test preset = 5. See TDD_server §3.8.
-   */
-  challengeCooldownSeconds: number;
   teamAssignmentMode: TeamAssignmentMode;
   visibilityMode: VisibilityMode;
   minPlayersToStart: number;
@@ -79,8 +73,6 @@ export interface CreateLobbyInput {
   visibilityPhaseCount?: number;
   slotsPerNode?: number;
   deadWallSize?: number;
-  /** See `LobbyConfigDto.challengeCooldownSeconds`. Defaults to the preset value. */
-  challengeCooldownSeconds?: number;
   teamAssignmentMode?: TeamAssignmentMode;
   visibilityMode?: VisibilityMode;
   minPlayersToStart?: number;

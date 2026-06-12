@@ -57,7 +57,6 @@ export async function createGameShell(
       slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
       slotMapUnlockOffsetsSeconds: lobby.slotMapUnlockOffsetsSeconds,
       deadWallSize: lobby.deadWallSize,
-      challengeCooldownSeconds: lobby.challengeCooldownSeconds,
       visibilityMode: lobby.visibilityMode,
       configVersion: 1,
     },

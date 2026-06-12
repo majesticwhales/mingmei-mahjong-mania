@@ -7,11 +7,6 @@ const FIVE_MINUTES_SECONDS = 5 * 60;
 export const PRODUCTION_GAME_DURATION_SECONDS = 4 * ONE_HOUR_SECONDS;
 export const TEST_GAME_DURATION_SECONDS = 240;
 
-/** Per-(team, challenge) cooldown after a completion / forfeit (TDD §3.8). */
-export const PRODUCTION_CHALLENGE_COOLDOWN_SECONDS = 5 * 60;
-/** Short cooldown for admin testing so the swap-credit loop is exercisable in ~minutes. */
-export const TEST_CHALLENGE_COOLDOWN_SECONDS = 5;
-
 export interface LobbyPresetNotification {
   atSeconds: number;
   template: string;
@@ -23,13 +18,6 @@ export interface LobbyGamePreset {
   visibilityPhaseIntervalSeconds: number;
   visibilityPhaseCount: number;
   visibilityMode: VisibilityMode;
-  /**
-   * Per-(team, challenge) cooldown applied after a challenge resolves
-   * (completion or forfeit). Snapshotted to `lobbies.challenge_cooldown_seconds`
-   * on create and onto `games.challenge_cooldown_seconds` at start; the
-   * engine reads from the game row. See TDD §3.8.
-   */
-  challengeCooldownSeconds: number;
   notifications: LobbyPresetNotification[];
 }
 
@@ -50,7 +38,6 @@ export const PRODUCTION_LOBBY_PRESET: LobbyGamePreset = {
   visibilityPhaseIntervalSeconds: ONE_HOUR_SECONDS,
   visibilityPhaseCount: 3,
   visibilityMode: "both",
-  challengeCooldownSeconds: PRODUCTION_CHALLENGE_COOLDOWN_SECONDS,
   notifications: timeRemainingNotifications(PRODUCTION_GAME_DURATION_SECONDS, [
     { secondsBeforeEnd: ONE_HOUR_SECONDS, minutesLeft: 60 },
     { secondsBeforeEnd: THIRTY_MINUTES_SECONDS, minutesLeft: 30 },
@@ -64,7 +51,6 @@ export const TEST_LOBBY_PRESET: LobbyGamePreset = {
   visibilityPhaseIntervalSeconds: 60,
   visibilityPhaseCount: 3,
   visibilityMode: "both",
-  challengeCooldownSeconds: TEST_CHALLENGE_COOLDOWN_SECONDS,
   notifications: timeRemainingNotifications(TEST_GAME_DURATION_SECONDS, [
     { secondsBeforeEnd: 60, minutesLeft: 1 },
     { secondsBeforeEnd: 30, minutesLeft: 0 },
