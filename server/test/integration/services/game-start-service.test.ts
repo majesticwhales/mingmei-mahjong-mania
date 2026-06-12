@@ -70,15 +70,16 @@ describe("startFromLobby", () => {
     expect(tileCount).toBe(136);
     expect(nodeCount).toBe(84);
     // Production preset (14400s, 3 phases, 3 time_warning notifications,
-    // visibilityMode "both") with auto-distributed slot offsets:
+    // visibilityMode "both") with tier-aligned slot offsets
+    // (TDD §3.3 — claim=[0,0,3600], map=[0,3600,7200]):
     //   - 1 GAME_END
-    //   - 2 SLOT_UNLOCKED (slots 1, 2 with positive claim offsets
-    //     [0, 4800, 9600])
-    //   - 0 SLOT_MAP_UNLOCKED (the map timeline mirrors the claim
-    //     timeline by default, so the scheduler dedupes per Phase L §3.13)
+    //   - 1 SLOT_UNLOCKED (only slot 2 has a positive claim offset; slots
+    //     0 and 1 are claimable from t=0 per the Tier 1 + Tier 2 spec)
+    //   - 2 SLOT_MAP_UNLOCKED (slot 1 at t=P, slot 2 at t=2P — both
+    //     differ from their claim offset so the scheduler doesn't dedupe)
     //   - 2 VISIBILITY_PHASE_ADVANCE (k=1, k=2)
     //   - 3 NOTIFICATION (PRODUCTION_LOBBY_PRESET.notifications)
-    expect(jobCount).toBe(8);
+    expect(jobCount).toBe(9);
 
     const game = await Game.findByPk(result.gameId);
     expect(game?.status).toBe("active");

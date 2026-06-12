@@ -6,6 +6,7 @@ import { enqueueCommand } from "../queue/enqueue-command.ts";
 import { triggerGameQueue } from "../queue/worker.ts";
 import { buildGameSummary } from "../services/game-summary-service.ts";
 import { endGameEarly } from "../services/game-end-service.ts";
+import { buildNodeView } from "../services/node-view.ts";
 
 export const gamesRouter = Router();
 
@@ -127,5 +128,56 @@ gamesRouter.get(
     }
     const summary = await buildGameSummary(gameId);
     res.status(200).json(summary);
+  }),
+);
+
+/**
+ * Phase L §3.14 — per-team node view (TDD).
+ *
+ * Returns the StationPanel-ready view of a single map node from the
+ * requesting team's perspective: the exhaustive per-slot `tiles[]`
+ * (same shape as `mapNodes[].tiles[]` on the socket projection, with
+ * the at-station privilege applied when the requester is checked in
+ * here — see [§6.3](TDD)), the current challenge surface, and an
+ * `availableActions[]` matrix with stable disable-reason codes the UI
+ * can render verbatim.
+ *
+ * Authz: identical guard to `GET /:id/summary` — the user must own a
+ * `game_participants` row for this game. A non-participant gets a 403
+ * `forbidden` (same response shape as a missing game, so no
+ * enumeration channel). The team identifier passed to `buildNodeView`
+ * is the participant row's `game_team_id`, so the view always reflects
+ * *the requester's* team — there's no `?teamId=` knob.
+ *
+ * Service-level errors flow through unchanged:
+ *  - `404 game_not_found` — the gameId isn't in the DB.
+ *  - `404 node_not_found` — the nodeId isn't on this game's map.
+ *  - `404 team_not_in_game` — defence in depth; should be caught by
+ *    the 403 above before it gets to the service.
+ *  - `409 game_ended` — read-only views remain available; this fires
+ *    only on `games.status === 'ended'` so the client knows to switch
+ *    to the summary surface.
+ */
+gamesRouter.get(
+  "/:id/nodes/:nodeId/view",
+  asyncHandler(async (req, res) => {
+    const gameId = req.params.id;
+    const nodeId = req.params.nodeId;
+    const participant = await GameParticipant.findOne({
+      where: { gameId, userId: req.user!.id },
+    });
+    if (!participant) {
+      throw new HttpError(
+        403,
+        "forbidden",
+        "Not a participant of this game",
+      );
+    }
+    const view = await buildNodeView({
+      gameId,
+      gameTeamId: participant.gameTeamId,
+      nodeId,
+    });
+    res.status(200).json(view);
   }),
 );

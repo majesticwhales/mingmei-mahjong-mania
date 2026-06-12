@@ -62,7 +62,7 @@ describe("buildGameStateProjection (visibility mode)", () => {
   });
 
   describe("mode = 'both' (baseline)", () => {
-    it("respects phase fog on the map while exposing every tile at the checked-in station", async () => {
+    it("respects phase fog on the map; atStation mirrors mapNodes[teamNode].tiles[]", async () => {
       const fixture = await setupLightweightGame({
         nodeCodes: ["a", "b"],
         startNodeCodeBySlot: { 1: "a" },
@@ -110,9 +110,13 @@ describe("buildGameStateProjection (visibility mode)", () => {
       expect(bNode.tiles.map((t) => t.visible)).toEqual([false, false]);
       expect(bNode.tiles.map((t) => t.tile)).toEqual([null, null]);
 
-      expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
-        0, 1,
-      ]);
+      // The at-station privilege (TDD §3.3) doesn't fire here: slot 1's
+      // claim timer hasn't elapsed (locked=true) AND its map timer is
+      // null, so `nodeFaceUp && (mapVisible || !locked)` collapses to
+      // false either way. atStation matches mapNodes[teamNode] in this
+      // window; they diverge only when a slot is claim-unlocked but
+      // not yet map-revealed (see the dedicated privilege test).
+      expect(projection.atStation?.tiles).toEqual(aNode.tiles);
 
       expect(projection.nextVisibilityChangeAt).not.toBeNull();
     });
@@ -209,10 +213,12 @@ describe("buildGameStateProjection (visibility mode)", () => {
       expect(bNode.tiles.map((t) => t.visible)).toEqual([true, false]);
       expect(bNode.tiles.map((t) => t.locked)).toEqual([false, true]);
 
-      // Checked in at `a`: every station tile is visible in the sidebar.
-      expect(projection.atStation?.tiles?.map((t) => t.slotIndex)).toEqual([
-        0, 1,
-      ]);
+      // Checked in at `a`: the at-station privilege (TDD §3.3) doesn't
+      // fire because slot 1's claim timer is 60 min away — locked=true
+      // and `mapVisible || !locked` resolves to false. atStation
+      // matches aNode here; the privilege only flips a slot when its
+      // claim timer has elapsed but the map timer hasn't.
+      expect(projection.atStation?.tiles).toEqual(aNode.tiles);
 
       expect(projection.nextVisibilityChangeAt).toBeNull();
     });

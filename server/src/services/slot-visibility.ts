@@ -197,9 +197,19 @@ export function mapUnlockedSlotIndices(
 
 /**
  * When `visibilityPhaseCount === slotsPerNode`, each visibility phase
- * reveals exactly one station tile on the map: phase `k` shows slot `k`.
+ * **adds** one station tile to the cumulative map-visible set: phase
+ * `k` shows slots `[0..k]`. Lower-tier tiles never disappear once
+ * revealed — Tier 1 (slot 0) stays visible for the whole game,
+ * Tier 2 (slot 1) joins at phase 1, Tier 3 (slot 2) at phase 2, etc.
+ *
  * Returns `null` when the static `slot_map_unlock_offsets_seconds`
- * timeline should apply instead.
+ * timeline should apply instead (phase count and slot count differ,
+ * or the game has a single slot).
+ *
+ * **History**: pre-2026-06-11 this returned `[phase]` (a single-slot
+ * set), which made the previous tier vanish at each breakpoint. The
+ * cumulative behaviour matches the user-facing tier spec (see
+ * [TDD §3.3](../../../docs/TDD_server.md#33-per-slot-map-visibility)).
  */
 export function phaseDrivenMapVisibleSlotIndices(
   visibilityPhase: number,
@@ -216,5 +226,7 @@ export function phaseDrivenMapVisibleSlotIndices(
   ) {
     return [];
   }
-  return [visibilityPhase];
+  // Inclusive `[0..visibilityPhase]` — previously revealed tiers stay
+  // visible. `phase + 1` length array, indices ascending.
+  return Array.from({ length: visibilityPhase + 1 }, (_v, k) => k);
 }

@@ -148,7 +148,12 @@ describe("buildGameStateProjection", () => {
     expect(bNode.tiles[0]!.tile).toBeNull();
   });
 
-  it("single-slot: atStation always reveals the station tile, even when the node is fogged on the map", async () => {
+  it("single-slot: atStation reveals the station tile via visit-based visibility, even when the node is fogged on the map", async () => {
+    // TDD §3.3 visit-based visibility: a team checked in at node N
+    // sees `faceUpForTeam(team, N) = true` regardless of phase fog,
+    // even when no `game_location_team_visibility` row exists for N.
+    // The map view (`mapNodes[].tiles[]`) still respects the fog —
+    // only the team's own `atStation.tiles[]` gets the override.
     const fixture = await setupLightweightGame({
       nodeCodes: ["a"],
       startNodeCodeBySlot: { 1: "a" },
@@ -168,14 +173,18 @@ describe("buildGameStateProjection", () => {
     expect(aNode.tiles[0]!.visible).toBe(false);
     expect(aNode.tiles[0]!.tile).toBeNull();
     expect(projection.atStation).not.toBeNull();
-    expect(projection.atStation).toEqual({
-      nodeId: aId,
-      code: "a",
+    expect(projection.atStation?.nodeId).toBe(aId);
+    expect(projection.atStation?.code).toBe("a");
+    expect(projection.atStation?.tiles).toHaveLength(1);
+    expect(projection.atStation?.tiles[0]).toEqual({
+      slotIndex: 0,
       tile: expect.objectContaining({ instanceId: tileId }),
-      currentChallenge: null,
-      pendingSwapCredit: false,
-      creditEarnedInSession: false,
+      visible: true,
+      locked: false,
     });
+    expect(projection.atStation?.currentChallenge).toBeNull();
+    expect(projection.atStation?.pendingSwapCredit).toBe(false);
+    expect(projection.atStation?.creditEarnedInSession).toBe(false);
   });
 
   it("sorts handTiles by (suit_sort_order, rank, copy_index) and assigns sequential slotIndex", async () => {
@@ -331,7 +340,13 @@ describe("buildGameStateProjection", () => {
     });
   });
 
-  it("multi-slot atStation: reveals every tile at the checked-in station", async () => {
+  it("multi-slot atStation: tiles[] matches mapNodes[teamNode].tiles[] when claim and map timers coincide", async () => {
+    // The at-station privilege (TDD §3.3) only flips a slot when its
+    // *claim* timer has elapsed but its *map* timer has not. When
+    // `slot_unlock_offsets_seconds == slot_map_unlock_offsets_seconds`
+    // (mirror default) the privilege never fires — atStation matches
+    // mapNodes[teamNode] byte-for-byte. The privilege-fires case is
+    // covered in `phase-slot-visibility.test.ts`.
     const fixture = await setupLightweightGame({
       nodeCodes: ["a"],
       startNodeCodeBySlot: { 1: "a" },
@@ -342,31 +357,26 @@ describe("buildGameStateProjection", () => {
     });
     const participant = fixture.participants[0]!;
     const slot0Id = fixture.nodeTiles.find((t) => t.slotIndex === 0)!.gameTileId;
-    const slot1Id = fixture.nodeTiles.find((t) => t.slotIndex === 1)!.gameTileId;
 
     const projection = await buildGameStateProjection(
       fixture.gameId,
       participant.gameTeamId,
       { now: new Date() },
     );
-    expect(projection.atStation?.tiles).toHaveLength(2);
-    expect(projection.atStation?.tiles?.map((e) => e.slotIndex)).toEqual([0, 1]);
-    expect(projection.atStation?.tiles?.map((e) => e.tile.instanceId)).toEqual([
-      slot0Id,
-      slot1Id,
-    ]);
-    // Map still respects slot unlock times. Phase L: slot 1 is in the
-    // exhaustive `tiles[]` with `visible: false` AND `locked: true`
-    // (claim-unlock timer hasn't elapsed).
+
     const aNode = projection.mapNodes.find((n) => n.code === "a")!;
-    expect(aNode.tiles).toHaveLength(2);
-    expect(aNode.tiles[0]!).toMatchObject({
+    expect(projection.atStation?.tiles).toEqual(aNode.tiles);
+    // Spot-check the per-slot shape so a future refactor that breaks
+    // the mapNodes[teamNode] computation surfaces here too rather than
+    // only in the map-side tests.
+    expect(projection.atStation?.tiles).toHaveLength(2);
+    expect(projection.atStation?.tiles[0]).toMatchObject({
       slotIndex: 0,
       visible: true,
       locked: false,
     });
-    expect(aNode.tiles[0]!.tile).not.toBeNull();
-    expect(aNode.tiles[1]!).toEqual({
+    expect(projection.atStation?.tiles[0]?.tile?.instanceId).toBe(slot0Id);
+    expect(projection.atStation?.tiles[1]).toEqual({
       slotIndex: 1,
       tile: null,
       visible: false,

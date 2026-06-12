@@ -1,4 +1,8 @@
-import type { AnalyzedWaitDto, SlotTileDto, TileDto } from "../wire/projection";
+import type {
+  AnalyzedWaitDto,
+  MapNodeTileDto,
+  TileDto,
+} from "../wire/projection";
 
 /** Tenpai waits are keyed by tile type; any physical copy at the station counts. */
 export function waitMatchesTile(
@@ -8,9 +12,19 @@ export function waitMatchesTile(
   return wait.tile.suit === tile.suit && wait.tile.rank === tile.rank;
 }
 
+/**
+ * Phase L Chunk 4 B-2: consumes the exhaustive `MapNodeTileDto[]`
+ * shape (the same one emitted on `atStation.tiles[]` and
+ * `mapNodes[].tiles[]`). Hidden / locked slots have `tile: null` —
+ * those slots are never claimable, so we filter them out before
+ * matching against the team's tenpai waits.
+ */
 export function stationHasClaimableWait(
-  slots: ReadonlyArray<SlotTileDto>,
+  slots: ReadonlyArray<MapNodeTileDto>,
   waits: ReadonlyArray<AnalyzedWaitDto>,
 ): boolean {
-  return slots.some((slot) => waits.some((wait) => waitMatchesTile(wait, slot.tile)));
+  return slots.some((slot) => {
+    if (slot.tile == null) return false;
+    return waits.some((wait) => waitMatchesTile(wait, slot.tile!));
+  });
 }

@@ -27,7 +27,10 @@ describe("lobby-service", () => {
     expect(lobby.config.visibilityPhaseCount).toBe(3);
     expect(lobby.config.visibilityPhaseIntervalSeconds).toBe(3_600);
     expect(lobby.config.visibilityMode).toBe("both");
-    expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 4800, 9600]);
+    // TDD §3.3 tier spec — Tier 1: claim=0/map=0, Tier 2: claim=0/map=P,
+    // Tier 3: claim=P/map=2P, with P=3600s for the production preset.
+    expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 0, 3600]);
+    expect(lobby.config.slotMapUnlockOffsetsSeconds).toEqual([0, 3600, 7200]);
     expect(lobby.notifications).toHaveLength(3);
     expect(lobby.notifications.map((n) => n.atSeconds)).toEqual([
       10_800, 12_600, 14_100,
@@ -46,7 +49,11 @@ describe("lobby-service", () => {
     expect(lobby.config.gameDurationSeconds).toBe(240);
     expect(lobby.config.visibilityPhaseIntervalSeconds).toBe(60);
     expect(lobby.config.visibilityPhaseCount).toBe(3);
-    expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 80, 160]);
+    // Same tier formula as the production preset (TDD §3.3), only with
+    // P=60s — the test preset is a behaviourally identical, expedited
+    // version of production.
+    expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 0, 60]);
+    expect(lobby.config.slotMapUnlockOffsetsSeconds).toEqual([0, 60, 120]);
     expect(lobby.notifications.map((n) => n.atSeconds)).toEqual([180, 210, 235]);
   });
 
@@ -194,16 +201,16 @@ describe("lobby-service", () => {
   });
 
   describe("per-slot rules arrays (chunk 5 + Phase L)", () => {
-    it("auto-distributes slotUnlockOffsetsSeconds and slotMapUnlockOffsetsSeconds across the preset duration", async () => {
+    it("derives tier-aligned slotUnlockOffsetsSeconds / slotMapUnlockOffsetsSeconds from the preset phase interval", async () => {
       const host = await registerAdminUser();
       const lobby = await lobbyService.createLobby(host.user.id);
 
-      // Production preset gameDurationSeconds = 14400, slotsPerNode = 3, so
-      // both claim and map auto-distribute to [0, 4800, 9600]. Template
-      // defaults are no longer consulted on create — see
-      // `createLobby` in `services/lobby-service.ts`.
-      expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 4800, 9600]);
-      expect(lobby.config.slotMapUnlockOffsetsSeconds).toEqual([0, 4800, 9600]);
+      // Production preset visibilityPhaseIntervalSeconds = 3600, slotsPerNode = 3.
+      // TDD §3.3 tier formula → claim=[0,0,P], map=[0,P,2P].
+      // Template defaults (`map_templates.default_slot_*`) are no longer
+      // consulted on create — see `createLobby` in `services/lobby-service.ts`.
+      expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 0, 3600]);
+      expect(lobby.config.slotMapUnlockOffsetsSeconds).toEqual([0, 3600, 7200]);
     });
 
     it("accepts host overrides on create when length matches slotsPerNode", async () => {

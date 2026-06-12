@@ -57,17 +57,6 @@ export interface TileDto {
   isRedFive: boolean;
 }
 
-/** Multi-slot map / station entry. */
-/**
- * Legacy "visible tile at slot k" entry, still used by
- * `AtStationDto.tiles[]` until Phase L chunk L4 rewires `atStation`
- * onto the shared `buildNodeView` shape.
- */
-export interface SlotTileDto {
-  slotIndex: number;
-  tile: TileDto;
-}
-
 /**
  * Phase L §3.13: exhaustive per-slot map view, server-resolved. Every
  * slot the node has (`0 .. slots_per_node - 1`) appears in
@@ -166,10 +155,15 @@ export interface AtStationChallengeDto {
 export interface AtStationDto {
   nodeId: string;
   code: string;
-  /** Present when `slots_per_node === 1`. */
-  tile?: TileDto;
-  /** Present when `slots_per_node > 1`. */
-  tiles?: SlotTileDto[];
+  /**
+   * Phase L §3.13: exhaustive per-slot view, byte-identical to the
+   * matching `mapNodes[].tiles[]` entry for the team's current node.
+   * `tiles.length` always equals `slots_per_node`. The pre-Phase-L
+   * conditional `tile` / `tiles?` shape is gone — UI rendering paths
+   * now read `tiles[].visible` / `tiles[].locked` / `tiles[].tile`
+   * directly. See `MapNodeTileDto` for the per-entry contract.
+   */
+  tiles: MapNodeTileDto[];
   /**
    * Phase H: top challenge at the station + the team's current
    * relationship with it (TDD §3.8). `null` when the station has no
@@ -475,7 +469,6 @@ export async function buildGameStateProjection(
 
   const redFivesEnabled = redFivesFlag?.enabled ?? false;
   const slotsPerNode = game.slotsPerNode;
-  const multiSlot = slotsPerNode > 1;
 
   // Per-game visibility-mode flags. The two layers are independently
   // gated at this projection: phase off means every node is face-up
@@ -654,14 +647,38 @@ export async function buildGameStateProjection(
       })
       : null;
 
+  // Phase L §3.13 + tier spec (TDD §3.3): `atStation.tiles[]` shares
+  // the per-slot shape with `mapNodes[teamNode].tiles[]` but applies
+  // an *at-station privilege* on top of the map gates — a slot whose
+  // claim-unlock timer has elapsed becomes station-visible even when
+  // the map-reveal timer hasn't. Tier 2 (claim=0, map>0) renders at
+  // the station from t=0; Tier 3 (claim>0, map=claim+δ) joins as soon
+  // as the claim timer fires. The map view (`mapNodes[].tiles[]`)
+  // keeps the stricter `mapVisible` gate so the fog-of-war stays
+  // intact for everyone else (including the team browsing other
+  // stations).
+  const teamNodeId = teamPosition?.currentGameNodeId ?? null;
+  const teamMapNode = teamNodeId
+    ? mapNodes.find((n) => n.id === teamNodeId) ?? null
+    : null;
+  const atStationTiles: MapNodeTileDto[] | null =
+    teamNodeId && teamMapNode
+      ? buildAtStationTiles({
+        game,
+        teamNodeId,
+        slotsPerNode,
+        nowMs,
+        slotLayerActive,
+        mapVisibleSlotSet,
+        tilesByNodeSlot,
+      })
+      : null;
   const atStation = handCompletedFlag
     ? null
     : buildAtStation({
-      game,
       teamPosition,
-      nodes,
-      tilesByNodeSlot,
-      multiSlot,
+      teamNode: teamMapNode,
+      atStationTiles,
       currentChallenge,
     });
 
@@ -858,62 +875,100 @@ function resolveMapVisibleSlotIndices(params: {
 }
 
 function buildAtStation(params: {
-  game: Game;
   teamPosition: GameTeamPosition | null;
-  nodes: GameNode[];
-  tilesByNodeSlot: Map<string, Map<number, TileDto>>;
-  multiSlot: boolean;
+  teamNode: MapNodeDto | null;
+  atStationTiles: MapNodeTileDto[] | null;
   currentChallenge: AtStationChallengeDto | null;
 }): AtStationDto | null {
-  const {
-    game,
-    teamPosition,
-    nodes,
-    tilesByNodeSlot,
-    multiSlot,
-    currentChallenge,
-  } = params;
-  const nodeId = teamPosition?.currentGameNodeId;
-  if (!nodeId) {
+  const { teamPosition, teamNode, atStationTiles, currentChallenge } = params;
+  if (!teamPosition?.currentGameNodeId || !teamNode || !atStationTiles) {
     return null;
   }
-  const node = nodes.find((n) => n.id === nodeId);
-  if (!node) {
-    return null;
-  }
-  const bySlot = tilesByNodeSlot.get(node.id);
-  const dto: AtStationDto = {
-    nodeId: node.id,
-    code: node.code,
+  // `atStationTiles` is the at-station-privileged view computed at the
+  // projection scope (see [`buildAtStationTiles`](#) below).
+  // `MapNodeTileDto[]` shape is identical to `mapNodes[].tiles[]`, but
+  // the `visible` flag is loosened so claim-unlocked slots reveal at
+  // the station even before their map-reveal timer fires.
+  return {
+    nodeId: teamNode.id,
+    code: teamNode.code,
+    tiles: atStationTiles,
     currentChallenge,
     pendingSwapCredit: teamPosition.pendingSwapCredit,
     creditEarnedInSession: teamPosition.creditEarnedInSession,
   };
+}
 
-  if (multiSlot) {
-    // Checked-in teams see every tile at the station. Map fog and slot
-    // unlock times still gate what appears on `mapNodes`; swap
-    // eligibility is enforced separately in the engine.
-    const entries: SlotTileDto[] = [];
-    if (bySlot) {
-      for (let slotIndex = 0; slotIndex < game.slotsPerNode; slotIndex += 1) {
-        const tile = bySlot.get(slotIndex);
-        if (tile) {
-          entries.push({ slotIndex, tile });
-        }
-      }
-    }
-    if (entries.length > 0) {
-      dto.tiles = entries;
-    }
-  } else if (bySlot) {
-    const tile = bySlot.get(0);
-    if (tile) {
-      dto.tile = tile;
-    }
+/**
+ * Per-slot tile shape for the team's current station. Mirrors the
+ * `mapNodes[teamNode].tiles[]` loop in `buildGameStateProjection` but
+ * applies the **at-station privilege**, which is two cooperating
+ * relaxations of the map rule:
+ *
+ *   1. **Visit-based node reveal** (TDD §3.3): checking in at a node
+ *      makes that node face-up to the team regardless of phase fog —
+ *      `faceUpForTeam(team, N) = true even if phase would hide N`.
+ *      The persistent `game_location_team_visibility` row may or may
+ *      not exist (phase advances + check-in both write it, depending
+ *      on flow); the station view doesn't care. `nodeFaceUp = true`
+ *      unconditionally here because this function is only ever called
+ *      for the team's currently-checked-in node.
+ *   2. **Claim-unlocked slot reveal** (TDD §3.3 Tier 2/3 spec): a slot
+ *      whose claim-unlock timer has elapsed is station-visible even
+ *      when the map-reveal timer has not. The map view stays strict
+ *      (`visible = nodeFaceUp && mapVisibleSlot`); the station view
+ *      relaxes to `visible = mapVisibleSlot || !locked` (with
+ *      `nodeFaceUp` already pinned to true by relaxation #1).
+ *
+ * Mode interactions:
+ *   - **phase-only** (slot layer off): `locked === false` everywhere,
+ *     so every slot at the station is visible. The map view still
+ *     respects phase fog for non-checked-in nodes.
+ *   - **slot-only** (phase layer off): `phaseLayerActive === false` so
+ *     `nodeFaceUp` is trivially true on the map too — no node-level
+ *     relaxation needed. Station view exposes any claim-unlocked slot;
+ *     map view still respects `slot_map_unlock_offsets_seconds`.
+ *   - **both layers on**: most expressive. The team's current node is
+ *     always face-up at the station; Tier 2 (claim=0, map>0) surfaces
+ *     at t=0; Tier 3 (claim>0) waits for the claim timer.
+ *   - **none**: everything visible everywhere.
+ */
+function buildAtStationTiles(params: {
+  game: Game;
+  teamNodeId: string;
+  slotsPerNode: number;
+  nowMs: number;
+  slotLayerActive: boolean;
+  mapVisibleSlotSet: Set<number>;
+  tilesByNodeSlot: Map<string, Map<number, TileDto>>;
+}): MapNodeTileDto[] {
+  const {
+    game,
+    teamNodeId,
+    slotsPerNode,
+    nowMs,
+    slotLayerActive,
+    mapVisibleSlotSet,
+    tilesByNodeSlot,
+  } = params;
+  // Relaxation #1: visit-based node reveal — see JSDoc above.
+  const nodeFaceUp = true;
+  const bySlot = tilesByNodeSlot.get(teamNodeId);
+  const tiles: MapNodeTileDto[] = [];
+  for (let slotIndex = 0; slotIndex < slotsPerNode; slotIndex += 1) {
+    const mapVisibleSlot = mapVisibleSlotSet.has(slotIndex);
+    const locked = slotLayerActive && !isSlotUnlocked(game, slotIndex, nowMs);
+    // Relaxation #2: claim-unlocked OR map-revealed → visible.
+    const visible = nodeFaceUp && (mapVisibleSlot || !locked);
+    const placement = bySlot?.get(slotIndex) ?? null;
+    tiles.push({
+      slotIndex,
+      tile: visible ? placement : null,
+      visible,
+      locked,
+    });
   }
-
-  return dto;
+  return tiles;
 }
 
 /**
@@ -926,9 +981,12 @@ function buildAtStation(params: {
  *      node-challenge, used to derive the three observable states.
  *
  * Returns `null` when the station has no challenges configured (the
- * back-compat path). Pure read — never mutates state.
+ * back-compat path). Pure read — never mutates state. Exported so the
+ * Phase L `buildNodeView` helper ([§3.14](../docs/TDD_server.md#314-node-view-endpoint))
+ * emits the same per-team challenge shape `atStation` does — the two
+ * surfaces share a single source of truth.
  */
-async function buildCurrentChallenge(params: {
+export async function buildCurrentChallenge(params: {
   gameNodeId: string;
   gameTeamId: string;
   nowMs: number;

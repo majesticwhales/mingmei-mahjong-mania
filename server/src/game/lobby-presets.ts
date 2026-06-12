@@ -62,7 +62,13 @@ export function lobbyPresetForTestFlag(isTestGame: boolean): LobbyGamePreset {
   return isTestGame ? TEST_LOBBY_PRESET : PRODUCTION_LOBBY_PRESET;
 }
 
-/** Evenly space slot unlocks across the game duration (slot 0 is always 0). */
+/**
+ * Evenly space slot unlocks across the game duration (slot 0 is always
+ * 0). Used only by the **dormant** `ConfigForm` / `slotTier.ts` paths
+ * (client TDD §5.3 / §11) and the seeder's `map_templates.default_*`
+ * columns. Live lobby creation goes through [`deriveTierOffsets`](#)
+ * below — see TDD §3.3 + §4.5.
+ */
 export function deriveAutoDistributedOffsets(
   slotsPerNode: number,
   gameDurationSeconds: number,
@@ -76,4 +82,55 @@ export function deriveAutoDistributedOffsets(
     out.push(Math.round((duration * k) / slotsPerNode));
   }
   return out;
+}
+
+export interface TierOffsets {
+  /** `slot_unlock_offsets_seconds` — when each slot becomes claimable. */
+  slotUnlockOffsetsSeconds: number[];
+  /** `slot_map_unlock_offsets_seconds` — when each slot reveals on the map. */
+  slotMapUnlockOffsetsSeconds: number[];
+}
+
+/**
+ * Build the per-tier claim + map offsets that match the spec from TDD
+ * §3.3 (cross-linked from §6.3's "at-station privilege"):
+ *
+ * | slot | claim   | map   |
+ * |------|---------|-------|
+ * | 0    | 0       | 0     | Tier 1 — visible + claimable from t=0.
+ * | 1    | 0       | P     | Tier 2 — claimable from t=0 (station-only,
+ * |      |         |       | via the at-station privilege), revealed on
+ * |      |         |       | the map at t=P.
+ * | k≥2  | (k-1)·P | k·P   | Tier 3+ — claimable at t=(k-1)·P, revealed
+ * |      |         |       | on the map one phase later.
+ *
+ * `P` = `phaseIntervalSeconds`. This formula keeps the test and
+ * production presets behaviourally identical — only the absolute clock
+ * differs (production: P=3600s; test: P=60s). The map timeline
+ * `[0, P, 2P, …]` matches the phase-driven map-reveal schedule under
+ * `phaseCount === slotsPerNode` (TDD §3.13), so the scheduler-driven
+ * `SLOT_MAP_UNLOCKED` events line up with `VISIBILITY_PHASE_ADVANCE`.
+ *
+ * @param slotsPerNode Number of slots per node (>= 1).
+ * @param phaseIntervalSeconds Phase interval `P` in seconds. When `<=0`
+ *   every slot collapses to `claim=0, map=0`.
+ */
+export function deriveTierOffsets(
+  slotsPerNode: number,
+  phaseIntervalSeconds: number,
+): TierOffsets {
+  const claim: number[] = [];
+  const map: number[] = [];
+  const P =
+    Number.isFinite(phaseIntervalSeconds) && phaseIntervalSeconds > 0
+      ? Math.round(phaseIntervalSeconds)
+      : 0;
+  for (let k = 0; k < slotsPerNode; k += 1) {
+    claim.push(k <= 1 ? 0 : (k - 1) * P);
+    map.push(k * P);
+  }
+  return {
+    slotUnlockOffsetsSeconds: claim,
+    slotMapUnlockOffsetsSeconds: map,
+  };
 }

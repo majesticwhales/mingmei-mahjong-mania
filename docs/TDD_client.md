@@ -169,7 +169,7 @@ For v1 we duplicate wire types under `client/src/wire/`. The mirrored files are:
 - `client/src/wire/auth.ts` — `RegisterRequest` (Phase K: optional `discordUsername`), `LoginRequest`, `AuthResponse`, `User` (Phase K: gains `discordUsername`, `discordUserId`, `discordLinkStatus`).
 - `client/src/wire/lobby.ts` — `LobbyDetailDto`, `LobbyConfigDto` (Phase K: gains `discordEnabled`), `LobbyMemberDto`, `LobbyReadinessDto`, `LobbyNotificationDto`, `LobbyConfigPatch`, `CreateLobbyInput`, `VisibilityMode` (`"none" | "phase" | "slot" | "both"`), `TeamAssignmentMode`.
 - `client/src/wire/discord.ts` — **new in Phase K.** `DiscordLinkStatus` (`"unlinked" | "pending" | "linked" | "failed"`), `DiscordLinkRequest`, `DiscordLinkStatusResponse`. Consumed exclusively by `AuthContext` + Profile screen + Lobby room.
-- `client/src/wire/projection.ts` — `GameStateProjection`, `TileDto`, `SlotTileDto`, `MapNodeDto`, `MapLineDto`, `MapEdgeDto`, `AtStationDto`, `HandTileDto`, `RecentEventDto`, plus the **Phase J** additions `HandCompletedDto` (the team-private snapshot, fields per server §6.3) and `TeamsCompletedEntryDto` (the public roster entry). **Phase L:** `MapNodeDto.tiles[]` flips from the conditional `{ slotIndex, tile }` shape to an exhaustive `{ slotIndex, tile: TileDto | null, visible: boolean, locked: boolean }` array — every slot the node has appears in ascending `slotIndex` order, `tile` is `null` whenever `!visible` or the slot is empty. The pre-Phase-L singular `tile` field on `MapNodeDto` is removed; a 1-slot game still emits a 1-entry array. `visibilityPhase`, `visibilityPhaseCount`, and `phaseDrivenSlotMap` survive on the projection but are flagged in JSDoc as "telemetry-only — do not use for rendering" (their only consumer becomes `<VisibilityCountdown />`).
+- `client/src/wire/projection.ts` — `GameStateProjection`, `TileDto`, `MapNodeTileDto`, `MapNodeDto`, `MapLineDto`, `MapEdgeDto`, `AtStationDto`, `HandTileDto`, `RecentEventDto`, plus the **Phase J** additions `HandCompletedDto` (the team-private snapshot, fields per server §6.3) and `TeamsCompletedEntryDto` (the public roster entry). **Phase L:** `MapNodeDto.tiles[]` flips from the conditional `{ slotIndex, tile }` shape to an exhaustive `{ slotIndex, tile: TileDto | null, visible: boolean, locked: boolean }` array — every slot the node has appears in ascending `slotIndex` order, `tile` is `null` whenever `!visible` or the slot is empty. The pre-Phase-L singular `tile` field on `MapNodeDto` is removed; a 1-slot game still emits a 1-entry array. **Phase L Chunk 4 B-2 + L4 follow-up:** `AtStationDto.tiles[]` adopts the same exhaustive `MapNodeTileDto[]` shape; the pre-L4 `SlotTileDto` type and the singular `AtStationDto.tile?` field are removed. The original "see every station tile regardless of any timer" privilege stays gone — a *claim-locked* slot is still rendered as `Unknown` at the station (Tier 3 before its claim window). A narrower **at-station privilege** is restored: claim-unlocked-but-map-fogged slots (Tier 2 in `[0, 3600)` for the canonical preset) have their `visible: true` + `tile: TileDto` populated at the team's own station even when the same slot on `mapNodes[teamNode].tiles[]` reads `visible: false, tile: null`. Server is the sole authority — the client should pass `viewingId === checkedInId ? atStation.tiles : viewingNode.tiles` into the station panel renderer and never re-derive the rule. `visibilityPhase`, `visibilityPhaseCount`, and `phaseDrivenSlotMap` survive on the projection but are flagged in JSDoc as "telemetry-only — do not use for rendering" (their only consumer becomes `<VisibilityCountdown />`).
 - `client/src/wire/summary.ts` — **new in Phase J.** `GameSummaryDto`, `GameSummaryTeamDto`, `AnalyzedWaitDto` (mirrors `server/src/scoring/index.ts` shape); consumed exclusively by the post-game `SummaryScreen`.
 - `client/src/wire/nodeView.ts` — **new in Phase L.** `NodeViewDto`, `NodeViewTileDto`, `AvailableActionDto`, `AvailableActionReason` (string literal union of the stable disable-reason codes from server [§3.14](TDD_server.md#314-node-view-endpoint)). Consumed by `useNodeView()` and the `StationPanel`. The `NodeViewTileDto` shape is **identical** to `MapNodeDto.tiles[]` post-Phase-L — the two are byte-equal for the same node + team + clock, by design.
 - `client/src/wire/command.ts` — `GameCommandPayload`, `GameCommandAcked`, `GameCommandRejected`, `GameJoinPayload`, `GameJoinResponse`, `Ack<T>` envelope, `CommandType` literal union, per-command-type payload narrowings. **Phase L:** the shared `GeoPayload` type (`{ latitude, longitude, accuracy, capturedAt? }`) is lifted out of the CHECK_IN payload narrowing and added as an optional field on **every** command's payload (`CHECK_IN`, `CHECK_OUT`, `SWAP_TILE`, `SWAP_LOCATION_TILES`, `START_CHALLENGE`, `CHALLENGE_COMPLETED`, `CHALLENGE_FORFEITED`, `CLAIM_WIN`) — additive, never required.
@@ -255,7 +255,7 @@ The `restClient` parses non-2xx responses into a typed `HttpError(code, message,
 | `duplicate` | `enqueueCommand` (same id + same payload) | Treat as success — the outbox row transitions to `acked`. |
 | `game_not_active` | command auth | Toast "Game already ended"; remove the outbox row; resync via `GET /api/games/:id` if we add it later, otherwise drop the row silently. |
 | `slot_locked` | engine validation (swap pre-unlock) | Toast "Tile not yet available"; remove the outbox row. |
-| `visibility_knob_locked` | lobby config validation (`PATCH /api/lobbies/:id/config`) when a host tries to set a knob the chosen `visibilityMode` excludes (phase off → phase knobs; slot off → non-trivial slot arrays) | Surface the `message` via the existing inline form error. Do not retry. The host config form (`ConfigForm`) already prevents this in normal use by disabling the offending inputs (see §7.3); the error path catches malicious or out-of-date clients. Rely on the next `lobby.config` push to re-sync the draft to the server's reset values. |
+| `visibility_knob_locked` | lobby config validation (`PATCH /api/lobbies/:id/config`) when a caller tries to set a knob the chosen `visibilityMode` excludes (phase off → phase knobs; slot off → non-trivial slot arrays) | Surface the `message` via the existing inline form error. Do not retry. Rely on the next `lobby.config` push to re-sync the draft to the server's reset values. **Dormant in the current build:** the live `LobbyRoomScreen` ships member list + team picker + Start only — there is no host config form — so this code only fires for direct REST callers (CLI, future tooling) or a stale `useLobby().updateConfig` call from the dormant `ConfigForm`. The host-form UX described in §5.3 / §7.3 is preserved as a future re-introduction surface; see §5.3 for the dormancy callout. |
 | `not_at_station` | engine validation (`CLAIM_WIN` when team isn't checked into the station that holds the tile) | Toast "Not at this station"; remove the outbox row. The station panel hides the Claim affordance whenever the team isn't at the right station, so this only fires on stale/forged commands. |
 | `not_a_winning_tile` | engine validation (`CLAIM_WIN`) when `analyzeHand` over the candidate 14-tile hand returns `shanten !== -1`, or the station tile isn't in the current wait set | Toast "Not a winning tile"; remove the outbox row. The station panel only renders Claim on tiles in `handAnalysis.waits[]`, so this only fires when the wait set has shifted between render and submit (e.g. a swap landed first). |
 | `hand_completed` | engine validation (any tile-modifying command from a team whose `game_teams.hand_completed_at IS NOT NULL`) | Toast "Hand already complete"; remove the outbox row. The Game / Station / Hand panels disable all action affordances when `state.handCompleted !== null`, so this only fires on stale clients. |
@@ -391,14 +391,16 @@ The client tracks **at most one active lobby at a time**. Switching lobbies disp
 
 **Hooks:**
 
-- `useLobby()` — full state plus `loadLobby`, `joinLobby`, `pickTeam`, `updateConfig`, `addNotification`, `updateNotification`, `removeNotification`, `startLobby`, `leaveLobby`.
+- `useLobby()` — full state plus `loadLobby`, **`createLobby({ isTestGame })`** (admin-only; see §7.3 hub wireframe), `joinLobby`, `pickTeam`, `updateConfig` *(dormant — see callout below)*, `addNotification` *(dormant)*, `updateNotification` *(dormant)*, `removeNotification` *(dormant)*, `startLobby`, `leaveLobby`.
 - `useIsHost()` — selector `state.lobby?.hostUserId === currentUserId`.
 - `useLobbyMembers()` — selector returning sorted member list.
-- `useLobbyNotifications()` — selector returning the notifications array (already sorted by the server).
+- `useLobbyNotifications()` — selector returning the notifications array (already sorted by the server). *Dormant — the live `LobbyRoomScreen` does not render the notifications list.*
 
 **Side effects in `LobbyProvider`:** on entering `loading`, emit `lobby.join` (if socket connected) plus `GET /api/lobbies/:id` (always; gives us a fast path that doesn't depend on socket). On `lobby.config` push, dispatch `lobby/updated`.
 
-**Visibility-mode error path:** `updateConfig` may reject with `visibility_knob_locked` if the host's patch sets a knob the chosen `visibilityMode` excludes (phase knobs while mode is `slot`/`none`; non-trivial slot arrays while mode is `phase`/`none`). The host form prevents this in normal use by disabling the offending inputs (see §7.3 wireframes and `client/src/screens/LobbyRoom/ConfigForm.tsx`), so the error path catches stale clients and adversarial requests only. The error surfaces inline via the existing `LobbyRoomScreen` error state; the next `lobby.config` push resyncs the draft to the server's reset values. See §4.4 for the error-code row.
+**Lobby creation flow (live).** Lobby creation does not go through the host config form. The Lobbies hub (§7.3 `/lobbies`) exposes an admin-only "Test game" checkbox + "Create new lobby" button; the button navigates to `/lobbies/new` with `location.state = { testGame }`. `LobbyRoomScreen` detects the `new` id, calls `useLobby().createLobby({ isTestGame })`, and `replace`-navigates to the persisted id. The server's [`lobbyPresetForTestFlag`](TDD_server.md#315-lobby-creation-presets) decides every knob (game duration, phase count, slot offsets, notifications) from that single boolean — the client never picks them. After creation the lobby is read-only from the UI: the screen renders member list + team picker + Start (admin only). All host-tunable affordances described in §7.3 (config dropdowns, slot tier editor, notifications list) ship as dormant components.
+
+**Dormant: host config + notifications surface.** `client/src/screens/LobbyRoom/ConfigForm.tsx`, `client/src/screens/LobbyRoom/NotificationsEditor.tsx`, `client/src/lib/lobbyConfig.ts`, and `client/src/lib/slotTier.ts` shipped under the visibility-mode + Phase L plan but are not mounted in the current build (no production code path renders `<ConfigForm />` or `<NotificationsEditor />`; `useLobby().updateConfig` / `addNotification` / `updateNotification` / `removeNotification` have no call sites outside their own tests). They're preserved as dormant code (and their tests stay in the CI matrix as a regression net) because the server-side lobby-config and notifications APIs are still live and a future "advanced lobby settings" feature can re-mount the components without a rewrite. The `visibility_knob_locked` error path (§4.4) covers that dormant surface plus direct REST callers; today it only fires for the latter. See §7.3 "Dormant: host config form" for the preserved wireframe.
 
 **Phase L — auto-join effect.** Today (`LobbyRoomScreen` lines ~88-97) a `loadLobby` failure with `forbidden` / `not_a_member` lands the user in an error state with a manual "Try join" button. Phase L replaces that with an **auto-join** effect inside `LobbyProvider`: when `loadLobby(id)` rejects with one of those two codes **and** the user is authenticated, the provider transparently calls `joinLobby(id)` exactly once before transitioning to `error`. On success the provider re-runs `loadLobby(id)` and the screen renders without ever showing the error UI. The retry is one-shot (the `error` branch keeps its current shape — no Try join button) and is keyed on `(lobbyId, userId)` so revisiting the same lobby after logout/login retries again. Terminal errors that are **not** auto-recoverable — `lobby_full`, `lobby_closed`, `lobby_already_started`, `not_found`, `validation_error` — bypass the auto-join branch entirely and surface inline copy on the error screen ("This lobby is full" / "Host already started the game" / etc.) instead of the now-removed Try join affordance. The screen-level "Try again" button is replaced with a "Back to lobbies" link for these terminal cases.
 
@@ -651,8 +653,8 @@ The MVP has **eight routes** (nine when Phase K's Profile screen ships). Mobile-
 | `/` | any | `<RootRedirect />` | `AuthContext` | Redirects to `/lobbies` if authed, `/login` otherwise. |
 | `/login` | anon | `<LoginScreen />` | `AuthContext` | Email + password, link to register. |
 | `/register` | anon | `<RegisterScreen />` | `AuthContext` | Email + username + password (Phase K: optional Discord username). |
-| `/lobbies` | auth | `<LobbiesScreen />` | `AuthContext` | Action hub: "Create lobby" + "Join by code". No active-lobby list in v1 (server doesn't expose one); future expansion is straightforward. |
-| `/lobbies/:id` | auth | `<LobbyRoomScreen />` | `LobbyContext` | Member list, team picker, host config form, notifications editor (host only), Start. Phase K adds the Discord channels checkbox. |
+| `/lobbies` | auth | `<LobbiesScreen />` | `AuthContext` | Action hub: admin-only "Test game" checkbox + "Create new lobby" button (passes `location.state = { testGame }` to `LobbyRoomScreen`), plus a "Join by id" form available to all authed users. No active-lobby list in v1 (server doesn't expose one); future expansion is straightforward. |
+| `/lobbies/:id` | auth | `<LobbyRoomScreen />` | `LobbyContext` | Member list, team picker, Start (admin only). The `:id` segment may also be the literal `new`, in which case the screen calls `useLobby().createLobby({ isTestGame })` (reading `isTestGame` from `location.state`) and `replace`-navigates to the persisted id. **No config form or notifications editor in the current build** — every game knob is decided server-side by the preset that `isTestGame` selects (see §5.3 and [server TDD §3.15](TDD_server.md#315-lobby-creation-presets)). Phase K's Discord channels checkbox is deferred until the host config form is un-dormant. |
 | `/games/:id` | auth | `<GameScreen />` | `GameContext` | Map + hand + station + event log + timer + command buttons. The main game UI. Phase J adds the Claim affordance + hand-completed lock. |
 | `/games/:id/summary` | auth | `<GameSummaryScreen />` | `GameContext` | Phase J: per-team scoreboard backed by `GET /api/games/:id/summary`. |
 | `/profile` | auth | `<ProfileScreen />` | `AuthContext` | **Phase K.** Discord link management — view current status, link / unlink / retry. |
@@ -769,22 +771,60 @@ Phase K — new screen for managing the Discord link after registration.
 #### Lobbies hub (`/lobbies`)
 
 ```
-+--------------------------------------+
-| @username                  [Log out] |
-|                                       |
-|  [ + Create new lobby ]               |
-|                                       |
-|  Join existing lobby                  |
-|  lobby id [____________________]      |
-|  [ Join ]                             |
-+--------------------------------------+
++----------------------------------------------+
+| @username                       [Log out]    |
+|                                              |
+|  Lobbies                                     |
+|                                              |
+|  (admin-only)                                |
+|  [ ] Test game                               |
+|      4 min duration · phases at 1 and 2 min  |
+|  [ + Create new lobby ]                      |
+|                                              |
+|  Join existing lobby                         |
+|  lobby id [____________________]             |
+|  [ Join ]                                    |
++----------------------------------------------+
 ```
 
 The lobby list is omitted because the server doesn't expose "lobbies I'm in". Once a join succeeds, we redirect to `/lobbies/:id`. Future work: server endpoint `GET /api/lobbies/mine`, then this screen gets a list section.
 
+**Test-game checkbox.** Admin-only; passes the boolean as `location.state.testGame` when navigating to `/lobbies/new`. `LobbyRoomScreen` forwards it as `createLobby({ isTestGame })`. Checked → 240 s duration, phases every 60 s, three time-warning notifications at the 60 s / 30 s / 5 s marks; unchecked → 4-hour production preset. The presets are the *only* knobs a host picks at create time — every other game config field (slot offsets, map-reveal offsets, visibility mode, dead wall size, etc.) is decided server-side from the preset. See [server TDD §3.15 — Lobby creation presets](TDD_server.md#315-lobby-creation-presets) for the canonical values.
+
 #### Lobby room (`/lobbies/:id`)
 
-Host view:
+Live UI (admin and non-admin see the same layout — only the Start button is admin-gated):
+
+```
++----------------------------------------------+
+| < Back                          [Connection] |
+|                                              |
+|  Lobby ABC123                          HOST  |
+|                                              |
+|  Members (3 / min 4)                         |
+|    @alice    Team 1                          |
+|    @bob      Team 2                          |
+|    @carol    -                               |
+|                                              |
+|  Your team:                                  |
+|  [Team 1] [Team 2] [Team 3] [Team 4]         |
+|                                              |
+|  (admin only)                                |
+|  [ Start game ]   (disabled if not ready)    |
+|  Readiness: 1 player missing on Team 3       |
+|  Test mode: you can start with < 4 players   |
+|             (test-game lobbies only)         |
+|                                              |
+|  (non-admin)                                 |
+|  Waiting for an admin to start the game…     |
++----------------------------------------------+
+```
+
+The screen renders only **member list + team picker + Start** plus the readiness hint. Every game knob (duration, slot offsets, map-reveal timeline, visibility mode, notifications, …) is decided server-side from the `isTestGame` preset chosen at create time on the Lobbies hub — see [server TDD §3.15](TDD_server.md#315-lobby-creation-presets). There is no config form mounted today. The Start button calls `useLobby().startLobby()` directly; readiness is read from `lobby.readiness.{ ready, reasons, soloStartAllowed, memberCount }`.
+
+**Dormant: host config form** *(not mounted in the current build; preserved for future re-introduction)*
+
+The wireframe below — including the visibility-mode dropdown, the slot-tier editor, the per-slot map-reveal column, and Phase K's Discord channels checkbox — corresponds to `client/src/screens/LobbyRoom/{ConfigForm,NotificationsEditor}.tsx` and the helpers in `client/src/lib/{lobbyConfig,slotTier}.ts`. Those modules ship in the bundle (tests run on every push), but no production screen mounts `<ConfigForm />` or `<NotificationsEditor />` today. They're documented here so that a future "advanced lobby settings" re-mount can reuse the same DTOs, validators, and wire shapes without rewriting the form from scratch. The server's lobby-config and notifications REST surfaces (`PATCH /api/lobbies/:id/config`, the `lobby_notifications` CRUD endpoints) remain live and stable — the dormancy is purely a UI hold.
 
 ```
 +----------------------------------------------+
@@ -834,13 +874,13 @@ The **visibility** dropdown picks one of `both | phase | slot | none`. The lock 
 - `none` / `slot` → `phases` row greys out (server rejects patches that set `visibilityPhaseCount` / `visibilityPhaseIntervalSeconds`).
 - `none` / `phase` → the whole `Slot tier` sub-block (auto-distribute toggle + per-slot rows) greys out. `slots/node` stays editable because it's the count, not a slot-layer config.
 
-The **Auto-distribute** checkbox is a pure UI affordance — there's no persisted "auto-distribute" field on the server. On form mount the toggle reads `true` when the saved `slotUnlockOffsetsSeconds` equal `round(gameDurationSeconds * k / slotsPerNode)` for every `k` (±1s tolerance to absorb rounding), and `false` otherwise. While on, the form recomputes the offsets array on every change to `slots/node` or `duration`. Toggling it back on from a custom array snaps the offsets to the formula. See `client/src/lib/slotTier.ts` for the helper module.
+The **Auto-distribute** checkbox is a pure UI affordance — there's no persisted "auto-distribute" field on the server. On form mount the toggle reads `true` when the saved `slotUnlockOffsetsSeconds` equal `round(gameDurationSeconds * k / slotsPerNode)` for every `k` (±1s tolerance to absorb rounding), and `false` otherwise. While on, the form recomputes the offsets array on every change to `slots/node` or `duration`. Toggling it back on from a custom array snaps the offsets to the formula. See `client/src/lib/slotTier.ts` for the helper module. (Note: the live `createLobby` path already auto-distributes server-side from the chosen preset's `gameDurationSeconds`, so this client-side mirror is only relevant once the form is re-mounted and a host edits an existing lobby's offsets.)
 
-**Per-slot map reveal.** The right-hand column on each slot row is the **map-reveal timer** — `LobbyConfigDto.slotMapUnlockOffsetsSeconds[k]` (Phase L §3.13 server-side). Each row carries two affordances: a `number` input for the offset in seconds, and a `never on map` checkbox. Checking `never on map` substitutes `null` into the array (the "out of play on map" tier) and disables the numeric input; unchecking restores the input with a default copied from the same slot's claim-unlock offset (`slotUnlockOffsetsSeconds[k]`). Slot 0 is force-pinned to `map: 0`, `never: off` (server invariant). The form does not validate `map[k] >= claim[k]` client-side — the server rejects bad patches with the same `400` shape used by other lobby config validators (see `client/src/lib/slotTier.ts::resizeSlotMapUnlockOffsets` for the resize semantics on `slotsPerNode` changes).
+**Per-slot map reveal.** The right-hand column on each slot row is the **map-reveal timer** — `LobbyConfigDto.slotMapUnlockOffsetsSeconds[k]` ([server TDD §3.13](TDD_server.md#313-server-authoritative-tile-visibility)). Each row carries two affordances: a `number` input for the offset in seconds, and a `never on map` checkbox. Checking `never on map` substitutes `null` into the array (the "out of play on map" tier) and disables the numeric input; unchecking restores the input with a default copied from the same slot's claim-unlock offset (`slotUnlockOffsetsSeconds[k]`). Slot 0 is force-pinned to `map: 0`, `never: off` (server invariant). The form does not validate `map[k] >= claim[k]` client-side — the server rejects bad patches with the same `400` shape used by other lobby config validators (see `client/src/lib/slotTier.ts::resizeSlotMapUnlockOffsets` for the resize semantics on `slotsPerNode` changes).
 
 **Phase K — Discord channels checkbox.** Toggles `LobbyConfigPatch.discordEnabled`. Sub-text under the checkbox renders the readiness state for the host: if any current lobby member has `discordLinkStatus !== "linked"`, the form shows "Some members aren't linked yet (@bob, @carol). Their team channels will skip them until they link." The toggle is independently editable from every other knob — it's not visibility-gated and is never reset on `visibilityMode` changes.
 
-Non-host view: same layout minus the config form and notifications editor (read-only listings instead); the start button is replaced with "Waiting for host…".
+Non-host view (dormant): same layout minus the config form and notifications editor (read-only listings instead); the start button is replaced with "Waiting for host…".
 
 #### Game (`/games/:id`)
 
@@ -1098,15 +1138,16 @@ The work is sliced into **7 chunks**, each independently reviewable and testable
 **Test coverage:**
 
 - `lobby/reducer.test.ts` — all transitions including optimistic team pick + rollback.
-- `LobbyRoomScreen.test.tsx` — host vs non-host conditional rendering.
-- `ConfigForm.test.tsx` — form → restClient call mapping; validation surface; visibility-mode dropdown + phase-knob lock (chunk 6); slot-tier section + auto-distribute toggle + slot-knob lock (chunk 7). See §10.
-- `slotTier.test.ts` — pure helpers for the auto-distribute formula + tolerant matcher (chunk 7).
-- `NotificationsEditor.test.tsx` — add / edit / delete flows.
+- `LobbyRoomScreen.test.tsx` — admin vs non-admin conditional rendering (Start button gating) and the `id === "new"` → `createLobby({ isTestGame })` flow.
+- `ConfigForm.test.tsx` *(dormant component)* — form → restClient call mapping; validation surface; visibility-mode dropdown + phase-knob lock (chunk 6); slot-tier section + auto-distribute toggle + slot-knob lock (chunk 7). See §10.
+- `slotTier.test.ts` *(dormant helper)* — pure helpers for the auto-distribute formula + tolerant matcher (chunk 7).
+- `lobbyConfig.test.ts` *(dormant helper)* — patch construction + diff helpers.
+- `NotificationsEditor.test.tsx` *(dormant component)* — add / edit / delete flows.
 - `lobbyContextSocket.test.tsx` — mock socket → `lobby.config` push → reducer dispatched → screen re-renders.
 
-The visibility-mode dropdown, phase-knob lock, slot-tier editor, and auto-distribute toggle shipped under the per-lobby visibility mode plan (chunks 6 and 7). The server-side surface lives in `lobby-service.ts` (chunk 2) and rejects locked-knob patches with `visibility_knob_locked` — see §4.4.
+**Dormant: host config form.** The visibility-mode dropdown, phase-knob lock, slot-tier editor, auto-distribute toggle, and notifications editor shipped under the per-lobby visibility-mode plan (chunks 6 + 7) and the Phase L slot-map-unlock work, but no production screen mounts `<ConfigForm />` or `<NotificationsEditor />` today (see §5.3 + §7.3). `client/src/lib/{lobbyConfig,slotTier}.ts` and the corresponding `*.test.{ts,tsx}` files stay in the bundle and CI matrix as a regression net for a future re-mount. The server-side surface in `lobby-service.ts` is still live; the `visibility_knob_locked` rejection (§4.4) covers direct REST callers.
 
-**Phase K — Discord toggle.** The Discord channels checkbox in `ConfigForm` is wired in a follow-up slice once Phase K lands on the server. It's a plain `LobbyConfigPatch.discordEnabled` boolean — no validation, no lock UX, no interaction with visibility mode. The sub-text reads from `LobbyDetailDto.members[].discordLinkStatus` (server includes this in the lobby projection) to warn about unlinked members. Test coverage for this slice lives in `ConfigForm.test.tsx` — new test cases assert the checkbox toggles `discordEnabled` and the warning sub-text renders correctly when at least one member is `unlinked` / `pending` / `failed`. The host-only Profile-link affordance (a small "Set up Discord in Profile" link below the checkbox, shown only to hosts whose own status isn't `linked`) lives here too.
+**Phase K — Discord toggle (dormant).** The Discord channels checkbox slot in `ConfigForm` is wired to `LobbyConfigPatch.discordEnabled` (plain boolean, no validation, no lock UX). It does not render in any live screen today. When the host config form is re-mounted, this checkbox surfaces alongside the rest of the editor without further work — the wire shape, sub-text behavior, and host-only Profile link affordance are all already implemented.
 
 **Manual smoke:** Open two browser tabs (different users). Tab A creates a lobby; tab B joins via id. Tab A changes config; tab B's form fields update. Tab A starts; both navigate to `/games/:id` (which is a placeholder screen until chunk 5).
 
@@ -1314,7 +1355,7 @@ The client side of server Phase L ([docs/TDD_server.md §3.12–§3.14](TDD_serv
 
 **Manual smoke:** start a game with `slots_per_node = 4`; verify the projection shows all four slots in `tiles[]` with the right per-team `visible` / `locked` flags by inspecting the network tab.
 
-#### Chunk L4 — node-view endpoint
+#### Chunk L4 — node-view endpoint *(shipped)*
 
 **Goal:** the new `GET /api/games/:id/nodes/:nodeId/view` is live + the client can call it. No StationPanel rewire yet — that's L5.
 
@@ -1406,8 +1447,8 @@ Tracked here so we don't lose them, but explicitly out of scope for v1 MVP:
 
 ### 10.1 Levels
 
-- **Unit tests** — pure reducers, pure helpers (`lib/lobbyConfig.ts`, `lib/slotTier.ts`, etc.), `restClient` parsers, `commandOutbox` storage primitive. Vitest, no DOM, no mocks beyond the system under test.
-- **Component tests** — RTL with `jsdom`. Each screen has a "happy path" test plus error-state coverage. Mocks: `restClient` (vi.mock at module boundary), `socketClient` (a small in-memory `EventEmitter` stub), `commandOutbox` (a `Map` in memory). `ConfigForm.test.tsx` (chunks 6-7) covers the host config form including the visibility-mode dropdown, the phase-knob lock, the slot-tier section, and the auto-distribute toggle.
+- **Unit tests** — pure reducers, pure helpers (`lib/lobbyConfig.ts` *(dormant — see §5.3)*, `lib/slotTier.ts` *(dormant)*, etc.), `restClient` parsers, `commandOutbox` storage primitive. Vitest, no DOM, no mocks beyond the system under test. Dormant-helper tests stay in the matrix as a regression net for the eventual host-config re-mount; they exercise pure functions, so there's no DOM cost to keeping them.
+- **Component tests** — RTL with `jsdom`. Each screen has a "happy path" test plus error-state coverage. Mocks: `restClient` (vi.mock at module boundary), `socketClient` (a small in-memory `EventEmitter` stub), `commandOutbox` (a `Map` in memory). `ConfigForm.test.tsx` and `NotificationsEditor.test.tsx` *(both dormant — see §5.3 / §7.3)* still run on every push to catch wire-shape drift while no production screen mounts them.
 - **Provider integration tests** — wire `<AuthProvider><ConnectionProvider>...` together with mock transports; verify the cross-context behavior (e.g., disconnect → outbox switches to HTTP). One test file per provider-pair that interacts.
 - **Manual smoke** — per-chunk checklist documented in each chunk's section in §8. Includes airplane-mode toggle and dual-tab tests.
 
@@ -1425,7 +1466,7 @@ Three transport stubs live under `client/src/test/`:
 
 ### 10.3 Coverage targets
 
-- **Unit + component tests:** reducers should be at 100 %; transports should be at ≥ 90 %; screens at ≥ 70 % (focus on logic-heavy screens — `LobbyRoomScreen`, `GameScreen` — over thin ones). Pure-helper modules under `client/src/lib/` (e.g., `lobbyConfig.ts`, `slotTier.ts`) should be at 100 %.
+- **Unit + component tests:** reducers should be at 100 %; transports should be at ≥ 90 %; screens at ≥ 70 % (focus on logic-heavy screens — `LobbyRoomScreen`, `GameScreen` — over thin ones). Pure-helper modules under `client/src/lib/` (e.g., `lobbyConfig.ts` *(dormant)*, `slotTier.ts` *(dormant)*) should be at 100 % — the dormant helpers held that bar when they shipped and we don't want regression coverage to slip if a future PR un-dormants them.
 - **No coverage gating in CI** for v1. The number is informational only, but the `client-tests` job blocks merges on failing tests.
 
 ### 10.4 Test data
