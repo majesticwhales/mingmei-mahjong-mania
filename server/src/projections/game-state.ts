@@ -1008,10 +1008,14 @@ export async function buildCurrentChallenge(params: {
     gameTeamId,
     includeChallenge: true,
   });
-  if (!picked || !picked.row.challenge) {
+  if (!picked) {
     return null;
   }
   const { row: topRow, latestInstanceForRow: latestInstance } = picked;
+  const challenge = topRow.challenge;
+  if (!challenge) {
+    return null;
+  }
 
   let status: AtStationChallengeDto["status"] = "available";
   let instanceId: string | undefined;
@@ -1030,11 +1034,11 @@ export async function buildCurrentChallenge(params: {
   }
 
   return {
-    challengeId: topRow.challenge.id,
-    title: topRow.challenge.title,
-    description: topRow.challenge.description,
-    flavorText: topRow.challenge.flavorText,
-    imageUrl: topRow.challenge.imageUrl,
+    challengeId: challenge.id,
+    title: challenge.title,
+    description: challenge.description,
+    flavorText: challenge.flavorText,
+    imageUrl: challenge.imageUrl,
     status,
     ...(instanceId !== undefined ? { instanceId } : {}),
     ...(cooldownUntil !== undefined ? { cooldownUntil } : {}),
