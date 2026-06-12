@@ -63,6 +63,7 @@ export const visibilityPhaseAdvanceHandler: SchedulerJobHandler = {
           payload: {
             previousPhase,
             phase: targetPhase,
+            visibilityPhaseCount: game.visibilityPhaseCount,
           },
         },
       ],

@@ -131,6 +131,11 @@ export function GameScreen() {
     );
   }, [projection]);
 
+  const stationNamesByCode = useMemo(() => {
+    if (!projection) return undefined;
+    return Object.fromEntries(projection.mapNodes.map((node) => [node.code, node.name]));
+  }, [projection]);
+
   const isCheckInSynced = Boolean(
     pendingCheckInNodeId && atStation?.nodeId === pendingCheckInNodeId,
   );
@@ -522,6 +527,7 @@ export function GameScreen() {
       />
       <EventLogDrawer
         events={eventLog}
+        stationNamesByCode={stationNamesByCode}
         open={eventLogOpen}
         onClose={handleCloseEventLog}
         unseenBoundarySequence={eventLogUnseenBoundary}

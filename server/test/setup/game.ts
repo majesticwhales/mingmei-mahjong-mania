@@ -526,7 +526,7 @@ export async function setupLightweightGame(
   const handTilesBySlot = options.handTilesBySlot ?? {};
   const nodeTilesByCode = options.nodeTilesByCode ?? {};
   const slotsPerNode = options.slotsPerNode ?? 1;
-  const visibilityPhaseCount = options.visibilityPhaseCount ?? 4;
+  const visibilityPhaseCount = options.visibilityPhaseCount ?? 3;
   const slotUnlockOffsetsSeconds =
     options.slotUnlockOffsetsSeconds ?? new Array(slotsPerNode).fill(0);
   // Default the map-reveal timer to mirror the claim-unlock timer

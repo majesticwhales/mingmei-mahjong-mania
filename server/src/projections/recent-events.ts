@@ -22,7 +22,11 @@ export interface RecentEventDto {
   /** ISO timestamp the event was recorded server-side. */
   at: string;
   nodeCode?: string;
+  /** Human-readable station name, lifted from event payloads when present. */
+  nodeName?: string;
   slotIndex?: number;
+  handTileDisplayName?: string;
+  stationTileDisplayName?: string;
   hasPhoto?: boolean;
   /**
    * Phase F: present on CHECK_IN events whose command payload included a
@@ -34,6 +38,8 @@ export interface RecentEventDto {
    */
   geolocationWarning?: boolean;
   phase?: number;
+  /** Lifted from visibility phase advance events (`games.visibility_phase_count`). */
+  visibilityPhaseCount?: number;
   template?: string;
   /**
    * Phase H: lifted on START_CHALLENGE / CHALLENGE_COMPLETED /
@@ -187,6 +193,18 @@ function rowToDto(row: Row, requestingGameTeamId: string | null): RecentEventDto
   if (typeof nodeCode === "string") {
     dto.nodeCode = nodeCode;
   }
+  const nodeName = payload.nodeName;
+  if (typeof nodeName === "string") {
+    dto.nodeName = nodeName;
+  }
+  const handTileDisplayName = payload.handTileDisplayName;
+  if (typeof handTileDisplayName === "string") {
+    dto.handTileDisplayName = handTileDisplayName;
+  }
+  const stationTileDisplayName = payload.stationTileDisplayName;
+  if (typeof stationTileDisplayName === "string") {
+    dto.stationTileDisplayName = stationTileDisplayName;
+  }
   const slotIndex = payload.slotIndex;
   if (typeof slotIndex === "number" && Number.isInteger(slotIndex)) {
     dto.slotIndex = slotIndex;
@@ -202,6 +220,13 @@ function rowToDto(row: Row, requestingGameTeamId: string | null): RecentEventDto
   const phase = payload.phase;
   if (typeof phase === "number" && Number.isInteger(phase)) {
     dto.phase = phase;
+  }
+  const visibilityPhaseCount = payload.visibilityPhaseCount;
+  if (
+    typeof visibilityPhaseCount === "number" &&
+    Number.isInteger(visibilityPhaseCount)
+  ) {
+    dto.visibilityPhaseCount = visibilityPhaseCount;
   }
   const template = payload.template;
   if (typeof template === "string") {

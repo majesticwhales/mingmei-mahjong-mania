@@ -71,6 +71,11 @@ async function placeHandTiles(
 /**
  * Park a specific tile at a station slot. Returns `game_tiles.id` so
  * the test can use it as the `stationTileId` payload.
+ *
+ * Reuses an existing `game_tiles` row when the lightweight fixture's
+ * auto-dealer already minted that `(suit, rank, copyIndex)` — catalog
+ * order is UUID-based, so the first N dealt tiles are not stable across
+ * environments and can collide with a hard-coded station tile.
  */
 async function placeStationTile(args: {
   gameId: string;
@@ -87,17 +92,40 @@ async function placeStationTile(args: {
       `tile_types row missing for (${suit}, ${rank}, ${copyIndex}); did the seed run?`,
     );
   }
-  const gameTile = await GameTile.create({
-    gameId: args.gameId,
-    tileTypeId: tileType.id,
-    copyIndex,
+
+  let gameTile = await GameTile.findOne({
+    where: {
+      gameId: args.gameId,
+      tileTypeId: tileType.id,
+      copyIndex,
+    },
   });
-  await GameTilePlacement.create({
-    gameTileId: gameTile.id,
-    gameNodeId: args.gameNodeId,
-    gameTeamId: null,
-    slotIndex: args.slotIndex,
+  if (!gameTile) {
+    gameTile = await GameTile.create({
+      gameId: args.gameId,
+      tileTypeId: tileType.id,
+      copyIndex,
+    });
+  }
+
+  const existingPlacement = await GameTilePlacement.findOne({
+    where: { gameTileId: gameTile.id },
   });
+  if (existingPlacement) {
+    await existingPlacement.update({
+      gameNodeId: args.gameNodeId,
+      gameTeamId: null,
+      slotIndex: args.slotIndex,
+    });
+  } else {
+    await GameTilePlacement.create({
+      gameTileId: gameTile.id,
+      gameNodeId: args.gameNodeId,
+      gameTeamId: null,
+      slotIndex: args.slotIndex,
+    });
+  }
+
   return gameTile.id;
 }
 

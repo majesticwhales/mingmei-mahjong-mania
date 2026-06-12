@@ -112,10 +112,14 @@ export interface RecentEventDto {
   teamCode: string | null;
   at: string;
   nodeCode?: string;
+  nodeName?: string;
   slotIndex?: number;
+  handTileDisplayName?: string;
+  stationTileDisplayName?: string;
   hasPhoto?: boolean;
   geolocationWarning?: boolean;
   phase?: number;
+  visibilityPhaseCount?: number;
   template?: string;
   challengeId?: string;
   instanceId?: string;

@@ -100,6 +100,7 @@ export const checkOutHandler: CommandHandler = {
     const checkOutPayload: Record<string, unknown> = {
       nodeId: previousNodeId,
       nodeCode: previousNode?.code ?? null,
+      nodeName: previousNode?.name ?? null,
       implicit: false,
     };
     // Phase L: lift the raw sample + warning onto the event payload
