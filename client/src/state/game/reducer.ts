@@ -27,6 +27,15 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         eventLog: mergeEvents([], action.projection.recentEvents),
         notifications: [],
       };
+    case "game/resynced":
+      if (state.status !== "active") return state;
+      if (action.projection.gameId !== state.id) return state;
+      return {
+        ...state,
+        gameTeamId: action.gameTeamId,
+        projection: action.projection,
+        eventLog: mergeEvents(state.eventLog, action.projection.recentEvents),
+      };
     case "game/state":
       if (state.status !== "active") return state;
       if (action.projection.gameId !== state.id) return state;

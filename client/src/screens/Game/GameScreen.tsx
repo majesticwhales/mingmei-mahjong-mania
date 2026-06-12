@@ -299,19 +299,19 @@ export function GameScreen() {
 
   if (!id) return null;
 
-  if (state.status === "loading" || !projection || !network) {
-    return (
-      <main className="screen screen--loading">
-        <p>Loading game…</p>
-      </main>
-    );
-  }
-
-  if (state.status === "error") {
+  if (state.status === "error" && state.id === id) {
     return (
       <main className="screen">
         <p>{state.error.message}</p>
         <Link to="/lobbies">Back to lobbies</Link>
+      </main>
+    );
+  }
+
+  if (state.status === "loading" || !projection || !network) {
+    return (
+      <main className="screen screen--loading">
+        <p>Loading game…</p>
       </main>
     );
   }

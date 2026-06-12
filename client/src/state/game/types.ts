@@ -24,6 +24,7 @@ export type GameState =
 export type GameAction =
   | { type: "game/load"; id: string }
   | { type: "game/loaded"; id: string; gameTeamId: string; projection: GameStateProjection }
+  | { type: "game/resynced"; gameTeamId: string; projection: GameStateProjection }
   | { type: "game/state"; projection: GameStateProjection }
   | { type: "game/event"; event: RecentEventDto }
   | { type: "game/notification"; template: string; data?: Record<string, unknown>; at: string }
