@@ -8,7 +8,7 @@ import { GameChallengeInstance } from "../../models/game-challenge-instance.ts";
 import { GameNode } from "../../models/game-node.ts";
 import { GameNodeChallenge } from "../../models/game-node-challenge.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
-import { CHALLENGE_COOLDOWN_MS } from "../challenge-lifecycle.ts";
+import { challengeCooldownMsFromGame } from "../challenge-lifecycle.ts";
 import { assertNotHandCompleted } from "../hand-completed-lock.ts";
 import { recordCommandGeolocation } from "../../services/geolocation.ts";
 
@@ -141,7 +141,9 @@ export const completeChallengeHandler: CommandHandler = {
     });
 
     const now = new Date();
-    const cooldownUntil = new Date(now.getTime() + CHALLENGE_COOLDOWN_MS);
+    const cooldownUntil = new Date(
+      now.getTime() + challengeCooldownMsFromGame(ctx.game),
+    );
 
     instance.status = "completed";
     instance.resolvedAt = now;

@@ -52,14 +52,13 @@ function TeamCard({ team, isWinner, isOwnTeam, rank }: TeamCardProps) {
   const statusLabel = completed
     ? `Won at ${team.winningNodeCode ?? "—"}`
     : tenpai
-      ? "Noten — tenpai"
+      ? "Tenpai"
       : "Noten";
 
   return (
     <article
-      className={`game-summary__team${isWinner ? " game-summary__team--winner" : ""}${
-        isOwnTeam ? " game-summary__team--own" : ""
-      }${completed ? "" : " game-summary__team--incomplete"}`}
+      className={`game-summary__team${isWinner ? " game-summary__team--winner" : ""}${isOwnTeam ? " game-summary__team--own" : ""
+        }${completed ? "" : " game-summary__team--incomplete"}`}
     >
       <header className="game-summary__team-header">
         <div className="game-summary__team-intro">

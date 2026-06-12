@@ -68,6 +68,14 @@ export interface CreateLobbyOptions {
    */
   deadWallSize?: number;
   /**
+   * Per-(team, challenge) cooldown floor in seconds applied after a
+   * challenge resolves. Defaults to the chosen preset's
+   * `challengeCooldownSeconds` (production: 300 / test: 5). Non-negative
+   * integer; snapshotted to `games.challenge_cooldown_seconds` at start.
+   * See TDD §3.8.
+   */
+  challengeCooldownSeconds?: number;
+  /**
    * Which visibility layers are active for the resulting game
    * (`none | phase | slot | both`). Sourced from
    * `mapTemplate.defaultVisibilityMode` when omitted. Picking a mode
@@ -95,6 +103,8 @@ export interface UpdateLobbyConfigPatch {
   slotMapUnlockOffsetsSeconds?: Array<number | null>;
   /** See `CreateLobbyOptions.deadWallSize`. */
   deadWallSize?: number;
+  /** See `CreateLobbyOptions.challengeCooldownSeconds`. */
+  challengeCooldownSeconds?: number;
   /** See `CreateLobbyOptions.visibilityMode`. */
   visibilityMode?: VisibilityMode;
   teamAssignmentMode?: TeamAssignmentMode;
@@ -454,6 +464,8 @@ export async function createLobby(
     preset.visibilityPhaseIntervalSeconds;
   const slotsPerNode = options.slotsPerNode ?? template.defaultSlotsPerNode;
   const deadWallSize = options.deadWallSize ?? template.defaultDeadWallSize;
+  const challengeCooldownSeconds =
+    options.challengeCooldownSeconds ?? preset.challengeCooldownSeconds;
   const visibilityMode = options.visibilityMode ?? preset.visibilityMode;
   const teamAssignmentMode = options.teamAssignmentMode ?? "pick";
   const minPlayersToStart = options.minPlayersToStart ?? 4;
@@ -477,6 +489,7 @@ export async function createLobby(
   validatePositiveInt(visibilityPhaseCount, "visibilityPhaseCount");
   validatePositiveInt(slotsPerNode, "slotsPerNode");
   validateNonNegativeInt(deadWallSize, "deadWallSize");
+  validateNonNegativeInt(challengeCooldownSeconds, "challengeCooldownSeconds");
   if (minPlayersToStart < 4) {
     throw new HttpError(
       400,
@@ -562,6 +575,7 @@ export async function createLobby(
         slotUnlockOffsetsSeconds,
         slotMapUnlockOffsetsSeconds,
         deadWallSize,
+        challengeCooldownSeconds,
         visibilityMode,
         teamAssignmentMode,
         minPlayersToStart,
@@ -893,6 +907,13 @@ export async function updateConfig(
   if (patch.deadWallSize != null) {
     validateNonNegativeInt(patch.deadWallSize, "deadWallSize");
     lobby.deadWallSize = patch.deadWallSize;
+  }
+  if (patch.challengeCooldownSeconds != null) {
+    validateNonNegativeInt(
+      patch.challengeCooldownSeconds,
+      "challengeCooldownSeconds",
+    );
+    lobby.challengeCooldownSeconds = patch.challengeCooldownSeconds;
   }
   if (patch.teamAssignmentMode != null) {
     validateTeamAssignmentMode(patch.teamAssignmentMode);

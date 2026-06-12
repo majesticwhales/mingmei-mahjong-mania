@@ -151,6 +151,7 @@ export async function startFromLobby(
         slotMapUnlockOffsetsSeconds: lobby.slotMapUnlockOffsetsSeconds,
         roundWind,
         deadWallSize: lobby.deadWallSize,
+        challengeCooldownSeconds: lobby.challengeCooldownSeconds,
         visibilityMode: lobby.visibilityMode,
         configVersion: 1,
       },

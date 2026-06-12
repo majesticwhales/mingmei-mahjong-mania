@@ -23,6 +23,7 @@ const lobby: LobbyDetailDto = {
     slotUnlockOffsetsSeconds: [0],
     slotMapUnlockOffsetsSeconds: [0],
     deadWallSize: 14,
+    challengeCooldownSeconds: 300,
     teamAssignmentMode: "pick",
     visibilityMode: "both",
     minPlayersToStart: 4,

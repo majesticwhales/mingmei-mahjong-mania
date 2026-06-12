@@ -123,6 +123,16 @@ export class Lobby extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   declare deadWallSize: number;
 
+  /**
+   * Per-(team, challenge) cooldown floor (in seconds) applied after a
+   * challenge resolves (completion or forfeit). Sourced from the chosen
+   * `LobbyGamePreset.challengeCooldownSeconds` on lobby creation,
+   * editable by the host, snapshotted to
+   * `games.challenge_cooldown_seconds` at start. See TDD §3.8.
+   */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 300 })
+  declare challengeCooldownSeconds: number;
+
   @Column({
     type: DataType.STRING(16),
     allowNull: false,
