@@ -7,7 +7,8 @@
     "",
     "Shape:",
     "  - `deck`: metadata for the single `challenge_decks` row this file seeds.",
-    "  - `templateCode`: the `map_templates.code` whose nodes get bound.",
+    "  - `templateName`: the `map_templates.name` whose nodes get bound.",
+    "    (`map_templates` has no `code` column — name is the catalog key.)",
     "  - `stations`: keys are `map_template_nodes.code`; values are arrays of",
     "    challenges. Array index is `sort_order` on `map_template_node_challenges`,",
     "    so `stations.bay[0]` is the top-of-queue (and the only one the MVP",
@@ -33,7 +34,7 @@
     "name": "TTC 2026 — Standard",
     "description": "Default challenge deck for the TTC 2026 map template."
   },
-  "templateCode": "ttc-2026",
+  "templateName": "TTC 2026",
   "stations": {
     "bay": [
       {
