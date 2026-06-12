@@ -1186,30 +1186,20 @@ body {
 }
 
 .challenge-modal__image {
-  display: grid;
-  place-items: center;
-  min-height: 140px;
-  border: 1px dashed var(--panel-border);
+  display: flex;
+  justify-content: center;
+  align-items: center;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
   overflow: hidden;
 }
 
-.challenge-modal__image--empty {
-  min-height: 120px;
-}
-
 .challenge-modal__image-media {
   display: block;
   width: 100%;
-  max-height: 220px;
-  object-fit: cover;
-}
-
-.challenge-modal__image-placeholder {
-  color: var(--panel-muted);
-  font-size: 0.85rem;
-  letter-spacing: 0.02em;
+  height: auto;
+  max-height: min(50vh, 360px);
+  object-fit: contain;
 }
 
 .challenge-modal__footer {
