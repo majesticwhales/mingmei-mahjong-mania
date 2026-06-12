@@ -24,7 +24,7 @@ describe("ChallengeModal", () => {
     expect(screen.getByRole("button", { name: "Abandon challenge" })).toBeInTheDocument();
   });
 
-  it("shows an image placeholder when no imageUrl is provided", () => {
+  it("does not render an image area when no imageUrl is provided", () => {
     render(
       <ChallengeModal
         title="Count the tiles"
@@ -35,8 +35,8 @@ describe("ChallengeModal", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Challenge illustration placeholder")).toBeInTheDocument();
-    expect(screen.getByText("Image optional")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Challenge illustration")).not.toBeInTheDocument();
+    expect(document.querySelector(".challenge-modal__image")).toBeNull();
   });
 
   it("renders the challenge image when imageUrl is set", () => {

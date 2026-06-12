@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
+import { useLockDocumentScroll } from "../../hooks/useLockDocumentScroll";
 import { resolveCheckedInChallenge } from "../../lib/challengeContext";
 import { stationHasClaimableWait } from "../../lib/claimWin";
 import { projectionToNetwork } from "../../lib/projectionMap";
@@ -20,10 +21,12 @@ import { HttpError } from "../../transport/httpError";
 import { restClient } from "../../transport/restClient";
 import { ChallengeModal } from "./ChallengeModal";
 import { ClaimWinModal } from "./ClaimWinModal";
+import { ExitGameConfirmModal } from "./ExitGameConfirmModal";
 import { EventLogDrawer } from "./EventLogDrawer";
 import { GameHeaderTiles } from "./GameHeaderTiles";
 import { GameTimer } from "./GameTimer";
 import { HandCompletedModal } from "./HandCompletedModal";
+import { HandPanel } from "./HandPanel";
 import { SwapTileModal } from "./SwapTileModal";
 import { VisibilityCountdown } from "./VisibilityCountdown";
 
@@ -51,6 +54,7 @@ export function GameScreen() {
   const isAdmin = useIsAdmin();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [panelDismissed, setPanelDismissed] = useState(false);
+  const [handPanelOpen, setHandPanelOpen] = useState(false);
   const [eventLogOpen, setEventLogOpen] = useState(false);
   const [lastSeenEventSequence, setLastSeenEventSequence] = useState(0);
   const [trackedGameId, setTrackedGameId] = useState<string | null>(null);
@@ -66,8 +70,12 @@ export function GameScreen() {
     null,
   );
   const [ending, setEnding] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [checkInPending, setCheckInPending] = useState(false);
   const [pendingCheckInNodeId, setPendingCheckInNodeId] = useState<string | null>(null);
+
+  useLockDocumentScroll();
 
   useEffect(() => {
     if (!id) return;
@@ -161,11 +169,22 @@ export function GameScreen() {
   function handleSelectStation(nodeId: string) {
     setSelectedNodeId(nodeId);
     setPanelDismissed(false);
+    setHandPanelOpen(false);
   }
 
   function handleClosePanel() {
     setSelectedNodeId(null);
     setPanelDismissed(true);
+  }
+
+  function handleOpenHandPanel() {
+    setHandPanelOpen(true);
+    setSelectedNodeId(null);
+    setPanelDismissed(true);
+  }
+
+  function handleCloseHandPanel() {
+    setHandPanelOpen(false);
   }
 
   const checkedInNodeName = useMemo(() => {
@@ -392,8 +411,13 @@ export function GameScreen() {
   }
 
   async function handleLeave() {
-    leaveGame();
-    navigate("/lobbies");
+    setLeaving(true);
+    try {
+      leaveGame();
+      navigate("/lobbies");
+    } finally {
+      setLeaving(false);
+    }
   }
 
   async function handleEndGame() {
@@ -411,22 +435,41 @@ export function GameScreen() {
     }
   }
 
+  function handleExitClick() {
+    if (gameEnded) {
+      void handleLeave();
+      return;
+    }
+    setExitConfirmOpen(true);
+  }
+
+  function handleCloseExitConfirm() {
+    if (ending || leaving) return;
+    setExitConfirmOpen(false);
+  }
+
+  async function handleConfirmExit() {
+    if (isAdmin) {
+      await handleEndGame();
+      return;
+    }
+    await handleLeave();
+  }
+
+  const exitPending = ending || leaving;
+  const exitConfirmVariant = isAdmin ? "end_game" : "leave";
+
+  const panelOpen = handPanelOpen || viewingNode != null;
+
   return (
-    <div className="app game-screen">
+    <div className={`app game-screen${panelOpen ? " game-screen--panel-open" : ""}`}>
       <header className="app__header game-screen__header">
         <button
           type="button"
           className="btn btn--ghost"
-          disabled={ending}
-          onClick={() => {
-            if (gameEnded || !isAdmin) {
-              void handleLeave();
-              return;
-            }
-            void handleEndGame();
-          }}
+          onClick={handleOpenHandPanel}
         >
-          {gameEnded ? "Back to lobbies" : isAdmin ? (ending ? "Ending…" : "End game") : "Leave"}
+          View hand
         </button>
         <h1 className="app__title">Mingmei&apos;s Mahjong Mania</h1>
         <div className="game-screen__header-end">
@@ -476,9 +519,27 @@ export function GameScreen() {
           mapNodes={projection.mapNodes}
           selectedStationId={mapSelectedNodeId}
           onSelectStation={handleSelectStation}
-          onMapBackgroundClick={viewingNode ? handleClosePanel : undefined}
+          onMapBackgroundClick={
+            viewingNode ? handleClosePanel : handPanelOpen ? handleCloseHandPanel : undefined
+          }
         />
+        <button
+          type="button"
+          className="btn btn--ghost game-screen__exit-btn"
+          disabled={exitPending}
+          onClick={handleExitClick}
+        >
+          {gameEnded ? "Back to lobbies" : isAdmin ? (ending ? "Ending…" : "End game") : "Leave"}
+        </button>
       </main>
+      {exitConfirmOpen && (
+        <ExitGameConfirmModal
+          variant={exitConfirmVariant}
+          pending={exitPending}
+          onConfirm={() => void handleConfirmExit()}
+          onClose={handleCloseExitConfirm}
+        />
+      )}
       {handCompleted && handCompletedOpen && (
         <HandCompletedModal
           handCompleted={handCompleted}
@@ -486,21 +547,30 @@ export function GameScreen() {
           onClose={() => setHandCompletedDismissed(true)}
         />
       )}
-      <StationPanel
-        viewingNodeId={viewingNode?.id ?? null}
-        checkedInNodeName={checkedInNodeName}
-        stationLines={stationLines}
-        handTiles={projection.handTiles}
-        commandsPending={commandsPending}
-        checkInPending={checkInPending || isSyncingCheckIn}
-        commandsDisabled={gameEnded || Boolean(handCompleted)}
-        onClose={handleClosePanel}
-        onCheckIn={handleCheckIn}
-        onCheckOut={handleCheckOut}
-        onSwapTile={() => setSwapOpen(true)}
-        onOpenChallenge={() => setChallengeOpen(true)}
-        onClaimWin={() => setClaimOpen(true)}
-      />
+      {handPanelOpen && (
+        <HandPanel
+          handTiles={projection.handTiles}
+          open={handPanelOpen}
+          onClose={handleCloseHandPanel}
+        />
+      )}
+      {viewingNode && (
+        <StationPanel
+          viewingNodeId={viewingNode.id}
+          checkedInNodeName={checkedInNodeName}
+          stationLines={stationLines}
+          handTiles={projection.handTiles}
+          commandsPending={commandsPending}
+          checkInPending={checkInPending || isSyncingCheckIn}
+          commandsDisabled={gameEnded || Boolean(handCompleted)}
+          onClose={handleClosePanel}
+          onCheckIn={handleCheckIn}
+          onCheckOut={handleCheckOut}
+          onSwapTile={() => setSwapOpen(true)}
+          onOpenChallenge={() => setChallengeOpen(true)}
+          onClaimWin={() => setClaimOpen(true)}
+        />
+      )}
       <EventLogDrawer
         events={eventLog}
         stationNamesByCode={stationNamesByCode}

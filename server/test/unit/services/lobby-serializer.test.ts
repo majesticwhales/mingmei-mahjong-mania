@@ -78,7 +78,7 @@ describe("computeReadiness", () => {
     expect(readiness.reasons.some((r) => r.includes("random"))).toBe(true);
   });
 
-  it("is ready in mixed mode when pool can fill empty teams", () => {
+  it("is not ready in mixed mode when a member has not picked a team", () => {
     const readiness = computeReadiness(
       lobby({ teamAssignmentMode: "mixed" }),
       fourMembers,
@@ -89,10 +89,25 @@ describe("computeReadiness", () => {
         assignment("d", null),
       ],
     );
+    expect(readiness.ready).toBe(false);
+    expect(readiness.reasons.some((r) => r.includes("pick a team"))).toBe(true);
+  });
+
+  it("is ready in mixed mode when every member has picked a team", () => {
+    const readiness = computeReadiness(
+      lobby({ teamAssignmentMode: "mixed" }),
+      fourMembers,
+      [
+        assignment("a", 1),
+        assignment("b", 2),
+        assignment("c", 3),
+        assignment("d", 4),
+      ],
+    );
     expect(readiness.ready).toBe(true);
   });
 
-  it("is ready with one player in dev relax mode", () => {
+  it("requires a team pick in dev relax mode", () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("DEV_RELAX_LOBBY_START", "true");
     try {
@@ -101,6 +116,22 @@ describe("computeReadiness", () => {
         [member("solo")],
         [assignment("solo", null)],
       );
+      expect(readiness.ready).toBe(false);
+      expect(readiness.reasons.some((r) => r.includes("pick a team"))).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("is ready with one player in dev relax mode after picking a team", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("DEV_RELAX_LOBBY_START", "true");
+    try {
+      const readiness = computeReadiness(
+        lobby({ teamAssignmentMode: "pick" }),
+        [member("solo")],
+        [assignment("solo", 1)],
+      );
       expect(readiness.ready).toBe(true);
       expect(readiness.soloStartAllowed).toBe(true);
     } finally {
@@ -108,7 +139,7 @@ describe("computeReadiness", () => {
     }
   });
 
-  it("is ready with one player for allowlisted production hosts", () => {
+  it("requires a team pick for allowlisted production hosts", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("DEV_RELAX_LOBBY_START", "false");
     try {
@@ -118,7 +149,7 @@ describe("computeReadiness", () => {
         [assignment("solo", null)],
         "waterbug",
       );
-      expect(readiness.ready).toBe(true);
+      expect(readiness.ready).toBe(false);
       expect(readiness.soloStartAllowed).toBe(true);
     } finally {
       vi.unstubAllEnvs();

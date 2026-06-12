@@ -2,8 +2,9 @@ const DEFAULT_RELAX_LOBBY_START_USERNAMES = ["waterbug", "nobadinohz"];
 
 /**
  * When true, lobbies can start with a single player in development — skips
- * the 4-player / full-team readiness checks. Set DEV_RELAX_LOBBY_START=false
- * in server/.env to restore production rules locally.
+ * the minimum-player count check (every member must still pick a team).
+ * Set DEV_RELAX_LOBBY_START=false in server/.env to restore production
+ * rules locally.
  */
 export function isDevRelaxLobbyStart(): boolean {
   return (

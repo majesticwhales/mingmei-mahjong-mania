@@ -4,11 +4,7 @@ import type { Lobby, LobbyStatus, TeamAssignmentMode } from "../models/lobby.ts"
 import type { LobbyMember } from "../models/lobby-member.ts";
 import type { LobbyTeamAssignment } from "../models/lobby-team-assignment.ts";
 import type { User } from "../models/user.ts";
-import {
-  canStaffMissingTeamsWithPool,
-  emptyTeamCounts,
-  GAME_TEAM_SLOTS,
-} from "./even-team-assignment.ts";
+import { emptyTeamCounts, GAME_TEAM_SLOTS } from "./even-team-assignment.ts";
 import type { LobbyNotificationDto } from "./lobby-notification-service.ts";
 
 export interface LobbyMemberDto {
@@ -160,6 +156,10 @@ export function computeReadiness(
     (team) => playersPerTeam[String(team)] === 0,
   );
 
+  if (unassignedCount > 0) {
+    reasons.push("All members must pick a team (1–4)");
+  }
+
   if (soloStartAllowed) {
     if (memberCount < 1) {
       reasons.push("Need at least 1 player to start");
@@ -182,10 +182,7 @@ export function computeReadiness(
     );
   }
 
-  if (mode === "pick") {
-    if (unassignedCount > 0) {
-      reasons.push("All members must pick a team (1–4)");
-    }
+  if (mode === "pick" || mode === "mixed") {
     if (missingTeams.length > 0) {
       reasons.push(
         `Each team needs at least one player (missing: ${missingTeams.join(", ")})`,
@@ -198,16 +195,6 @@ export function computeReadiness(
       );
     }
     // At start, assignTeamsEvenly guarantees each team gets ≥1 when n ≥ 4
-  } else if (mode === "mixed") {
-    const { ok, missingTeams: stillMissing } = canStaffMissingTeamsWithPool(
-      playersPerTeam,
-      unassignedCount,
-    );
-    if (!ok) {
-      reasons.push(
-        `Not enough unassigned players to fill teams ${stillMissing.join(", ")} (pick a team or wait for random assign at start)`,
-      );
-    }
   }
 
   return {

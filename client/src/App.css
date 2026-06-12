@@ -27,13 +27,34 @@ body {
   -webkit-font-smoothing: antialiased;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   overscroll-behavior: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#root {
+  min-height: 100%;
+}
+
+html.scroll-locked,
+html.scroll-locked body {
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+}
+
+html.scroll-locked body {
+  position: fixed;
+  inset: 0;
+  background: #0b0f14;
+  touch-action: manipulation;
 }
 
 .screen {
   max-width: 420px;
   margin: 0 auto;
   padding: 1.5rem 1rem 2rem;
-  min-height: 100vh;
+  min-height: 100%;
   min-height: 100dvh;
 }
 
@@ -618,6 +639,24 @@ body {
   flex-shrink: 0;
 }
 
+.game-screen__exit-btn {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 5;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: rgba(18, 24, 33, 0.92);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(8px);
+}
+
+@media (max-width: 899px) {
+  .game-screen--panel-open .game-screen__exit-btn {
+    display: none;
+  }
+}
+
 .game-screen__event-log-btn {
   position: relative;
 }
@@ -1186,30 +1225,20 @@ body {
 }
 
 .challenge-modal__image {
-  display: grid;
-  place-items: center;
-  min-height: 140px;
-  border: 1px dashed var(--panel-border);
+  display: flex;
+  justify-content: center;
+  align-items: center;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
   overflow: hidden;
 }
 
-.challenge-modal__image--empty {
-  min-height: 120px;
-}
-
 .challenge-modal__image-media {
   display: block;
   width: 100%;
-  max-height: 220px;
-  object-fit: cover;
-}
-
-.challenge-modal__image-placeholder {
-  color: var(--panel-muted);
-  font-size: 0.85rem;
-  letter-spacing: 0.02em;
+  height: auto;
+  max-height: min(50vh, 360px);
+  object-fit: contain;
 }
 
 .challenge-modal__footer {
@@ -1289,10 +1318,16 @@ body {
   display: grid;
   grid-template-rows: var(--header-height) 1fr;
   grid-template-columns: 1fr;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
   height: 100dvh;
   overflow: hidden;
+}
+
+.app.game-screen {
+  position: fixed;
+  inset: 0;
 }
 
 .app--loading,
@@ -1804,10 +1839,25 @@ body {
   background: #d8d0c4;
 }
 
+.station-panel--hand {
+  max-height: 50dvh;
+}
+
+.station-panel__tile-grid--hand {
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 0.5rem;
+}
+
+.station-panel__tile-image--hand {
+  width: 40px;
+  padding: 3px;
+  border-radius: 6px;
+}
+
 /* ---------- Desktop: sidebar ---------- */
 
 @media (min-width: 900px) {
-  .app {
+  .app.game-screen--panel-open {
     grid-template-columns: 1fr var(--sidebar-width);
     grid-template-rows: var(--header-height) 1fr;
     grid-template-areas:
@@ -1815,15 +1865,15 @@ body {
       "map    panel";
   }
 
-  .app__header {
+  .app.game-screen--panel-open .app__header {
     grid-area: header;
   }
 
-  .app__map {
+  .app.game-screen--panel-open .app__map {
     grid-area: map;
   }
 
-  .station-panel {
+  .app.game-screen--panel-open .station-panel {
     grid-area: panel;
     position: relative;
     border-radius: 0;
@@ -1837,7 +1887,11 @@ body {
     overflow: hidden;
   }
 
-  .station-panel__handle {
+  .app.game-screen--panel-open .station-panel__handle {
     display: none;
+  }
+
+  .app.game-screen--panel-open .station-panel--hand {
+    max-height: none;
   }
 }
