@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
@@ -36,6 +36,8 @@ import { VisibilityCountdown } from "./VisibilityCountdown";
 export function GameScreen() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const viewingEndedMap = searchParams.get("view") === "map";
   const { state, joinGame, resyncGame, leaveGame } = useGame();
   const projection = useGameProjection();
   const atStation = useAtStation();
@@ -98,10 +100,10 @@ export function GameScreen() {
   // there's no in-progress UI to interrupt. The "Back to lobbies" header
   // button still works because the summary screen exposes the same exit.
   useEffect(() => {
-    if (gameEnded && id) {
+    if (gameEnded && id && !viewingEndedMap) {
       navigate(`/games/${id}/summary`, { replace: true });
     }
-  }, [gameEnded, id, navigate]);
+  }, [gameEnded, id, navigate, viewingEndedMap]);
 
   // Auto-open the hand-completed modal when a new win snapshot arrives.
   // Adjust state during render (not in an effect) so eslint's

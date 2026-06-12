@@ -68,6 +68,7 @@ function wrap(node: React.ReactNode, gameTeamId: string | null = "t-mine") {
       <MemoryRouter initialEntries={["/games/game-1/summary"]}>
         <Routes>
           <Route path="/games/:id/summary" element={node} />
+          <Route path="/games/:id" element={<div>Game map screen</div>} />
           <Route path="/lobbies" element={<div>Lobbies screen</div>} />
         </Routes>
       </MemoryRouter>
@@ -142,6 +143,22 @@ describe("GameSummaryScreen", () => {
     expect(screen.getByText("Won at TKY")).toBeInTheDocument();
     expect(screen.getByText("Won at OSA")).toBeInTheDocument();
     expect(screen.getByText("Riichi")).toBeInTheDocument();
+  });
+
+  it("links to the read-only map view", async () => {
+    const summary: GameSummaryDto = {
+      gameId: "game-1",
+      endedAt: "2026-06-10T18:00:00.000Z",
+      endReason: "timer",
+      winningGameTeamId: null,
+      teams: [team({})],
+    };
+    vi.spyOn(restClient, "getGameSummary").mockResolvedValue(summary);
+
+    render(wrap(<GameSummaryScreen />));
+
+    const viewMapLink = await screen.findByRole("link", { name: /view map/i });
+    expect(viewMapLink).toHaveAttribute("href", "/games/game-1?view=map");
   });
 
   it("calls leaveGame and navigates to lobbies when 'Back to lobbies' is clicked", async () => {

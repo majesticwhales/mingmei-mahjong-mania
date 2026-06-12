@@ -382,7 +382,13 @@ body {
 }
 
 .game-summary__footer {
+  display: flex;
+  gap: 0.75rem;
   margin-top: 0.25rem;
+}
+
+.game-summary__footer .btn {
+  flex: 1;
 }
 
 .lobbies-create {

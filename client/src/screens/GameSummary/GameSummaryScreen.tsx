@@ -275,9 +275,12 @@ export function GameSummaryScreen() {
         ))}
       </section>
       <footer className="game-summary__footer">
+        <Link to={`/games/${id}?view=map`} className="btn btn--secondary">
+          View map
+        </Link>
         <button
           type="button"
-          className="btn btn--primary btn--block"
+          className="btn btn--primary"
           onClick={() => {
             leaveGame();
             navigate("/lobbies");
