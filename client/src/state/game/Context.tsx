@@ -7,6 +7,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
+import { usePageVisibility } from "../../hooks/usePageVisibility";
 import { emitGameJoin, onSocketEvent } from "../../transport/socketClient";
 import { HttpError } from "../../transport/httpError";
 import type { CommandType } from "../../wire/command";
@@ -14,6 +15,12 @@ import { useConnection } from "../connection/hooks";
 import { useOutbox } from "../outbox/hooks";
 import { gameReducer } from "./reducer";
 import type { GameState } from "./types";
+
+const RESYNC_TERMINAL_CODES = new Set(["forbidden", "unauthenticated"]);
+
+function resyncBackoffMs(attempt: number) {
+  return Math.min(2 ** attempt * 500, 10_000);
+}
 
 interface GameContextValue {
   state: GameState;
@@ -33,6 +40,24 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(gameReducer, { status: "absent" });
   const { state: connState } = useConnection();
   const { enqueue } = useOutbox();
+  const resyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resyncAttemptRef = useRef(0);
+  const activeGameIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeGameIdRef.current = state.status === "active" ? state.id : null;
+  }, [state]);
+
+  const clearResyncTimer = useCallback(() => {
+    if (resyncTimerRef.current) {
+      clearTimeout(resyncTimerRef.current);
+      resyncTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => clearResyncTimer();
+  }, [clearResyncTimer]);
 
   useEffect(() => {
     const unsubState = onSocketEvent("game.state", (projection) => {
@@ -56,21 +81,66 @@ export function GameProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const joinGame = useCallback(async (id: string) => {
-    const alreadyActive = state.status === "active" && state.id === id;
-    if (!alreadyActive) {
-      dispatch({ type: "game/load", id });
-    }
-    try {
-      const result = await emitGameJoin(id);
-      dispatch({
-        type: "game/loaded",
-        id,
-        gameTeamId: result.gameTeamId,
-        projection: result.state,
-      });
-    } catch (error) {
-      if (!alreadyActive) {
+  const resyncActiveGame = useCallback(
+    async (id: string) => {
+      if (connState.status !== "connected") return;
+      if (activeGameIdRef.current !== id) return;
+
+      clearResyncTimer();
+
+      const tryResync = async (attempt: number): Promise<void> => {
+        try {
+          const result = await emitGameJoin(id);
+          if (activeGameIdRef.current !== id) return;
+          resyncAttemptRef.current = 0;
+          dispatch({
+            type: "game/resynced",
+            gameTeamId: result.gameTeamId,
+            projection: result.state,
+          });
+        } catch (error) {
+          if (activeGameIdRef.current !== id) return;
+          if (
+            error instanceof HttpError &&
+            RESYNC_TERMINAL_CODES.has(error.code)
+          ) {
+            resyncAttemptRef.current = 0;
+            return;
+          }
+          resyncAttemptRef.current = attempt + 1;
+          resyncTimerRef.current = setTimeout(() => {
+            void tryResync(attempt + 1);
+          }, resyncBackoffMs(attempt));
+        }
+      };
+
+      await tryResync(resyncAttemptRef.current);
+    },
+    [clearResyncTimer, connState.status],
+  );
+
+  const joinGame = useCallback(
+    async (id: string) => {
+      const resyncing = state.status === "active" && state.id === id;
+      if (!resyncing) {
+        dispatch({ type: "game/load", id });
+      }
+      if (connState.status !== "connected") {
+        return;
+      }
+      if (resyncing) {
+        await resyncActiveGame(id);
+        return;
+      }
+      try {
+        const result = await emitGameJoin(id);
+        dispatch({
+          type: "game/loaded",
+          id,
+          gameTeamId: result.gameTeamId,
+          projection: result.state,
+        });
+      } catch (error) {
         dispatch({
           type: "game/load/failed",
           id,
@@ -80,20 +150,34 @@ export function GameProvider({ children }: { children: ReactNode }) {
               : new HttpError("unknown_error", "Failed to join game", 0),
         });
       }
-    }
-  }, [state]);
+    },
+    [connState.status, resyncActiveGame, state],
+  );
 
   const prevConnStatus = useRef(connState.status);
   useEffect(() => {
-    const reconnected =
-      (prevConnStatus.current === "disconnected" ||
-        prevConnStatus.current === "reconnecting") &&
-      connState.status === "connected";
+    const becameConnected =
+      prevConnStatus.current !== "connected" && connState.status === "connected";
     prevConnStatus.current = connState.status;
-    if (state.status === "active" && reconnected) {
+
+    if (!becameConnected) return;
+
+    if (state.status === "active") {
+      void resyncActiveGame(state.id);
+      return;
+    }
+    if (state.status === "loading") {
       void joinGame(state.id).catch(() => undefined);
     }
-  }, [connState.status, joinGame, state]);
+  }, [connState.status, joinGame, resyncActiveGame, state]);
+
+  const handlePageVisible = useCallback(() => {
+    if (state.status === "active") {
+      void resyncActiveGame(state.id);
+    }
+  }, [resyncActiveGame, state]);
+
+  usePageVisibility(handlePageVisible);
 
   const submitCommand = useCallback(
     async (commandType: CommandType | string, payload: Record<string, unknown> = {}) => {
@@ -118,13 +202,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const leaveGame = useCallback(() => {
+    clearResyncTimer();
+    resyncAttemptRef.current = 0;
     dispatch({ type: "game/leave" });
-  }, []);
+  }, [clearResyncTimer]);
 
   const resyncGame = useCallback(async () => {
     if (state.status !== "active") return;
-    await joinGame(state.id);
-  }, [joinGame, state]);
+    await resyncActiveGame(state.id);
+  }, [resyncActiveGame, state]);
 
   const value = useMemo(
     () => ({
