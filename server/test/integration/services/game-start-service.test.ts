@@ -8,20 +8,23 @@ import { ChallengeDeck } from "../../../src/models/challenge-deck.ts";
 import { ChallengeType } from "../../../src/models/challenge-type.ts";
 import { Game } from "../../../src/models/game.ts";
 import { GameNode } from "../../../src/models/game-node.ts";
+import { GameParticipant } from "../../../src/models/game-participant.ts";
 import { GameNodeChallenge } from "../../../src/models/game-node-challenge.ts";
 import { GameNodeVisibilityGroup } from "../../../src/models/game-node-visibility-group.ts";
 import { GameLocationTeamVisibility } from "../../../src/models/game-location-team-visibility.ts";
 import { GameRuleFlag } from "../../../src/models/game-rule-flag.ts";
 import { GameScheduledJob } from "../../../src/models/game-scheduled-job.ts";
 import { GameTeam } from "../../../src/models/game-team.ts";
+import { TeamDefinition } from "../../../src/models/team-definition.ts";
 import { GameTeamHomeGroup } from "../../../src/models/game-team-home-group.ts";
 import { GameTeamPosition } from "../../../src/models/game-team-position.ts";
 import { GameTile } from "../../../src/models/game-tile.ts";
 import { Lobby } from "../../../src/models/lobby.ts";
 import { MapTemplateNode } from "../../../src/models/map-template-node.ts";
 import { MapTemplateNodeChallenge } from "../../../src/models/map-template-node-challenge.ts";
+import { buildGameStateProjection } from "../../../src/projections/game-state.ts";
 import { createLobbyWithFourPlayers } from "../../setup/lobby.ts";
-import { registerUser } from "../../setup/auth.ts";
+import { registerUser, setUserAdmin } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 
 const START_TEST_DECK_CODE = "start-test-deck";
@@ -297,6 +300,34 @@ describe("startFromLobby", () => {
       expect(types).toContain("VISIBILITY_PHASE_ADVANCE");
       expect(types).not.toContain("SLOT_UNLOCKED");
     });
+  });
+
+  it("relax start distributes unassigned players across teams", async () => {
+    const host = await registerUser({ username: "waterbug" });
+    await setUserAdmin(host.user.id);
+    const guest = await registerUser();
+
+    const lobby = await lobbyService.createLobby(host.user.id, {});
+    await lobbyService.joinLobby(lobby.id, guest.user.id);
+
+    const result = await startFromLobby(lobby.id, host.user.id);
+
+    const participants = await GameParticipant.findAll({
+      where: { gameId: result.gameId },
+      include: [{ model: GameTeam, include: [TeamDefinition] }],
+    });
+
+    expect(participants).toHaveLength(2);
+    expect(new Set(participants.map((p) => p.gameTeamId)).size).toBe(2);
+
+    const seatWinds = await Promise.all(
+      participants.map((p) =>
+        buildGameStateProjection(result.gameId, p.gameTeamId).then(
+          (projection) => projection.seatWind,
+        ),
+      ),
+    );
+    expect(new Set(seatWinds).size).toBe(2);
   });
 
   it("rejects non-admin users", async () => {

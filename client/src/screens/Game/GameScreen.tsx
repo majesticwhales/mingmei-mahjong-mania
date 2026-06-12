@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
-import { Legend } from "../../components/Legend";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
 import { stationHasClaimableWait } from "../../lib/claimWin";
@@ -28,6 +27,7 @@ import { restClient } from "../../transport/restClient";
 import { ChallengeModal } from "./ChallengeModal";
 import { ClaimWinModal } from "./ClaimWinModal";
 import { EventLogDrawer } from "./EventLogDrawer";
+import { GameHeaderTiles } from "./GameHeaderTiles";
 import { GameTimer } from "./GameTimer";
 import { HandCompletedModal } from "./HandCompletedModal";
 import { SwapTileModal } from "./SwapTileModal";
@@ -87,7 +87,10 @@ export function GameScreen() {
   // for a frame after navigating to a freshly-started game, which wrongly
   // bounced users to /summary before joinGame finished.
   const gameEnded =
-    state.status === "active" && state.id === id && projection?.status === "ended";
+    state.status === "active" &&
+    state.id === id &&
+    projection?.gameId === id &&
+    projection.status === "ended";
 
   // Phase J — once the game flips to `ended`, send everyone to the
   // summary. The game screen is read-only at this point (the projection
@@ -438,13 +441,15 @@ export function GameScreen() {
           {gameEnded ? "Back to lobbies" : isAdmin ? (ending ? "Ending…" : "End game") : "Leave"}
         </button>
         <h1 className="app__title">Mingmei&apos;s Mahjong Mania</h1>
-        <Legend lines={network.lines} />
         <div className="game-screen__header-end">
+          <GameHeaderTiles
+            seatWind={projection.seatWind}
+            roundWind={projection.roundWind}
+            doraIndicator={projection.doraIndicator}
+          />
           <GameTimer endsAt={projection.endsAt} ended={gameEnded} />
           {!gameEnded && (
             <VisibilityCountdown
-              visibilityPhase={projection.visibilityPhase}
-              visibilityPhaseCount={projection.visibilityPhaseCount}
               nextVisibilityChangeAt={projection.nextVisibilityChangeAt}
               onElapsed={handleVisibilityPhaseElapsed}
             />

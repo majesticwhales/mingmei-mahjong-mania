@@ -1,3 +1,5 @@
+import { windRankLabel } from "../../lib/windLabel";
+
 interface Props {
   value: number | null;
   onPick: (teamSlot: number) => void;
@@ -17,7 +19,7 @@ export function TeamPicker({ value, onPick }: Props) {
             className={`btn${value === slot ? " btn--primary" : " btn--secondary"}`}
             onClick={() => onPick(slot)}
           >
-            Team {slot}
+            {windRankLabel(slot)} (Team {slot})
           </button>
         ))}
       </div>

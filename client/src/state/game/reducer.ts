@@ -29,6 +29,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     case "game/state":
       if (state.status !== "active") return state;
+      if (action.projection.gameId !== state.id) return state;
       return {
         ...state,
         projection: action.projection,

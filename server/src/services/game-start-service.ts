@@ -93,15 +93,16 @@ export async function startFromLobby(
 
   const assignmentInputs = members.map((member) => {
     const row = teamAssignments.find((a) => a.userId === member.userId);
-    const teamSlot =
-      row?.teamSlot ??
-      (relaxLobbyStart ? 1 : null);
-    return { userId: member.userId, teamSlot };
+    return { userId: member.userId, teamSlot: row?.teamSlot ?? null };
   });
 
   let resolvedTeams: Map<string, GameTeamSlot>;
   try {
-    const mode = relaxLobbyStart ? "pick" : lobby.teamAssignmentMode;
+    // Relax/solo starts use mixed assignment: honour explicit picks and
+    // distribute anyone still unassigned across teams 1–4 evenly. The
+    // old default of slot 1 for every unassigned player put entire test
+    // lobbies on East regardless of headcount.
+    const mode = relaxLobbyStart ? "mixed" : lobby.teamAssignmentMode;
     resolvedTeams = resolveTeamsForGameStart(mode, assignmentInputs);
   } catch (err) {
     const message =
