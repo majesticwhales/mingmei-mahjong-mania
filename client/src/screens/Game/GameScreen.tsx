@@ -213,11 +213,21 @@ export function GameScreen() {
   }, [pushToast]);
 
   // Close the challenge modal + clear the auto-start guard whenever the
-  // team's checked-in node changes (incl. checking out → null). Without
-  // this, a stale "started" ref keeps the auto-start effect from firing
-  // a second time at the next station.
-  useEffect(() => {
+  // team's checked-in node changes (incl. checking out → null). The
+  // React-19 `react-hooks/set-state-in-effect` rule rejects an effect
+  // that unconditionally calls `setState`, so the modal-close lives in
+  // an "adjust state during render" block keyed off a tracked node id.
+  // The ref reset is the canonical effect-side companion (refs can't be
+  // mutated during render under `react-hooks/refs`).
+  const currentCheckedInNodeId = atStation?.nodeId ?? null;
+  const [trackedChallengeNodeId, setTrackedChallengeNodeId] = useState<string | null>(
+    currentCheckedInNodeId,
+  );
+  if (trackedChallengeNodeId !== currentCheckedInNodeId) {
+    setTrackedChallengeNodeId(currentCheckedInNodeId);
     setChallengeOpen(false);
+  }
+  useEffect(() => {
     startedChallengeRef.current = null;
   }, [atStation?.nodeId]);
 
