@@ -4,7 +4,7 @@ export const TILE_STATION_CODES = [
   "dufferin",
   "spadina",
   "dupont",
-  "st-clair-west",
+  "bathurst",
   "yorkdale",
   "museum",
   "queens-park",
