@@ -157,6 +157,15 @@ export function GameScreen() {
     navigatingToNodeId && atStation?.nodeId !== navigatingToNodeId,
   );
 
+  // Drop the optimistic check-in target once the projection catches up.
+  // Without this, a stale `pendingCheckInNodeId` survives checkout (atStation
+  // becomes null) and `isSyncingCheckIn` stays true, locking every station.
+  useEffect(() => {
+    if (isCheckInSynced) {
+      setPendingCheckInNodeId(null);
+    }
+  }, [isCheckInSynced]);
+
   function handleSelectStation(nodeId: string) {
     setSelectedNodeId(nodeId);
     setPanelDismissed(false);
@@ -382,6 +391,7 @@ export function GameScreen() {
     await runCommand(async () => {
       await checkOutCommand({});
       setSelectedNodeId(null);
+      setPendingCheckInNodeId(null);
     });
   }
 
