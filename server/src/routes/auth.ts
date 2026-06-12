@@ -48,7 +48,7 @@ export const authProtectedRouter = Router();
 authProtectedRouter.get(
   "/me",
   asyncHandler(async (req, res) => {
-    const user = await authService.getUserById(req.user!.id);
-    res.json({ user });
+    const me = await authService.getMeForUser(req.user!.id);
+    res.json(me);
   }),
 );

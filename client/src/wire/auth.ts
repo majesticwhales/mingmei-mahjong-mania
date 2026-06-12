@@ -22,8 +22,10 @@ export interface LoginRequest {
 export interface AuthResponse {
   user: User;
   token: string;
+  activeGameId: string | null;
 }
 
 export interface MeResponse {
   user: User;
+  activeGameId: string | null;
 }

@@ -1,7 +1,9 @@
-import { UniqueConstraintError } from "sequelize";
+import { Op, UniqueConstraintError } from "sequelize";
 import { hashPassword, verifyPassword } from "../auth/password.ts";
 import { signAccessToken } from "../auth/jwt.ts";
 import { HttpError } from "../lib/http-error.ts";
+import { Game } from "../models/game.ts";
+import { GameParticipant } from "../models/game-participant.ts";
 import { User, type UserRole } from "../models/user.ts";
 
 function isUserAdmin(user: { role: UserRole }): boolean {
@@ -19,6 +21,12 @@ export interface PublicUser {
 export interface AuthResult {
   user: PublicUser;
   token: string;
+  activeGameId: string | null;
+}
+
+export interface MeResult {
+  user: PublicUser;
+  activeGameId: string | null;
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -59,6 +67,25 @@ function toPublicUser(user: User): PublicUser {
     isAdmin: isUserAdmin(user),
     createdAt: user.createdAt,
   };
+}
+
+export async function getActiveGameIdForUser(
+  userId: string,
+): Promise<string | null> {
+  const game = await Game.findOne({
+    attributes: ["id", "startedAt"],
+    where: { status: { [Op.in]: ["active", "ending"] } },
+    include: [
+      {
+        model: GameParticipant,
+        attributes: [],
+        required: true,
+        where: { userId },
+      },
+    ],
+    order: [["startedAt", "DESC"]],
+  });
+  return game?.id ?? null;
 }
 
 export async function assertIsAdmin(userId: string): Promise<User> {
@@ -132,7 +159,8 @@ export async function register(
     });
     const user = await applyAdminEmailGrant(created);
     const token = signAccessToken(user.id);
-    return { user: toPublicUser(user), token };
+    const activeGameId = await getActiveGameIdForUser(user.id);
+    return { user: toPublicUser(user), token, activeGameId };
   } catch (err) {
     if (err instanceof UniqueConstraintError) {
       throw mapUniqueConstraintError(err);
@@ -159,7 +187,8 @@ export async function login(
 
   const granted = await applyAdminEmailGrant(user);
   const token = signAccessToken(granted.id);
-  return { user: toPublicUser(granted), token };
+  const activeGameId = await getActiveGameIdForUser(granted.id);
+  return { user: toPublicUser(granted), token, activeGameId };
 }
 
 export async function getUserById(userId: string): Promise<PublicUser> {
@@ -168,4 +197,13 @@ export async function getUserById(userId: string): Promise<PublicUser> {
     throw new HttpError(404, "not_found", "User not found");
   }
   return toPublicUser(user);
+}
+
+export async function getMeForUser(userId: string): Promise<MeResult> {
+  const user = await User.findByPk(userId);
+  if (!user) {
+    throw new HttpError(404, "not_found", "User not found");
+  }
+  const activeGameId = await getActiveGameIdForUser(userId);
+  return { user: toPublicUser(user), activeGameId };
 }

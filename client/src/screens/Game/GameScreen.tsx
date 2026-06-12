@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
 import { resolveCheckedInChallenge } from "../../lib/challengeContext";
@@ -418,11 +417,6 @@ export function GameScreen() {
         </button>
         <h1 className="app__title">Mingmei&apos;s Mahjong Mania</h1>
         <div className="game-screen__header-end">
-          <GameHeaderTiles
-            seatWind={projection.seatWind}
-            roundWind={projection.roundWind}
-            doraIndicator={projection.doraIndicator}
-          />
           <GameTimer endsAt={projection.endsAt} ended={gameEnded} />
           {!gameEnded && (
             <VisibilityCountdown
@@ -454,10 +448,16 @@ export function GameScreen() {
               <span className="game-screen__event-log-badge" aria-label="New events" />
             )}
           </button>
-          <ConnectionBadge />
         </div>
       </header>
       <main className="app__map">
+        <aside className="game-wind-bubble" aria-label="Round, seat, and dora">
+          <GameHeaderTiles
+            seatWind={projection.seatWind}
+            roundWind={projection.roundWind}
+            doraIndicator={projection.doraIndicator}
+          />
+        </aside>
         <MapShell
           network={network}
           mapNodes={projection.mapNodes}

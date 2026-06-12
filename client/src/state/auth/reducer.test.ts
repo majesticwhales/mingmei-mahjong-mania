@@ -20,15 +20,15 @@ describe("authReducer", () => {
     expect(
       authReducer(
         { status: "anonymous" },
-        { type: "auth/login/success", user, token: "tok" },
+        { type: "auth/login/success", user, token: "tok", activeGameId: null },
       ),
-    ).toEqual({ status: "authenticated", user, token: "tok" });
+    ).toEqual({ status: "authenticated", user, token: "tok", activeGameId: null });
   });
 
   it("logs out", () => {
     expect(
       authReducer(
-        { status: "authenticated", user, token: "tok" },
+        { status: "authenticated", user, token: "tok", activeGameId: null },
         { type: "auth/logout" },
       ),
     ).toEqual({ status: "anonymous" });

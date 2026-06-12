@@ -13,8 +13,8 @@ import type { AuthState } from "./types";
 
 interface AuthContextValue {
   state: AuthState;
-  login: (input: LoginRequest) => Promise<void>;
-  register: (input: RegisterRequest) => Promise<void>;
+  login: (input: LoginRequest) => Promise<string | null>;
+  register: (input: RegisterRequest) => Promise<string | null>;
   logout: () => void;
 }
 
@@ -43,7 +43,9 @@ export function AuthProvider({ children, onLogout }: Props) {
     state.status === "authenticated" ? state.token : null;
 
   useEffect(() => {
-    setTokenProvider(() => token);
+    // Fall back to localStorage so authenticated routes can fetch on first paint
+    // after refresh, before auth/login/success updates in-memory token.
+    setTokenProvider(() => token ?? readStoredToken());
   }, [token]);
 
   useEffect(() => {
@@ -55,8 +57,13 @@ export function AuthProvider({ children, onLogout }: Props) {
     dispatch({ type: "auth/restore", token: stored });
     restClient
       .getMe(stored)
-      .then(({ user }) => {
-        dispatch({ type: "auth/login/success", user, token: stored });
+      .then(({ user, activeGameId }) => {
+        dispatch({
+          type: "auth/login/success",
+          user,
+          token: stored,
+          activeGameId,
+        });
       })
       .catch(() => {
         localStorage.removeItem(AUTH_STORAGE_KEY);
@@ -75,7 +82,9 @@ export function AuthProvider({ children, onLogout }: Props) {
       type: "auth/login/success",
       user: result.user,
       token: result.token,
+      activeGameId: result.activeGameId,
     });
+    return result.activeGameId;
   }, [persistToken]);
 
   const register = useCallback(async (input: RegisterRequest) => {
@@ -85,7 +94,9 @@ export function AuthProvider({ children, onLogout }: Props) {
       type: "auth/login/success",
       user: result.user,
       token: result.token,
+      activeGameId: result.activeGameId,
     });
+    return result.activeGameId;
   }, [persistToken]);
 
   const logout = useCallback(() => {

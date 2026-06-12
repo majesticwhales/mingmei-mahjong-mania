@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { HttpError } from "../../../src/lib/http-error.ts";
+import { startFromLobby } from "../../../src/services/game-start-service.ts";
 import * as authService from "../../../src/services/auth-service.ts";
 import { registerUser, uniqueEmail, uniqueUsername } from "../../setup/auth.ts";
+import { createLobbyWithFourPlayers } from "../../setup/lobby.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 
 describe("auth-service", () => {
@@ -47,5 +49,19 @@ describe("auth-service", () => {
       status: 401,
       code: "invalid_credentials",
     } satisfies Partial<HttpError>);
+  });
+
+  it("returns null activeGameId when the user has no active game", async () => {
+    const { user } = await registerUser();
+    const me = await authService.getMeForUser(user.id);
+    expect(me.activeGameId).toBeNull();
+  });
+
+  it("returns activeGameId when the user is in an active game", async () => {
+    const { lobbyId, hostId, userIds } = await createLobbyWithFourPlayers();
+    const { gameId } = await startFromLobby(lobbyId, hostId);
+
+    const me = await authService.getMeForUser(userIds[1]!);
+    expect(me.activeGameId).toBe(gameId);
   });
 });
