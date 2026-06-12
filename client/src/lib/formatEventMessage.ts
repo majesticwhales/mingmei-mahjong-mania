@@ -100,6 +100,6 @@ export function formatEventMessage(
     case "GAME_ENDED":
       return "Game ended";
     default:
-      return event.type.replaceAll("_", " ").toLowerCase();
+      return event.type.replace(/_/g, " ").toLowerCase();
   }
 }
