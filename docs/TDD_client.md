@@ -1029,8 +1029,8 @@ The existing `services/network.ts` (`fetchSubway`) is **deleted** in chunk 5; it
 
 **Phase L — server-authoritative rewires.** Two component-level changes ride on the wire-shape moves in [§4.1](#41-type-duplication-policy):
 
-- `<StationPanel />` switches its primary data source from `useAtStation()` (a thin pointer at the team's currently-checked-in node on the projection) to `useNodeView(viewingNodeId)`. `viewingNodeId` is whatever node the user is *viewing* — the team's current station by default, or whichever node the user has tapped on the map. The projection's `atStation` becomes a "where am I checked in right now" pointer used only to derive the default `viewingNodeId` and to surface the CHECK_IN-state credit flags (`pendingSwapCredit`, `creditEarnedInSession`) that are still projection-level. The action buttons (Check in, Check out, Swap, Claim, Start challenge) read their `enabled` + `reason` directly from `NodeViewDto.availableActions[]` — the StationPanel stops re-deriving them from raw projection fields.
-- `<SubwaySvg />` drops its `buildTileSlots` + `applyPhaseSlotVisibility` helpers (currently around lines 25-90 of `client/src/components/SubwaySvg.tsx`). The component renders `mapNode.tiles[].visible` / `.locked` directly from the projection: a `visible: true` slot shows its `tile`; a `visible: false` slot renders a face-down shadow; a `locked: true` slot adds a small lock badge / countdown overlay. The pure helpers and their test files (`SubwaySvg.test.tsx`'s phase-math cases) are deleted in the same chunk; their replacement is one trivial render test per visibility / lock state.
+- `<StationPanel />` *(shipped Phase L Chunk 5)* — takes `viewingNodeId: string | null` and sources tiles + currentChallenge + availableActions from [`useNodeView(viewingNodeId)`](../client/src/state/game/useNodeView.ts). `viewingNodeId` is whatever the user is *viewing* — the team's current station by default, or whichever node they tapped on the map. The projection's `atStation` (read via `useAtStation()` inside the panel) is still consulted but only for "where am I checked in right now" — it picks between the "At …" / "Checked in at …" eyebrow variants and gates the at-station action cluster (Swap / Claim / Check out) behind `isViewingCheckedInStation`. The action buttons read their `enabled` + `reason` directly from `NodeViewDto.availableActions[]`; a `reasonCopy()` table inside the component maps each reason code to tooltip text. The Phase H scaffold-challenge gate is fed in via a `showChallengeOverride` prop because the server's `availableActions[]` doesn't know about scaffold-only stations — `GameScreen` still derives that flag from `lib/challengeContext`.
+- `<SubwaySvg />` *(shipped Phase L Chunk 5)* — `visibilityPhase` / `visibilityPhaseCount` / `phaseDrivenSlotMap` props removed entirely from `SubwaySvg`, `MapShell`, and the `GameScreen` call site. `buildTileSlots` reads `mapNode.tiles[].visible` / `.locked` directly: a `visible: true` slot shows its `tile`; a `visible: false` slot renders a face-down shadow; a `locked: true` slot adds the lock badge. The phase-math test cases from L3 are deleted in `SubwaySvg.test.tsx`; the visible / locked render tests are the only coverage now.
 
 Net effect: the client has **no** visibility math after Phase L. Mode gates, phase indexes, slot offsets, and slot-lock derivations all live on the server; the client just draws what `tiles[]` says.
 
@@ -1377,7 +1377,7 @@ The client side of server Phase L ([docs/TDD_server.md §3.12–§3.14](TDD_serv
 
 **Manual smoke:** call the endpoint directly via devtools while checked in; verify `availableActions` enables the right buttons.
 
-#### Chunk L5 — client UI rewire
+#### Chunk L5 — client UI rewire *(shipped)*
 
 **Goal:** lobby auto-join; StationPanel sourced from `useNodeView`; SubwaySvg drops its phase math; every command site uses `useCommandWithGeo`.
 
