@@ -9,7 +9,7 @@ import { getBroadcaster } from "../socket/broadcaster-registry.ts";
 import { assertIsAdmin } from "./auth-service.ts";
 
 export interface EndGameResult {
-  status: "ended";
+  status: "ending" | "ended";
 }
 
 export interface EndGameOptions {
@@ -35,7 +35,7 @@ export async function endGameEarly(
     if (!game) {
       throw new HttpError(404, "not_found", "Game not found");
     }
-    if (game.status === "ended") {
+    if (game.status === "ended" || game.status === "ending") {
       return [] as GameEvent[];
     }
 
@@ -65,7 +65,12 @@ export async function endGameEarly(
   }
   if (persisted.length > 0) {
     await broadcaster.emitState(gameId);
+    return { status: "ending" };
   }
 
-  return { status: "ended" };
+  const game = await Game.findByPk(gameId);
+  if (!game) {
+    throw new HttpError(404, "not_found", "Game not found");
+  }
+  return { status: game.status === "ended" ? "ended" : "ending" };
 }

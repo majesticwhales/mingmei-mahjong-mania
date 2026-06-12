@@ -11,6 +11,7 @@ import { RootRedirect } from "./RootRedirect";
 export function createAppRouter(children?: {
   lobbyRoom?: ReactNode;
   game?: ReactNode;
+  gameWrapUp?: ReactNode;
   gameSummary?: ReactNode;
 }) {
   return createBrowserRouter([
@@ -29,6 +30,9 @@ export function createAppRouter(children?: {
           : []),
         ...(children?.game
           ? [{ path: "/games/:id", element: children.game }]
+          : []),
+        ...(children?.gameWrapUp
+          ? [{ path: "/games/:id/wrap-up", element: children.gameWrapUp }]
           : []),
         ...(children?.gameSummary
           ? [{ path: "/games/:id/summary", element: children.gameSummary }]

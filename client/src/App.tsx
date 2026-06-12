@@ -12,10 +12,12 @@ import { GameProvider } from "./state/game/Context";
 import { LobbyRoomScreen } from "./screens/LobbyRoom/LobbyRoomScreen";
 import { GameScreen } from "./screens/Game/GameScreen";
 import { GameSummaryScreen } from "./screens/GameSummary/GameSummaryScreen";
+import { GameWrapUpScreen } from "./screens/GameWrapUp/GameWrapUpScreen";
 
 const router = createAppRouter({
   lobbyRoom: <LobbyRoomScreen />,
   game: <GameScreen />,
+  gameWrapUp: <GameWrapUpScreen />,
   gameSummary: <GameSummaryScreen />,
 });
 

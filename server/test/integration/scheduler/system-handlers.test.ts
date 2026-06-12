@@ -222,7 +222,7 @@ describe("GAME_END handler", () => {
 
     expect(result).toEqual({ processed: 1, failed: 0 });
     const game = await Game.findByPk(gameId);
-    expect(game?.status).toBe("ended");
+    expect(game?.status).toBe("ending");
 
     const events = await GameEvent.findAll({ where: { gameId } });
     expect(events).toHaveLength(1);
@@ -545,7 +545,7 @@ describe("builtinSchedulerHandlers end-to-end", () => {
 
     const game = await Game.findByPk(gameId);
     expect(game?.visibilityPhase).toBe(2);
-    expect(game?.status).toBe("ended");
+    expect(game?.status).toBe("ending");
 
     const events = await GameEvent.findAll({
       where: { gameId },

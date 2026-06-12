@@ -5,7 +5,7 @@ import { GameTile } from "../../../src/models/game-tile.ts";
 import { GameTilePlacement } from "../../../src/models/game-tile-placement.ts";
 import { TileType } from "../../../src/models/tile-type.ts";
 import { runSchedulerTick } from "../../../src/scheduler/run-tick.ts";
-import { registerUser } from "../../setup/auth.ts";
+import { registerUser, setUserAdmin } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 import { setupLightweightGame } from "../../setup/game.ts";
 import { bearer, getAgent, type ApiAgent } from "../../setup/http.ts";
@@ -103,6 +103,23 @@ async function insertGameEndJob(gameId: string): Promise<void> {
   });
 }
 
+async function endGameAndRevealScores(
+  agent: ApiAgent,
+  gameId: string,
+  adminUserId: string,
+): Promise<void> {
+  await setUserAdmin(adminUserId);
+  await insertGameEndJob(gameId);
+  const tickResult = await runSchedulerTick({});
+  expect(tickResult).toEqual({ processed: 1, failed: 0 });
+
+  const revealRes = await agent
+    .post(`/api/games/${gameId}/reveal-scores`)
+    .set(bearer(signAccessToken(adminUserId)));
+  expect(revealRes.status).toBe(200);
+  expect(revealRes.body.status).toBe("ended");
+}
+
 describe("GET /api/games/:id/summary", () => {
   let agent: ApiAgent;
 
@@ -147,6 +164,24 @@ describe("GET /api/games/:id/summary", () => {
       .get(`/api/games/00000000-0000-0000-0000-000000000000/summary`)
       .set(bearer(token));
     expect(res.status).toBe(403);
+  });
+
+  it("returns 409 game_not_ended during the wrap-up window before scores are revealed", async () => {
+    const fixture = await setupLightweightGame({
+      participantCount: 1,
+      nodeCodes: ["bay"],
+    });
+    await insertGameEndJob(fixture.gameId);
+    const tickResult = await runSchedulerTick({});
+    expect(tickResult).toEqual({ processed: 1, failed: 0 });
+
+    const participant = fixture.participants[0]!;
+    const token = signAccessToken(participant.userId);
+    const res = await agent
+      .get(`/api/games/${fixture.gameId}/summary`)
+      .set(bearer(token));
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("game_not_ended");
   });
 
   it("returns 409 game_not_ended while the game is still active", async () => {
@@ -198,12 +233,9 @@ describe("GET /api/games/:id/summary", () => {
     // analyzeHand and surfaces `waits[]`.
     const teamSlot2 = fixture.gameTeamIdBySlot.get(2)!;
     await seedShanponTenpai(fixture.gameId, teamSlot2);
-    // Drive the GAME_END transition through the scheduler so the
-    // `GAME_ENDED` event payload (endedAt / endReason / winningGameTeamId)
-    // matches the production write path.
-    await insertGameEndJob(fixture.gameId);
-    const tickResult = await runSchedulerTick({});
-    expect(tickResult).toEqual({ processed: 1, failed: 0 });
+    // Drive the GAME_END transition through the scheduler, then reveal
+    // scores so the summary endpoint unlocks for every participant.
+    await endGameAndRevealScores(agent, fixture.gameId, fixture.hostUserId);
 
     const participant = fixture.participants[0]!;
     const token = signAccessToken(participant.userId);
@@ -296,9 +328,7 @@ describe("GET /api/games/:id/summary", () => {
         { slot: 4, finalPoints: 5200 },
       ],
     });
-    await insertGameEndJob(fixture.gameId);
-    const tickResult = await runSchedulerTick({});
-    expect(tickResult).toEqual({ processed: 1, failed: 0 });
+    await endGameAndRevealScores(agent, fixture.gameId, fixture.hostUserId);
 
     const participant = fixture.participants[0]!;
     const token = signAccessToken(participant.userId);
@@ -327,8 +357,7 @@ describe("GET /api/games/:id/summary", () => {
         { slot: 4, finalPoints: 2000 },
       ],
     });
-    await insertGameEndJob(fixture.gameId);
-    await runSchedulerTick({});
+    await endGameAndRevealScores(agent, fixture.gameId, fixture.hostUserId);
 
     const participant = fixture.participants[0]!;
     const token = signAccessToken(participant.userId);
@@ -365,8 +394,7 @@ describe("GET /api/games/:id/summary", () => {
         },
       ],
     });
-    await insertGameEndJob(fixture.gameId);
-    await runSchedulerTick({});
+    await endGameAndRevealScores(agent, fixture.gameId, fixture.hostUserId);
 
     const participant = fixture.participants[0]!;
     const token = signAccessToken(participant.userId);

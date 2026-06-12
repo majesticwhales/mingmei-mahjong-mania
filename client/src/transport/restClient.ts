@@ -208,9 +208,16 @@ export const restClient = {
     });
   },
   endGame(gameId: string) {
-    return request<{ status: "ended" }>({
+    return request<{ status: "ending" | "ended" }>({
       method: "POST",
       path: `/api/games/${gameId}/end`,
+      body: {},
+    });
+  },
+  revealScores(gameId: string) {
+    return request<{ status: "ended" }>({
+      method: "POST",
+      path: `/api/games/${gameId}/reveal-scores`,
       body: {},
     });
   },

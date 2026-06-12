@@ -204,14 +204,16 @@ export function GameSummaryScreen() {
   }
 
   if (fetchState.status === "error") {
-    const gameStillActive = fetchState.error.message.includes("has not ended yet");
+    const wrapUpPending =
+      fetchState.error.code === "game_not_ended" ||
+      fetchState.error.message.includes("has not ended yet");
     return (
       <main className="screen">
         <h1 className="screen__title">Game summary unavailable</h1>
         <p>{fetchState.error.message}</p>
-        {gameStillActive ? (
-          <Link to={`/games/${id}`} className="btn btn--primary">
-            Go to game
+        {wrapUpPending ? (
+          <Link to={`/games/${id}/wrap-up`} className="btn btn--primary">
+            Go to wrap-up
           </Link>
         ) : null}
         <Link to="/lobbies" className="btn btn--secondary">

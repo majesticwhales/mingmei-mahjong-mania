@@ -6,6 +6,7 @@ import { enqueueCommand } from "../queue/enqueue-command.ts";
 import { triggerGameQueue } from "../queue/worker.ts";
 import { buildGameSummary } from "../services/game-summary-service.ts";
 import { endGameEarly } from "../services/game-end-service.ts";
+import { revealGameScores } from "../services/reveal-scores-service.ts";
 import { buildNodeView } from "../services/node-view.ts";
 
 export const gamesRouter = Router();
@@ -70,6 +71,14 @@ gamesRouter.post(
   "/:id/end",
   asyncHandler(async (req, res) => {
     const result = await endGameEarly(req.params.id, req.user!.id);
+    res.json(result);
+  }),
+);
+
+gamesRouter.post(
+  "/:id/reveal-scores",
+  asyncHandler(async (req, res) => {
+    const result = await revealGameScores(req.params.id, req.user!.id);
     res.json(result);
   }),
 );
