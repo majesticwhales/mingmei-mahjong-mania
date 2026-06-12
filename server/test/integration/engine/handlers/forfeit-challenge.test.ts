@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { processCommand } from "../../../../src/engine/process-command.ts";
+import { Game } from "../../../../src/models/game.ts";
 import { GameChallengeInstance } from "../../../../src/models/game-challenge-instance.ts";
 import { GameTeamPosition } from "../../../../src/models/game-team-position.ts";
 import {
@@ -70,6 +71,47 @@ describe("CHALLENGE_FORFEITED handler", () => {
     });
     expect(position?.pendingSwapCredit).toBe(false);
     expect(position?.creditEarnedInSession).toBe(false);
+  });
+
+  it("stamps cooldown_until from games.challenge_cooldown_seconds (per-game override)", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    // Use the test-preset value (5s) so the assertion verifies the engine
+    // is reading from the per-game column instead of the legacy 5min
+    // constant. Default lightweight games inherit 300s from the model.
+    await Game.update(
+      { challengeCooldownSeconds: 5 },
+      { where: { id: fixture.gameId } },
+    );
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    const instance = await GameChallengeInstance.create({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+      status: "in_progress",
+      assignedAt: new Date(),
+    });
+
+    const before = Date.now();
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "CHALLENGE_FORFEITED",
+      payload: { instanceId: instance.id },
+    });
+
+    const cooldownIso = (result.events[0]!.payload as { cooldownUntil: string })
+      .cooldownUntil;
+    const cooldownMs = new Date(cooldownIso).getTime() - before;
+    // 5s ± reasonable test-runner slack (well under the legacy 5min floor).
+    expect(cooldownMs).toBeGreaterThanOrEqual(5000 - 1000);
+    expect(cooldownMs).toBeLessThan(60_000);
   });
 
   it("rejects with not_found when the instance id is unknown", async () => {
