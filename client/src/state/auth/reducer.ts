@@ -11,6 +11,7 @@ export function authReducer(state: AuthState, action: AuthAction): AuthState {
         status: "authenticated",
         user: action.user,
         token: action.token,
+        activeGameId: action.activeGameId,
       };
     case "auth/logout":
     case "auth/restore/failed":
