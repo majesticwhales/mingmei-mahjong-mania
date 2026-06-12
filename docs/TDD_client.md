@@ -917,6 +917,8 @@ When not at a station, the "At" section is replaced with "[ Check in here ]" sur
 
 **Phase J — Claim affordance.** The Station panel renders an additional `[ Claim! ]` button next to the existing Swap button on **every** station tile whose `(suit, rank, copyIndex)` matches a `handAnalysis.waits[]` entry. Tiles that aren't in the wait set show Swap only. When the team's `handAnalysis.shanten > 0`, no Claim buttons render at all. The button submits a `CLAIM_WIN` command via `useGame().claimWin(stationTileId)`. The swap-credit gate from Phase H applies identically — the button is greyed out when `pendingSwapCredit === false` and the station has any configured challenge, with the same tooltip the existing Swap button shows ("Complete the challenge first").
 
+**Post-`CHALLENGE_COMPLETED` auto-open is claim-aware.** `GameScreen.handleCompleteChallenge` used to unconditionally call `setSwapOpen(true)` once the command resolved. It now branches via `stationHasClaimableWait(atStation.tiles, claimWinWaits)` (from `client/src/lib/claimWin.ts`): if the team is tenpai with a matching visible station tile, `ClaimWinModal` opens directly; otherwise the swap modal opens as before. The StationPanel's `Swap tile` / `Claim winning hand` buttons remain the fallback path either way.
+
 **Phase J — completed state.** When `state.handCompleted !== null`, the entire game screen flips into a read-only celebration mode:
 
 ```

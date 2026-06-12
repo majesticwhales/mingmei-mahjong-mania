@@ -316,7 +316,23 @@ sortKey(tile) = (tile_types.suit_sort_order, tile_types.rank, game_tiles.copy_in
 
 #### Honor-system mental model
 
-Every station carries a **queue of challenges** (`game_node_challenges`, ordered by `sort_order`). To claim a tile from a station via `SWAP_TILE` a team must first complete that station's **top challenge** (`sort_order = 0`) on the honor system. MVP stations carry exactly one challenge — the multi-challenge "discard the top card" mechanic is forward-compatible but deferred.
+Every station carries a **queue of challenges** (`game_node_challenges`, ordered by `sort_order`). To claim a tile from a station via `SWAP_TILE` a team must first complete the station's **current challenge** for that team on the honor system. The TTC 2026 seed already ships multi-card stations (Yorkdale 10, Union 3), so the picker is the cycle helper described next — there is no longer an MVP "first card only" shortcut.
+
+#### Per-team challenge cycle
+
+`pickCurrentChallengeForTeam` in [`server/src/services/challenge-queue.ts`](../server/src/services/challenge-queue.ts) is the single source of truth for "which `game_node_challenges` row should this team see at this station right now?". Both `buildCurrentChallenge` (projection / node-view) and the `START_CHALLENGE` handler call it, so the UI and the engine always agree on the surfaced row.
+
+The rule keys off the team's most-recent `game_challenge_instances` row at the station:
+
+| Latest status                         | Picked row                                                           |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| (no prior attempt)                    | `sort_order = 0`                                                     |
+| `in_progress`                         | Pin (the team is mid-attempt; never yank the card)                   |
+| `failed` (explicit or auto-forfeit)   | Pin (retry the same card — `resolutionPayload.reason` is irrelevant) |
+| `completed`                           | Advance to `(latestIndex + 1) mod N`, wrapping at end of queue       |
+| reserved future statuses              | Default to pin (defensive — these are unreachable in the honor MVP)  |
+
+Cooldown scoping is unchanged: `cooldown_until` lives on each `game_challenge_instances` row and is only checked against the **picked** row. Failing a card pins to the same row, so the cooldown blocks immediate retry exactly as before. Completing a card advances to a different row whose own cooldown is independent.
 
 #### Per-team challenge state machine
 
@@ -394,7 +410,7 @@ Challenge content (titles, descriptions, flavour text, illustration URLs, per-st
 
 Authoring workflow:
 
-1. Edit `server/seeders/data/challenges/ttc-2026.json`. Each entry under `stations[<nodeCode>]` is an array of challenges; array index becomes `sort_order` on `map_template_node_challenges`. The first element is the only one the MVP engine serves (`LIMIT 1 ORDER BY sort_order ASC`); additional entries pre-stage the future "discard the top card" multi-card mechanic without a schema change.
+1. Edit `server/seeders/data/challenges/ttc-2026.json`. Each entry under `stations[<nodeCode>]` is an array of challenges; array index becomes `sort_order` on `map_template_node_challenges`. The full queue is served per team via `pickCurrentChallengeForTeam` (see [§3.8 Per-team challenge cycle](#per-team-challenge-cycle)): teams advance through the array on each `completed`, repeat on `failed`, and wrap at the end.
 2. (Optional) Drop illustration files into `client/public/challenges/<filename>` and reference them from the JSON as `"imageUrl": "/challenges/<filename>"`. Vite copies the directory into the build, so the path is the same in `vite dev` and the production bundle. External URLs (e.g. CDN) are accepted verbatim — the column is unconstrained TEXT.
 3. Re-run the seeder: `npm run db:seed:challenges` (alias for `sequelize-cli db:seed --seed 20260612000000-seed-challenges-ttc-2026.cjs`). The seeder upserts the deck + challenges + bindings idempotently:
    - `challenge_decks` keyed by `code`.

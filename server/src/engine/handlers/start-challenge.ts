@@ -1,4 +1,3 @@
-import { Op } from "sequelize";
 import type {
   CommandContext,
   CommandHandler,
@@ -7,9 +6,9 @@ import type {
 import { HttpError } from "../../lib/http-error.ts";
 import { GameChallengeInstance } from "../../models/game-challenge-instance.ts";
 import { GameNode } from "../../models/game-node.ts";
-import { GameNodeChallenge } from "../../models/game-node-challenge.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
 import { assertNotHandCompleted } from "../hand-completed-lock.ts";
+import { pickCurrentChallengeForTeam } from "../../services/challenge-queue.ts";
 import { recordCommandGeolocation } from "../../services/geolocation.ts";
 
 interface StartChallengePayload {
@@ -32,17 +31,19 @@ function parsePayload(payload: Record<string, unknown>): StartChallengePayload {
 }
 
 /**
- * Move the issuing team's relationship with the "top" challenge at their
- * current station from "available" to "in_progress" (TDD §3.8 state
- * machine). The honor-system flow:
+ * Move the issuing team's relationship with their current challenge at
+ * their current station from "available" to "in_progress" (TDD §3.8
+ * state machine). The honor-system flow:
  *
  *   1. Team CHECK_IN at station S.
  *   2. Team clicks "Start" -> START_CHALLENGE -> instance row created.
  *   3. Team clicks "Complete" or "Forfeit" -> resolution event.
  *
- * "Top" is defined as the `GameNodeChallenge` with the lowest `sort_order`
- * at the station. The multi-challenge queue is forward-compatible — MVP
- * stations carry exactly one challenge.
+ * "Current" is resolved by `pickCurrentChallengeForTeam`, which applies
+ * the per-team cycle rule (`failed` / `in_progress` pin, `completed`
+ * advance, wrap). The projection's `buildCurrentChallenge` uses the
+ * same helper so the row the player sees in the UI is the row this
+ * handler creates an instance against.
  *
  * Pre-conditions (in evaluation order):
  *   - team is checked in at `payload.nodeId` (`409 not_checked_in` /
@@ -52,7 +53,7 @@ function parsePayload(payload: Record<string, unknown>): StartChallengePayload {
  *     (`409 challenge_in_progress`).
  *   - station has at least one challenge configured
  *     (`409 no_challenge_at_station`).
- *   - the top challenge is not on cooldown for this team
+ *   - the current challenge is not on cooldown for this team
  *     (`409 challenge_on_cooldown`).
  */
 export const startChallengeHandler: CommandHandler = {
@@ -132,37 +133,31 @@ export const startChallengeHandler: CommandHandler = {
       await position.save({ transaction: ctx.transaction });
     }
 
-    const topChallenge = await GameNodeChallenge.findOne({
-      where: { gameNodeId: nodeId },
-      order: [["sortOrder", "ASC"]],
+    const picked = await pickCurrentChallengeForTeam({
+      gameNodeId: nodeId,
+      gameTeamId: ctx.gameTeamId,
       transaction: ctx.transaction,
     });
-    if (!topChallenge) {
+    if (!picked) {
       throw new HttpError(
         409,
         "no_challenge_at_station",
         `Station ${node.code} has no challenges configured`,
       );
     }
+    const topChallenge = picked.row;
 
-    // Cooldown check: pull the team's most recent attempt at this node
-    // challenge (any resolution status). `cooldown_until` is non-null
-    // exactly when the row has resolved at least once, so it's safe to
-    // index even though only resolved rows ever set it.
+    // Cooldown check: the helper already returned the team's most
+    // recent attempt on the picked row (or null if the team has never
+    // attempted this specific row). `cooldown_until` is non-null
+    // exactly when the row has resolved at least once.
     const now = new Date();
-    const onCooldown = await GameChallengeInstance.findOne({
-      where: {
-        gameTeamId: ctx.gameTeamId,
-        gameNodeChallengeId: topChallenge.id,
-        cooldownUntil: { [Op.gt]: now },
-      },
-      transaction: ctx.transaction,
-    });
-    if (onCooldown) {
+    const cooldownUntil = picked.latestInstanceForRow?.cooldownUntil ?? null;
+    if (cooldownUntil != null && cooldownUntil.getTime() > now.getTime()) {
       throw new HttpError(
         409,
         "challenge_on_cooldown",
-        `Challenge at ${node.code} is on cooldown until ${onCooldown.cooldownUntil!.toISOString()}`,
+        `Challenge at ${node.code} is on cooldown until ${cooldownUntil.toISOString()}`,
       );
     }
 
