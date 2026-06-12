@@ -277,13 +277,15 @@ describe("startFromLobby", () => {
     });
   });
 
-  it("relax start distributes unassigned players across teams", async () => {
+  it("relax start allows fewer than four players when everyone has picked a team", async () => {
     const host = await registerUser({ username: "waterbug" });
     await setUserAdmin(host.user.id);
     const guest = await registerUser();
 
     const lobby = await lobbyService.createLobby(host.user.id, {});
     await lobbyService.joinLobby(lobby.id, guest.user.id);
+    await lobbyService.pickTeam(lobby.id, host.user.id, 1);
+    await lobbyService.pickTeam(lobby.id, guest.user.id, 2);
 
     const result = await startFromLobby(lobby.id, host.user.id);
 
