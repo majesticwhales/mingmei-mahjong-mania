@@ -5,6 +5,15 @@ interface Props {
   hostUserId: string;
 }
 
+function memberRoleLabel(member: LobbyMemberDto, hostUserId: string): string {
+  const isHost = member.userId === hostUserId;
+  const teamLabel = member.teamSlot ? `Team ${member.teamSlot}` : null;
+
+  if (isHost && teamLabel) return `HOST · ${teamLabel}`;
+  if (isHost) return "HOST";
+  return teamLabel ?? "—";
+}
+
 export function MemberList({ members, hostUserId }: Props) {
   return (
     <section>
@@ -13,9 +22,7 @@ export function MemberList({ members, hostUserId }: Props) {
         {members.map((member) => (
           <li key={member.userId}>
             <span>@{member.username}</span>
-            <span>
-              {member.userId === hostUserId ? "HOST" : member.teamSlot ? `Team ${member.teamSlot}` : "—"}
-            </span>
+            <span>{memberRoleLabel(member, hostUserId)}</span>
           </li>
         ))}
       </ul>
