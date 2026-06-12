@@ -50,7 +50,7 @@
       {
         "code": "high-park",
         "type": "task",
-        "title": "High Prak Station",
+        "title": "High Park Station",
         "description": "Find the Maple Leaf at High Park and answer four trivia questions. You must get at least two correct to pass. One player must be the test taker, and the other must be the proctor. The proctor must quiz the test taker on the following four questions. The proctor may not collaborate with the test taker in any way once the questions have been revealed and may only confirm if the test taker has gotten the question correct or not without revealing the answer itself.\n\nQ: What is the official sport of Canada? \nA: Lacrosse\n\nQ: Which Canadian province is known as the \"Land of 100 000 Lakes\"?\nA: Manitoba\n\nQ: What bird appears on the Canadian one-dollar coin?\nA: Loon\n\nQ: Which Canadian province is the largest by area?\nA: Québec",
         "flavorText": "🍁 Oh Canada! 🍁",
         "imageUrl": null
