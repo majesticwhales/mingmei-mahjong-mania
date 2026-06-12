@@ -300,6 +300,7 @@ describe("StationPanel — useNodeView integration", () => {
       title: "Test",
       description: "Test challenge",
       flavorText: null,
+      imageUrl: null,
       status: "cooldown",
       cooldownUntil,
     };

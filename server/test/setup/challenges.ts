@@ -31,6 +31,7 @@ export async function attachChallengeToGameNode(args: {
   title?: string;
   description?: string;
   flavorText?: string | null;
+  imageUrl?: string | null;
 }): Promise<SeededTestChallenge> {
   const challengeType = await ChallengeType.findOne();
   if (!challengeType) {
@@ -52,6 +53,7 @@ export async function attachChallengeToGameNode(args: {
     title: args.title ?? "Test challenge",
     description: args.description ?? "Do the thing.",
     flavorText: args.flavorText ?? null,
+    imageUrl: args.imageUrl ?? null,
     parameters: {},
     sortOrder: 0,
     isActive: true,

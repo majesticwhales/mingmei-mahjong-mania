@@ -14,6 +14,7 @@ export function buildScaffoldChallenge(stationName: string): ResolvedChallenge {
     description:
       "Complete this challenge to unlock tile swapping at this station. Challenge details will come from the server soon.",
     flavorText: null,
+    imageUrl: null,
     status: "in_progress",
     instanceId: SCAFFOLD_CHALLENGE_ID,
     isScaffold: true,
