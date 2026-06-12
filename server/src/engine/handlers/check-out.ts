@@ -6,7 +6,10 @@ import type {
 import { HttpError } from "../../lib/http-error.ts";
 import { GameNode } from "../../models/game-node.ts";
 import { GameTeamPosition } from "../../models/game-team-position.ts";
-import { autoForfeitActiveChallenge } from "../challenge-lifecycle.ts";
+import {
+  autoForfeitActiveChallenge,
+  challengeCooldownMsFromGame,
+} from "../challenge-lifecycle.ts";
 import { recordCommandGeolocation } from "../../services/geolocation.ts";
 
 /**
@@ -76,6 +79,7 @@ export const checkOutHandler: CommandHandler = {
       transaction: ctx.transaction,
       gameId: ctx.gameId,
       gameTeamId: ctx.gameTeamId,
+      cooldownMs: challengeCooldownMsFromGame(ctx.game),
     });
     if (forfeit) {
       events.push(forfeit);

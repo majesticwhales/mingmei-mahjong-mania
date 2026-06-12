@@ -27,7 +27,10 @@ import { teamCodeToWindRank } from "../../scoring/seat-wind.ts";
 import { triggerSchedulerNow } from "../../scheduler/worker.ts";
 import { assertSlotUnlocked } from "../../services/slot-visibility.ts";
 import { RED_FIVES_RULE_KEY } from "../../tiles/red-five.ts";
-import { autoForfeitActiveChallenge } from "../challenge-lifecycle.ts";
+import {
+  autoForfeitActiveChallenge,
+  challengeCooldownMsFromGame,
+} from "../challenge-lifecycle.ts";
 import { displayNamesForGameTiles } from "../tile-display-name.ts";
 import { assertNotHandCompleted } from "../hand-completed-lock.ts";
 import { loadTeamHandTiles } from "../team-hand-tiles.ts";
@@ -399,6 +402,7 @@ export const claimWinHandler: CommandHandler = {
         transaction: ctx.transaction,
         gameId: ctx.gameId,
         gameTeamId: ctx.gameTeamId,
+        cooldownMs: challengeCooldownMsFromGame(ctx.game),
       });
 
     // Phase J early-end (chunk 3): if this was the last incomplete
