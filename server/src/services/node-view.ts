@@ -290,16 +290,25 @@ export async function buildNodeView(
   // node in scope we substitute a single `findOne` for the projection's
   // bulk `findAll`.
   //
-  // **At-station privilege** (TDD §3.3 Tier 2/3 spec): when the
-  // requester's team is checked in at this node, the visibility rule
-  // relaxes — claim-unlocked slots are station-visible even before
-  // the map-reveal timer fires. This mirrors the
-  // `buildGameStateProjection` `atStation.tiles[]` rule so the
-  // socket projection and the REST endpoint never disagree.
+  // **At-station privilege** (TDD §3.3 + §6.3): when the requester's
+  // team is checked in at this node, two relaxations apply on top of
+  // the map rule:
+  //   1. Visit-based node reveal — the team's own checked-in node is
+  //      always face-up to them, regardless of phase fog
+  //      (`faceUpForTeam(team, N) = true` per §3.3 visit-based
+  //      visibility, even when no `game_location_team_visibility` row
+  //      exists yet).
+  //   2. Claim-unlocked slot reveal — claim-unlocked slots are
+  //      station-visible even before the map-reveal timer fires.
+  // Both relaxations mirror `buildGameStateProjection`'s
+  // `buildAtStationTiles`; the socket projection and REST endpoint
+  // never disagree.
   const phaseLayerActive = visibilityIncludes(game.visibilityMode, "phase");
   const slotLayerActive = visibilityIncludes(game.visibilityMode, "slot");
-  const nodeFaceUp = !phaseLayerActive || visibilityRow != null;
   const atThisNode = position?.currentGameNodeId === nodeId;
+  const nodeFaceUp = atThisNode
+    ? true
+    : !phaseLayerActive || visibilityRow != null;
   const tiles: NodeViewTileDto[] = [];
   for (let slotIndex = 0; slotIndex < game.slotsPerNode; slotIndex += 1) {
     const slotMapUnlocked = !slotLayerActive
@@ -307,7 +316,8 @@ export async function buildNodeView(
     const locked = slotLayerActive
       && !isSlotUnlocked(game, slotIndex, nowMs);
     // Map view: `visible = nodeFaceUp && slotMapUnlocked`.
-    // Station view (at this node): `visible = nodeFaceUp && (slotMapUnlocked || !locked)`.
+    // Station view (at this node): `visible = (slotMapUnlocked || !locked)`
+    // — `nodeFaceUp` is already pinned to true above by relaxation #1.
     const visible = atThisNode
       ? nodeFaceUp && (slotMapUnlocked || !locked)
       : nodeFaceUp && slotMapUnlocked;

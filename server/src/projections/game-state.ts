@@ -668,9 +668,7 @@ export async function buildGameStateProjection(
         teamNodeId,
         slotsPerNode,
         nowMs,
-        phaseLayerActive,
         slotLayerActive,
-        faceUpNodeIds,
         mapVisibleSlotSet,
         tilesByNodeSlot,
       })
@@ -904,22 +902,35 @@ function buildAtStation(params: {
 /**
  * Per-slot tile shape for the team's current station. Mirrors the
  * `mapNodes[teamNode].tiles[]` loop in `buildGameStateProjection` but
- * applies the **at-station privilege** (TDD §3.3 Tier 2/3 spec): a
- * slot whose claim-unlock timer has elapsed becomes station-visible
- * even when the map-reveal timer has not. The map view stays strict
- * (`visible = nodeFaceUp && mapVisibleSlot`); the station view
- * relaxes to `visible = nodeFaceUp && (mapVisibleSlot || !locked)`.
+ * applies the **at-station privilege**, which is two cooperating
+ * relaxations of the map rule:
+ *
+ *   1. **Visit-based node reveal** (TDD §3.3): checking in at a node
+ *      makes that node face-up to the team regardless of phase fog —
+ *      `faceUpForTeam(team, N) = true even if phase would hide N`.
+ *      The persistent `game_location_team_visibility` row may or may
+ *      not exist (phase advances + check-in both write it, depending
+ *      on flow); the station view doesn't care. `nodeFaceUp = true`
+ *      unconditionally here because this function is only ever called
+ *      for the team's currently-checked-in node.
+ *   2. **Claim-unlocked slot reveal** (TDD §3.3 Tier 2/3 spec): a slot
+ *      whose claim-unlock timer has elapsed is station-visible even
+ *      when the map-reveal timer has not. The map view stays strict
+ *      (`visible = nodeFaceUp && mapVisibleSlot`); the station view
+ *      relaxes to `visible = mapVisibleSlot || !locked` (with
+ *      `nodeFaceUp` already pinned to true by relaxation #1).
  *
  * Mode interactions:
  *   - **phase-only** (slot layer off): `locked === false` everywhere,
- *     so `!locked === true` always. Every slot at a face-up node is
- *     station-visible. The map view still respects phase fog.
- *   - **slot-only** (phase layer off): `nodeFaceUp === true`. Station
- *     view exposes any claim-unlocked slot; map view still respects
- *     the `slot_map_unlock_offsets_seconds` timeline.
- *   - **both layers on**: most expressive. Tier 2 (claim=0, map>0)
- *     surfaces at the station from t=0; Tier 3 (claim>0) waits for
- *     the claim timer before the station reveal.
+ *     so every slot at the station is visible. The map view still
+ *     respects phase fog for non-checked-in nodes.
+ *   - **slot-only** (phase layer off): `phaseLayerActive === false` so
+ *     `nodeFaceUp` is trivially true on the map too — no node-level
+ *     relaxation needed. Station view exposes any claim-unlocked slot;
+ *     map view still respects `slot_map_unlock_offsets_seconds`.
+ *   - **both layers on**: most expressive. The team's current node is
+ *     always face-up at the station; Tier 2 (claim=0, map>0) surfaces
+ *     at t=0; Tier 3 (claim>0) waits for the claim timer.
  *   - **none**: everything visible everywhere.
  */
 function buildAtStationTiles(params: {
@@ -927,9 +938,7 @@ function buildAtStationTiles(params: {
   teamNodeId: string;
   slotsPerNode: number;
   nowMs: number;
-  phaseLayerActive: boolean;
   slotLayerActive: boolean;
-  faceUpNodeIds: Set<string>;
   mapVisibleSlotSet: Set<number>;
   tilesByNodeSlot: Map<string, Map<number, TileDto>>;
 }): MapNodeTileDto[] {
@@ -938,20 +947,18 @@ function buildAtStationTiles(params: {
     teamNodeId,
     slotsPerNode,
     nowMs,
-    phaseLayerActive,
     slotLayerActive,
-    faceUpNodeIds,
     mapVisibleSlotSet,
     tilesByNodeSlot,
   } = params;
-  const nodeFaceUp = !phaseLayerActive || faceUpNodeIds.has(teamNodeId);
+  // Relaxation #1: visit-based node reveal — see JSDoc above.
+  const nodeFaceUp = true;
   const bySlot = tilesByNodeSlot.get(teamNodeId);
   const tiles: MapNodeTileDto[] = [];
   for (let slotIndex = 0; slotIndex < slotsPerNode; slotIndex += 1) {
     const mapVisibleSlot = mapVisibleSlotSet.has(slotIndex);
     const locked = slotLayerActive && !isSlotUnlocked(game, slotIndex, nowMs);
-    // At-station privilege: claim-unlocked OR map-revealed → visible.
-    // Falls back to the map rule when the slot is still claim-locked.
+    // Relaxation #2: claim-unlocked OR map-revealed → visible.
     const visible = nodeFaceUp && (mapVisibleSlot || !locked);
     const placement = bySlot?.get(slotIndex) ?? null;
     tiles.push({

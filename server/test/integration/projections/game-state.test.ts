@@ -148,7 +148,12 @@ describe("buildGameStateProjection", () => {
     expect(bNode.tiles[0]!.tile).toBeNull();
   });
 
-  it("single-slot: atStation always reveals the station tile, even when the node is fogged on the map", async () => {
+  it("single-slot: atStation reveals the station tile via visit-based visibility, even when the node is fogged on the map", async () => {
+    // TDD §3.3 visit-based visibility: a team checked in at node N
+    // sees `faceUpForTeam(team, N) = true` regardless of phase fog,
+    // even when no `game_location_team_visibility` row exists for N.
+    // The map view (`mapNodes[].tiles[]`) still respects the fog —
+    // only the team's own `atStation.tiles[]` gets the override.
     const fixture = await setupLightweightGame({
       nodeCodes: ["a"],
       startNodeCodeBySlot: { 1: "a" },
@@ -168,14 +173,18 @@ describe("buildGameStateProjection", () => {
     expect(aNode.tiles[0]!.visible).toBe(false);
     expect(aNode.tiles[0]!.tile).toBeNull();
     expect(projection.atStation).not.toBeNull();
-    expect(projection.atStation).toEqual({
-      nodeId: aId,
-      code: "a",
+    expect(projection.atStation?.nodeId).toBe(aId);
+    expect(projection.atStation?.code).toBe("a");
+    expect(projection.atStation?.tiles).toHaveLength(1);
+    expect(projection.atStation?.tiles[0]).toEqual({
+      slotIndex: 0,
       tile: expect.objectContaining({ instanceId: tileId }),
-      currentChallenge: null,
-      pendingSwapCredit: false,
-      creditEarnedInSession: false,
+      visible: true,
+      locked: false,
     });
+    expect(projection.atStation?.currentChallenge).toBeNull();
+    expect(projection.atStation?.pendingSwapCredit).toBe(false);
+    expect(projection.atStation?.creditEarnedInSession).toBe(false);
   });
 
   it("sorts handTiles by (suit_sort_order, rank, copy_index) and assigns sequential slotIndex", async () => {
