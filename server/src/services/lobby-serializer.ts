@@ -64,6 +64,13 @@ export interface LobbyConfigDto {
    */
   deadWallSize: number;
   /**
+   * Per-(team, challenge) cooldown floor in seconds applied after a
+   * challenge resolves. Snapshotted to `games.challenge_cooldown_seconds`
+   * at start; defaults to the chosen preset (production: 300 / test: 5).
+   * See TDD §3.8.
+   */
+  challengeCooldownSeconds: number;
+  /**
    * Which visibility layers are active for the resulting game. The host
    * picks this in the lobby UI; the engine snapshots it onto
    * `games.visibility_mode` at start. Locked-knob errors surface as
@@ -255,6 +262,7 @@ export function serializeLobbyDetail(
       slotUnlockOffsetsSeconds: lobby.slotUnlockOffsetsSeconds,
       slotMapUnlockOffsetsSeconds: lobby.slotMapUnlockOffsetsSeconds,
       deadWallSize: lobby.deadWallSize,
+      challengeCooldownSeconds: lobby.challengeCooldownSeconds,
       visibilityMode: lobby.visibilityMode,
       teamAssignmentMode: lobby.teamAssignmentMode,
       minPlayersToStart: lobby.minPlayersToStart,
