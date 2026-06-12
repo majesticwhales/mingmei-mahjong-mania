@@ -16,8 +16,11 @@ export function LoginScreen() {
     setError(null);
     setSubmitting(true);
     try {
-      await login({ email, password });
-      navigate("/lobbies", { replace: true });
+      const activeGameId = await login({ email, password });
+      navigate(
+        activeGameId ? `/games/${activeGameId}` : "/lobbies",
+        { replace: true },
+      );
     } catch (err) {
       if (err instanceof HttpError) {
         setError(err.message);

@@ -62,6 +62,7 @@ function renderProbe(lobbyId = "lobby-1") {
         state: {
           status: "authenticated",
           token: "test-token",
+          activeGameId: null,
           user: {
             id: "user-1",
             username: "alice",

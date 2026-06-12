@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../state/auth/hooks";
+import { authedHomePath } from "./authedHome";
 
 export function RootRedirect() {
   const { state } = useAuth();
@@ -13,6 +14,9 @@ export function RootRedirect() {
   }
 
   return (
-    <Navigate to={state.status === "authenticated" ? "/lobbies" : "/login"} replace />
+    <Navigate
+      to={state.status === "authenticated" ? authedHomePath(state) : "/login"}
+      replace
+    />
   );
 }

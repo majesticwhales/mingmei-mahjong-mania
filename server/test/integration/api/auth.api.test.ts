@@ -65,6 +65,7 @@ describe("POST /api/auth/login and GET /api/auth/me", () => {
     const me = await agent.get("/api/auth/me").set(bearer(login.body.token));
     expect(me.status).toBe(200);
     expect(me.body.user.email).toBe(email);
+    expect(me.body.activeGameId).toBeNull();
   });
 
   it("returns 401 for /me without a token", async () => {

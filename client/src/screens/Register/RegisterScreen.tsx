@@ -17,8 +17,11 @@ export function RegisterScreen() {
     setError(null);
     setSubmitting(true);
     try {
-      await register({ email, username, password });
-      navigate("/lobbies", { replace: true });
+      const activeGameId = await register({ email, username, password });
+      navigate(
+        activeGameId ? `/games/${activeGameId}` : "/lobbies",
+        { replace: true },
+      );
     } catch (err) {
       if (err instanceof HttpError) {
         setError(err.message);
