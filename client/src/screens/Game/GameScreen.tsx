@@ -410,8 +410,7 @@ export function GameScreen() {
     setEnding(true);
     try {
       await restClient.endGame(id);
-      leaveGame();
-      navigate("/lobbies");
+      navigate(`/games/${id}/summary`, { replace: true });
     } catch (error) {
       const message =
         error instanceof HttpError ? error.message : "Could not end game — try again";
