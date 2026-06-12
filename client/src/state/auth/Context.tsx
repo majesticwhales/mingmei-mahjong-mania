@@ -43,7 +43,9 @@ export function AuthProvider({ children, onLogout }: Props) {
     state.status === "authenticated" ? state.token : null;
 
   useEffect(() => {
-    setTokenProvider(() => token);
+    // Fall back to localStorage so authenticated routes can fetch on first paint
+    // after refresh, before auth/login/success updates in-memory token.
+    setTokenProvider(() => token ?? readStoredToken());
   }, [token]);
 
   useEffect(() => {
