@@ -1,0 +1,8 @@
+# Drop challenge illustrations here.
+#
+# Files in this folder are copied to the production bundle by Vite and
+# served at `/challenges/<filename>` (same origin as the rest of the app).
+# Reference them from `server/data/challenges/ttc-2026.json` via the
+# `imageUrl` field, e.g. `"imageUrl": "/challenges/bay.png"`.
+#
+# Accepted formats: anything `<img>` understands — png, jpg, webp, svg, gif.

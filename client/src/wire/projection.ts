@@ -75,11 +75,18 @@ export interface AtStationChallengeDto {
   title: string;
   description: string | null;
   flavorText: string | null;
+  /**
+   * Optional illustration URL from `challenges.image_url`. Typically an
+   * absolute path served by the client static bundle (e.g.
+   * `/challenges/bay.png` from `client/public/challenges/`); external
+   * URLs are accepted verbatim. `null` when the challenge has no
+   * illustration. Always present on the wire — `ChallengeModal`
+   * conditionally renders the `<img>` based on null vs. value.
+   */
+  imageUrl: string | null;
   status: "available" | "in_progress" | "cooldown";
   instanceId?: string;
   cooldownUntil?: string;
-  /** Optional illustration URL — reserved for future backend support. */
-  imageUrl?: string | null;
 }
 
 export interface AtStationDto {

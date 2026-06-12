@@ -2,11 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
-import {
-  isScaffoldChallenge,
-  needsChallengeBeforeSwap,
-  resolveCheckedInChallenge,
-} from "../../lib/challengeContext";
+import { resolveCheckedInChallenge } from "../../lib/challengeContext";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useIsAdmin } from "../../state/auth/hooks";
 import {
@@ -61,9 +57,7 @@ export function GameScreen() {
   const [swapOpen, setSwapOpen] = useState(false);
   const [challengeOpen, setChallengeOpen] = useState(false);
   const [challengePending, setChallengePending] = useState(false);
-  const [scaffoldChallengeComplete, setScaffoldChallengeComplete] = useState(false);
   const startedChallengeRef = useRef<string | null>(null);
-  const trackedCheckInNodeIdRef = useRef<string | null>(null);
   const [claimOpen, setClaimOpen] = useState(false);
   const [claimPending, setClaimPending] = useState(false);
   const [handCompletedDismissed, setHandCompletedDismissed] = useState(false);
@@ -202,18 +196,9 @@ export function GameScreen() {
     return analysis.waits;
   }, [projection, handCompleted]);
 
-  // Phase H legacy scaffold gate: `needsChallengeBeforeSwap` returns
-  // true when the team is at a station that has no server-configured
-  // challenges yet AND hasn't manually completed the placeholder. The
-  // server's `availableActions[]` can't see the scaffold (it only
-  // knows about real challenges), so we feed this in as an override.
-  const showChallengeOverride = useMemo(
-    () => needsChallengeBeforeSwap(atStation, scaffoldChallengeComplete),
-    [atStation, scaffoldChallengeComplete],
-  );
   const activeChallenge = useMemo(
-    () => resolveCheckedInChallenge(atStation, checkedInNodeName, scaffoldChallengeComplete),
-    [atStation, checkedInNodeName, scaffoldChallengeComplete],
+    () => resolveCheckedInChallenge(atStation),
+    [atStation],
   );
 
   const runCommand = useCallback(async (task: () => Promise<void>) => {
@@ -226,20 +211,24 @@ export function GameScreen() {
     }
   }, [pushToast]);
 
+  // Close the challenge modal + clear the auto-start guard whenever the
+  // team's checked-in node changes (incl. checking out → null). The
+  // React-19 `react-hooks/set-state-in-effect` rule rejects an effect
+  // that unconditionally calls `setState`, so the modal-close lives in
+  // an "adjust state during render" block keyed off a tracked node id.
+  // The ref reset is the canonical effect-side companion (refs can't be
+  // mutated during render under `react-hooks/refs`).
+  const currentCheckedInNodeId = atStation?.nodeId ?? null;
+  const [trackedChallengeNodeId, setTrackedChallengeNodeId] = useState<string | null>(
+    currentCheckedInNodeId,
+  );
+  if (trackedChallengeNodeId !== currentCheckedInNodeId) {
+    setTrackedChallengeNodeId(currentCheckedInNodeId);
+    setChallengeOpen(false);
+  }
   useEffect(() => {
-    const nodeId = atStation?.nodeId ?? null;
-    if (nodeId !== trackedCheckInNodeIdRef.current) {
-      trackedCheckInNodeIdRef.current = nodeId;
-      setScaffoldChallengeComplete(false);
-      setChallengeOpen(false);
-    }
+    startedChallengeRef.current = null;
   }, [atStation?.nodeId]);
-
-  useEffect(() => {
-    if (!atStation) {
-      startedChallengeRef.current = null;
-    }
-  }, [atStation?.nodeId, atStation]);
 
   useEffect(() => {
     const challenge = atStation?.currentChallenge;
@@ -325,13 +314,6 @@ export function GameScreen() {
   }
 
   async function handleCompleteChallenge() {
-    if (isScaffoldChallenge(activeChallenge)) {
-      setScaffoldChallengeComplete(true);
-      setChallengeOpen(false);
-      setSwapOpen(true);
-      return;
-    }
-
     const instanceId = atStation?.currentChallenge?.instanceId;
     if (!instanceId) return;
 
@@ -348,11 +330,6 @@ export function GameScreen() {
   }
 
   async function handleAbandonChallenge() {
-    if (isScaffoldChallenge(activeChallenge)) {
-      setChallengeOpen(false);
-      return;
-    }
-
     const instanceId = atStation?.currentChallenge?.instanceId;
     if (!instanceId) {
       setChallengeOpen(false);
@@ -504,7 +481,6 @@ export function GameScreen() {
         commandsPending={commandsPending}
         checkInPending={checkInPending || isSyncingCheckIn}
         commandsDisabled={gameEnded || Boolean(handCompleted)}
-        showChallengeOverride={showChallengeOverride}
         onClose={handleClosePanel}
         onCheckIn={handleCheckIn}
         onCheckOut={handleCheckOut}
@@ -527,8 +503,7 @@ export function GameScreen() {
           imageUrl={activeChallenge.imageUrl}
           pending={challengePending}
           completeDisabled={
-            !isScaffoldChallenge(activeChallenge) &&
-            (activeChallenge.status !== "in_progress" || !activeChallenge.instanceId)
+            activeChallenge.status !== "in_progress" || !activeChallenge.instanceId
           }
           onComplete={() => void handleCompleteChallenge()}
           onAbandon={() => void handleAbandonChallenge()}

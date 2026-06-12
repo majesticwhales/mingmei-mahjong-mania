@@ -33,16 +33,6 @@ interface Props {
   commandsPending?: boolean;
   checkInPending?: boolean;
   commandsDisabled?: boolean;
-  /**
-   * Phase H legacy scaffold gate — when true, force-render the
-   * "View challenge" button instead of the swap button even if the
-   * server reports `swap_tile.enabled === true`. Lets `GameScreen`
-   * keep the placeholder challenge flow alive for stations whose
-   * server-side challenge wiring isn't shipped yet. Once every
-   * station carries a real challenge this flag (and the scaffold
-   * helpers in `lib/challengeContext.ts`) become removable.
-   */
-  showChallengeOverride?: boolean;
   onClose: () => void;
   onCheckIn: (nodeId: string) => void;
   onCheckOut: () => void;
@@ -183,7 +173,6 @@ export function StationPanel({
   commandsPending = false,
   checkInPending = false,
   commandsDisabled = false,
-  showChallengeOverride = false,
   onClose,
   onCheckIn,
   onCheckOut,
@@ -205,13 +194,12 @@ export function StationPanel({
     () => actionMap(nodeView?.availableActions),
     [nodeView?.availableActions],
   );
-  // Challenge gate = server-driven "swap blocked on a missing credit"
-  // OR the client-side scaffold override (the latter exists only as
-  // long as `lib/challengeContext.ts` still ships a scaffold for
-  // stations missing server-configured challenges).
+  // Challenge gate = server-driven "swap blocked on a missing credit".
+  // The pre-Phase-H-seeded client scaffold + its override prop are
+  // gone now that every tile station carries a real `currentChallenge`
+  // from `buildCurrentChallenge`.
   const swapGateActive = actions.swap_tile.reason === "swap_credit_required";
-  const showChallenge = isViewingCheckedInStation
-    && (showChallengeOverride || swapGateActive);
+  const showChallenge = isViewingCheckedInStation && swapGateActive;
   const showSwapTile = isViewingCheckedInStation && !showChallenge;
   const showClaimWin = isViewingCheckedInStation && actions.claim_win.enabled;
   const showCheckIn = viewingNodeId != null && !isViewingCheckedInStation;

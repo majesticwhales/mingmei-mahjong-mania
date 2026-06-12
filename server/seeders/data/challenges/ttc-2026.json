@@ -1,0 +1,358 @@
+{
+  "$schema": "./ttc-2026.schema.md",
+  "_doc": [
+    "Challenge deck + per-station bindings for the TTC 2026 map template.",
+    "Edit this file by hand to author challenges; re-run the seeder to push",
+    "changes into the database (no migration needed).",
+    "",
+    "Shape:",
+    "  - `deck`: metadata for the single `challenge_decks` row this file seeds.",
+    "  - `templateName`: the `map_templates.name` whose nodes get bound.",
+    "    (`map_templates` has no `code` column — name is the catalog key.)",
+    "  - `stations`: keys are `map_template_nodes.code`; values are arrays of",
+    "    challenges. Array index is `sort_order` on `map_template_node_challenges`,",
+    "    so `stations.bay[0]` is the top-of-queue (and the only one the MVP",
+    "    engine exposes today via `LIMIT 1 ORDER BY sort_order ASC`).",
+    "",
+    "Challenge entry fields:",
+    "  - `code` (required): unique within the deck. Stored on `challenges.code`.",
+    "  - `type` (optional, default `task`): resolves against",
+    "    `challenge_types.code` (currently `travel` / `photo` / `task`).",
+    "  - `title` (required): short title shown in the modal header.",
+    "  - `description` (required, empty string allowed): full prompt body.",
+    "  - `flavorText` (optional, default null): atmospheric one-liner.",
+    "  - `imageUrl` (optional, default null): absolute URL path. Files in",
+    "    `client/public/challenges/<name>.<ext>` are served at",
+    "    `/challenges/<name>.<ext>` in both dev and prod. External URLs are",
+    "    accepted verbatim.",
+    "",
+    "`bay` is filled in as a worked example you can copy from; the other 22",
+    "tile stations carry placeholder entries to be filled in over time."
+  ],
+  "deck": {
+    "code": "ttc-2026-default",
+    "name": "TTC 2026 — Standard",
+    "description": "Default challenge deck for the TTC 2026 map template."
+  },
+  "templateName": "TTC 2026",
+  "stations": {
+    "bay": [
+      {
+        "code": "bay",
+        "type": "task",
+        "title": "Bay Station",
+        "description": "Wow! You've just found $3000 on the ground. It's your lucky day! Find distinct items to spend the money on and catalog your hypothetical purchases. You cannot be under by more than $100. Tax is not included in the purchase price.",
+        "flavorText": "Break your bank!",
+        "imageUrl": "/challenges/bay.png"
+      }
+    ],
+    "high-park": [
+      {
+        "code": "high-park",
+        "type": "task",
+        "title": "High Prak Station",
+        "description": "Find the Maple Leaf at High Park and answer four trivia questions. You must get at least two correct to pass. One player must be the test taker, and the other must be the proctor. The proctor must quiz the test taker on the following four questions. The proctor may not collaborate with the test taker in any way once the questions have been revealed and may only confirm if the test taker has gotten the question correct or not without revealing the answer itself.\n\nQ: What is the official sport of Canada? \nA: Lacrosse\n\nQ: Which Canadian province is known as the \"Land of 100 000 Lakes\"?\nA: Manitoba\n\nQ: What bird appears on the Canadian one-dollar coin?\nA: Loon\n\nQ: Which Canadian province is the largest by area?\nA: Québec",
+        "flavorText": "Oh Canada!",
+        "imageUrl": null
+      }
+    ],
+    "dufferin": [
+      {
+        "code": "dufferin",
+        "type": "task",
+        "title": "Dufferin Station",
+        "description": "Route 29 is colloquially known as the \"Sufferin' Dufferin'\" bus route. Travel one stop on this route either on a bus or by foot.",
+        "flavorText": "Ride the Sufferin' Dufferin' Bus Route",
+        "imageUrl": null
+      }
+    ],
+    "spadina": [
+      {
+        "code": "spadina",
+        "type": "task",
+        "title": "Spadina Station",
+        "description": "Spadina is a meeting point of lines 1 and 2. Roll a die: If it's 5 or higher, you can collect the tile at Spadina and skip the challenge at a station on line 1 or 2 that is the die's number away from Spadina (Spadina not included). Otherwise, you must wait five minutes before you can collect the tile from Spadina station and continue on your way.",
+        "flavorText": "Clairvoyance",
+        "imageUrl": null
+      }
+    ],
+    "dupont": [
+      {
+        "code": "dupont",
+        "type": "task",
+        "title": "Dupont Station",
+        "description": "Build your own castle near Casa Loma! Build a self-supporting structure that is at least six inches tall and six inches wide.",
+        "flavorText": "It's not the size that matters 😏",
+        "imageUrl": null
+      }
+    ],
+    "bathurst": [
+      {
+        "code": "bathurst",
+        "type": "task",
+        "title": "Bathurst Station",
+        "description": "The \"Korean Village Restaurant\" is home to the NICEST MAN in Toronto! As remembrance of all the free food he' given us, visit his restaurant and leave a Google review. You do not need to enter the restaurant.",
+        "flavorText": "The Nicest Man in Toronto",
+        "imageUrl": null
+      }
+    ],
+    "yorkdale": [
+      {
+        "code": "yorkdale-0",
+        "type": "task",
+        "title": "Yorkdale Station",
+        "description": "Evelyn is hiding somewhere in Yorkdale mall, and you have to find her! Luckily for you, she was spotted in the image below. Find her location and take a selfie in the same spot.",
+        "flavorText": "Where is Evelyn?",
+        "imageUrl": "/challenges/yorkdale/0.jpg"
+      },
+      {
+        "code": "yorkdale-1",
+        "type": "task",
+        "title": "Yorkdale Station",
+        "description": "Evelyn is hiding somewhere in Yorkdale mall, and you have to find her! Luckily for you, she was spotted in the image below. Find her location and take a selfie in the same spot.",
+        "flavorText": "Where is Evelyn?",
+        "imageUrl": "/challenges/yorkdale/1.jpg"
+      },
+      {
+        "code": "yorkdale-2",
+        "type": "task",
+        "title": "Yorkdale Station",
+        "description": "Evelyn is hiding somewhere in Yorkdale mall, and you have to find her! Luckily for you, she was spotted in the image below. Find her location and take a selfie in the same spot.",
+        "flavorText": "Where is Evelyn?",
+        "imageUrl": "/challenges/yorkdale/2.jpg"
+      },
+      {
+        "code": "yorkdale-3",
+        "type": "task",
+        "title": "Yorkdale Station",
+        "description": "Evelyn is hiding somewhere in Yorkdale mall, and you have to find her! Luckily for you, she was spotted in the image below. Find her location and take a selfie in the same spot.",
+        "flavorText": "Where is Evelyn?",
+        "imageUrl": "/challenges/yorkdale/3.jpg"
+      },
+      {
+        "code": "yorkdale-4",
+        "type": "task",
+        "title": "Yorkdale Station",
+        "description": "Evelyn is hiding somewhere in Yorkdale mall, and you have to find her! Luckily for you, she was spotted in the image below. Find her location and take a selfie in the same spot.",
+        "flavorText": "Where is Evelyn?",
+        "imageUrl": "/challenges/yorkdale/4.jpg"
+      },
+      {
+        "code": "yorkdale-5",
+        "type": "task",
+        "title": "Yorkdale Station",
+        "description": "Evelyn is hiding somewhere in Yorkdale mall, and you have to find her! Luckily for you, she was spotted in the image below. Find her location and take a selfie in the same spot.",
+        "flavorText": "Where is Evelyn?",
+        "imageUrl": "/challenges/yorkdale/5.jpg"
+      },
+      {
+        "code": "yorkdale-6",
+        "type": "task",
+        "title": "Yorkdale Station",
+        "description": "Evelyn is hiding somewhere in Yorkdale mall, and you have to find her! Luckily for you, she was spotted in the image below. Find her location and take a selfie in the same spot.",
+        "flavorText": "Where is Evelyn?",
+        "imageUrl": "/challenges/yorkdale/6.jpg"
+      },
+      {
+        "code": "yorkdale-7",
+        "type": "task",
+        "title": "Yorkdale Station",
+        "description": "Evelyn is hiding somewhere in Yorkdale mall, and you have to find her! Luckily for you, she was spotted in the image below. Find her location and take a selfie in the same spot.",
+        "flavorText": "Where is Evelyn?",
+        "imageUrl": "/challenges/yorkdale/7.jpg"
+      },
+      {
+        "code": "yorkdale-8",
+        "type": "task",
+        "title": "Yorkdale Station",
+        "description": "Evelyn is hiding somewhere in Yorkdale mall, and you have to find her! Luckily for you, she was spotted in the image below. Find her location and take a selfie in the same spot.",
+        "flavorText": "Where is Evelyn?",
+        "imageUrl": "/challenges/yorkdale/8.jpg"
+      },
+      {
+        "code": "yorkdale-9",
+        "type": "task",
+        "title": "Yorkdale Station",
+        "description": "Evelyn is hiding somewhere in Yorkdale mall, and you have to find her! Luckily for you, she was spotted in the image below. Find her location and take a selfie in the same spot.",
+        "flavorText": "Where is Evelyn?",
+        "imageUrl": "/challenges/yorkdale/9.jpg"
+      }
+    ],
+    "museum": [
+      {
+        "code": "museum",
+        "type": "task",
+        "title": "Museum Station",
+        "description": "There are a lot of old items at the ROM, but I want to see something truly unique! Find an ancient relic that is at least 50 years old and attempt to identify its age. The relice must not be a building, but it can be any other structure or item. The designated historian on your team gets two attempts at \"dating\" their chosen relic, and these two attempts may be used on the same relic or different relics. If the historian is wrong, they may not learn the true age of the relic (the other person must verify). The historian is allowed an error range of ten years.",
+        "flavorText": "Date a relic 🧓",
+        "imageUrl": null
+      }
+    ],
+    "queens-park": [
+      {
+        "code": "queens-park",
+        "type": "task",
+        "title": "Queen's Park Station",
+        "description": "Time for a photo op! Take a photo with a bona fide queen. One player must take a selfie with a queen; this may be a portrait, a statue, or any visual representation of a queen.",
+        "flavorText": "Photo op!",
+        "imageUrl": "/challenges/queens-park.png"
+      }
+    ],
+    "st-andrew": [
+      {
+        "code": "st-andrew",
+        "type": "task",
+        "title": "St. Andrew Station",
+        "description": "Much like everyday finance bros, we're going to partake in soe rudimentary analytics. Pick any establishment's front door and observe the passage of people through it. Afterward, guess how many people will pass through the doorway in the next five minutes. Following your guess, record and observe the amount of people passing through the doorway in that time. You complete the challenge if the number of people passing is within 15% of your guess. If the establishment has more than one front door, pick any one doorway. Every passage through the doorway is a unique instance (the same person can pass three times, and it will count as three people passing through).",
+        "flavorText": "Predictive Analytics",
+        "imageUrl": "/challenges/st-andrew.png"
+      }
+    ],
+    "union": [
+      {
+        "code": "union-0",
+        "type": "task",
+        "title": "Union Station",
+        "description": "The CN Tower is 553 metres tall. Starting at the base of the CN tower, travel 553m in any direction. At the end of your journey, you must still be able to view the CN tower.",
+        "flavorText": "Close enough!",
+        "imageUrl": "/challenges/union/0.png"
+      },
+      {
+        "code": "union-1",
+        "type": "task",
+        "title": "Union Station - Beaver",
+        "description": "Take a selfie with Infinite Welcome beaver! They are somewhere in the Union Station great hall.",
+        "flavorText": "Beaver!",
+        "imageUrl": "/challenges/union/1.jpg"
+      },
+      {
+        "code": "union-2",
+        "type": "task",
+        "title": "Union Station - Beaver",
+        "description": "Take a selfie with Panama beaver! They are somewhere in the Union Station food court.",
+        "flavorText": "Beaver!",
+        "imageUrl": "/challenges/union/2.jpg"
+      }
+    ],
+    "king": [
+      {
+        "code": "king",
+        "type": "task",
+        "title": "King Station",
+        "description": "Treat yourself with a five-course meal! The meal must consist of five distinct food items: Appetizer, soup, entrée, salad, and dessert. Each item must loosely fit within the definition of a coures (i.e. you cannot have five different candies as all five courses, but water can be considered a \"soup\"). Only one player needs to complete this challenge.",
+        "flavorText": "Eat like a king!",
+        "imageUrl": null
+      }
+    ],
+    "queen": [
+      {
+        "code": "queen",
+        "type": "task",
+        "title": "Queen Station",
+        "description": "Let out your inner fashionista! One player must describe a clothing item that they would wear as a queen. It must have three distinct and recognizable features that are agreed upon. Then, the other player must go into Eaton Center and find and take a picture of a piece of clothing that matches that description. Features must have a form and a colour attributed to them (ex. a red shirt with a white collar and black buttons).",
+        "flavorText": "Dress like a queen!",
+        "imageUrl": null
+      }
+    ],
+    "college": [
+      {
+        "code": "college",
+        "type": "task",
+        "title": "College Station",
+        "description": "One player is a visiting professor from the prestigious TEMU College, and they will share their knowledge. They must pick a category (however specific) of a topic that they are knowledgable in and teach a five minute course on it. The other player must then take an online quiz (ex. Sporcle, Quiz.com, etc.) on that subject and pass the course by scoring at least 50%. The subject cannot be mutually agreed upon and cannot be (to the best of your judgement) something that the other player is knowledgeable in (ex. \"Indie games that Edward likes\"). The quiz cannot be vetted beforehand, and the questions can only be viewed on attempt.",
+        "flavorText": "TEMU Course at TMU College",
+        "imageUrl": null
+      }
+    ],
+    "bloor-yonge": [
+      {
+        "code": "bloor-yonge",
+        "type": "task",
+        "title": "Bloor-Yonge Station",
+        "description": "I'm thinking of a number...1000! Find a book at the nearest library. The designated reader of the group must read a short story of at least 1000 words out loud to their partner. Happy reading!",
+        "flavorText": "Get that word count in!",
+        "imageUrl": null
+      }
+    ],
+    "st-clair": [
+      {
+        "code": "st-clair",
+        "type": "task",
+        "title": "St. Clair Station",
+        "description": "St. Clair Station's name came from the 1852 novel \"Uncle Tom's Cabin\", which has its namesake character of Augustine St. Clair. Find this novel in a nearby bookstore; if not available, find any piece of writing by the same author.",
+        "flavorText": "Find Clair",
+        "imageUrl": null
+      }
+    ],
+    "eglinton": [
+      {
+        "code": "eglinton",
+        "type": "task",
+        "title": "Eglinton Station",
+        "description": "Time to play a playground classic: \"Hot and Cold\"! One player must secretly pick an establishment at least five minutes away by walking from Eglinton station. The other player, starting at Eglinton station, must ask questions about the location relative to other locations, and the first player must answer \"hot\" if the direction or location they have chosen is closer than their previous guess (ex. Q: \"Is it the library?\" A: \"Hot\"). The guesser is permitted up to ten questions. You may progress once the location has been correctly guessed.",
+        "flavorText": "Hot & Cold",
+        "imageUrl": null
+      }
+    ],
+    "aga-khan": [
+      {
+        "code": "aga-khan",
+        "type": "task",
+        "title": "Aga Khan Park & Museum Station",
+        "description": "Photograph three different flowers in or around Aga Khan Park.",
+        "flavorText": "Flower picking 🌸",
+        "imageUrl": null
+      }
+    ],
+    "golden-mile": [
+      {
+        "code": "golden-mile",
+        "type": "task",
+        "title": "Golden Mile Station",
+        "description": "Travel 1.6 miles (verifiable by Strava or any other distance tracker).",
+        "flavorText": "Travel a Golden Mile",
+        "imageUrl": null
+      }
+    ],
+    "warden": [
+      {
+        "code": "warden",
+        "type": "task",
+        "title": "Warden Station",
+        "description": "Photograph three distinct non-human animals around Warden station.",
+        "flavorText": "Hey, what's that?",
+        "imageUrl": null
+      }
+    ],
+    "main-street": [
+      {
+        "code": "main-street",
+        "type": "task",
+        "title": "Main Street Station",
+        "description": "Prove your athletic prowess! Go to East Toronto Athletic Field and play a game of \"Red Light, Green Light\". One player will stand at the destination and face away from the runner. While their back is turned, the runner must try to move to reach the first player, but must freeze when the other player turns around. The designated runner must start at a distance of 50 feet from their teammate and must win (tap their teammate's shoulder) to progress. If the field is closed, the game may be played anywhere that is judged to besafe.",
+        "flavorText": "Red Light! Green Light!🚦",
+        "imageUrl": null
+      }
+    ],
+    "greenwood": [
+      {
+        "code": "greenwood",
+        "type": "task",
+        "title": "Greenwood Station",
+        "description": "Greenwood station is home to a railyard. I'm sad to see these trains not running, so let's create our own! Create a 300 metre train route with at least one turn. At least two people (not including yourselves) should travel this train route in its entirety.",
+        "flavorText": "I'll do it myself!",
+        "imageUrl": null
+      }
+    ],
+    "broadview": [
+      {
+        "code": "broadview",
+        "type": "task",
+        "title": "Broadview Station",
+        "description": "Construct a bridge of at minimum 10 inches in span. The bridge can be made from any material you can find. The bridge must be self-supporting for at least ten seconds.",
+        "flavorText": "Build Bridges at Broadview 🌉",
+        "imageUrl": null
+      }
+    ]
+  }
+}

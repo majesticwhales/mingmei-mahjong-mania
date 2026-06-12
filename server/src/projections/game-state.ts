@@ -145,6 +145,15 @@ export interface AtStationChallengeDto {
   title: string;
   description: string | null;
   flavorText: string | null;
+  /**
+   * Optional illustration URL. Free-text TEXT from `challenges.image_url`;
+   * the client renders it inside `ChallengeModal` when present. Typically
+   * an absolute path served by the client static bundle (e.g.
+   * `/challenges/bay.png` from `client/public/challenges/`), but external
+   * URLs are accepted verbatim. `null` when the challenge has no
+   * illustration.
+   */
+  imageUrl: string | null;
   status: "available" | "in_progress" | "cooldown";
   /** Present when `status === "in_progress"`. */
   instanceId?: string;
@@ -1000,7 +1009,7 @@ export async function buildCurrentChallenge(params: {
       {
         model: Challenge,
         required: true,
-        attributes: ["id", "title", "description", "flavorText"],
+        attributes: ["id", "title", "description", "flavorText", "imageUrl"],
       },
     ],
   });
@@ -1034,6 +1043,7 @@ export async function buildCurrentChallenge(params: {
     title: topRow.challenge.title,
     description: topRow.challenge.description,
     flavorText: topRow.challenge.flavorText,
+    imageUrl: topRow.challenge.imageUrl,
     status,
     ...(instanceId !== undefined ? { instanceId } : {}),
     ...(cooldownUntil !== undefined ? { cooldownUntil } : {}),

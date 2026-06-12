@@ -68,6 +68,36 @@ describe("buildGameStateProjection - atStation challenge", () => {
       title: "Tap the pillar",
       description: "Tag the eastern pillar on the platform.",
       flavorText: "Watch your step.",
+      imageUrl: null,
+      status: "available",
+    });
+  });
+
+  it("round-trips imageUrl from challenges.image_url through AtStationChallengeDto", async () => {
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+    const seed = await attachChallengeToGameNode({
+      gameNodeId: bayId,
+      title: "Bay meet-cute",
+      description: "Find someone in a red scarf.",
+      imageUrl: "/challenges/bay.png",
+    });
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+
+    expect(projection.atStation!.currentChallenge).toEqual({
+      challengeId: seed.challengeId,
+      title: "Bay meet-cute",
+      description: "Find someone in a red scarf.",
+      flavorText: null,
+      imageUrl: "/challenges/bay.png",
       status: "available",
     });
   });

@@ -300,6 +300,7 @@ describe("StationPanel — useNodeView integration", () => {
       title: "Test",
       description: "Test challenge",
       flavorText: null,
+      imageUrl: null,
       status: "cooldown",
       cooldownUntil,
     };
@@ -329,35 +330,6 @@ describe("StationPanel — useNodeView integration", () => {
     expect(cooldown!.querySelector("time")?.getAttribute("datetime")).toBe(
       cooldownUntil,
     );
-  });
-
-  it("respects the scaffold override — shows the challenge button even when the server says swap is enabled (Phase H legacy)", () => {
-    useNodeViewMock.mockReturnValue({
-      data: makeNodeView({
-        availableActions: [
-          makeAction("check_out", true),
-          // Server is happy to let us swap — no challenge configured.
-          makeAction("swap_tile", true),
-          makeAction("swap_location_tiles", true),
-          makeAction("start_challenge", false, "no_challenge_at_station"),
-          makeAction("claim_win", false, "not_tenpai"),
-        ],
-      }),
-      loading: false,
-      error: null,
-      refresh: vi.fn(),
-    });
-
-    mountStationPanel(
-      {
-        viewingNodeId: "node-1",
-        showChallengeOverride: true,
-      },
-      makeAtStation({ nodeId: "node-1" }),
-    );
-
-    expect(screen.queryByRole("button", { name: /swap tile/i })).toBeNull();
-    expect(screen.getByRole("button", { name: /view challenge/i })).toBeTruthy();
   });
 
   it("renders 'Check out from <name>' (without the at-station action cluster) when browsing a different station while checked in", () => {
