@@ -311,32 +311,282 @@ describe("buildGameStateProjection - atStation challenge", () => {
     expect(afterSwap.atStation!.creditEarnedInSession).toBe(true);
   });
 
-  it("returns the sort_order=0 challenge when a node has multiple challenges queued", async () => {
-    const fixture = await setupLightweightGame({
-      nodeCodes: ["bay"],
-      startNodeCodeBySlot: { 1: "bay" },
-    });
-    const participant = fixture.participants[0]!;
-    const bayId = fixture.nodeIdByCode.get("bay")!;
-    const first = await attachChallengeToGameNode({
-      gameNodeId: bayId,
-      sortOrder: 0,
-      title: "First",
-    });
-    await attachChallengeToGameNode({
-      gameNodeId: bayId,
-      sortOrder: 1,
-      title: "Second",
+  describe("per-team challenge cycle at multi-challenge stations", () => {
+    // The picker rule (see `pickCurrentChallengeForTeam`):
+    //   * no prior attempt -> sort_order 0
+    //   * latest is `in_progress` or `failed` -> pin same row
+    //   * latest is `completed` -> advance, wrap at end
+    // These tests cover the rule end-to-end against `buildCurrentChallenge`;
+    // the parallel set in `start-challenge.test.ts` covers the handler.
+    interface QueuedSeed {
+      challengeId: string;
+      gameNodeChallengeId: string;
+      title: string;
+    }
+
+    async function seedQueue(
+      gameNodeId: string,
+      titles: ReadonlyArray<string>,
+    ): Promise<QueuedSeed[]> {
+      const out: QueuedSeed[] = [];
+      for (let i = 0; i < titles.length; i += 1) {
+        const seed = await attachChallengeToGameNode({
+          gameNodeId,
+          sortOrder: i,
+          title: titles[i]!,
+        });
+        out.push({
+          challengeId: seed.challengeId,
+          gameNodeChallengeId: seed.gameNodeChallengeId,
+          title: titles[i]!,
+        });
+      }
+      return out;
+    }
+
+    async function seedResolvedInstance(args: {
+      gameId: string;
+      gameTeamId: string;
+      seed: QueuedSeed;
+      status: "completed" | "failed";
+      reason: "completed" | "explicit" | "checkout";
+      cooldownAgoMs?: number;
+    }): Promise<void> {
+      const now = Date.now();
+      // Default cooldown ten minutes in the past so the row is no
+      // longer cooldown-gated when the projection samples it.
+      const cooldownAt = new Date(now - (args.cooldownAgoMs ?? 10 * 60 * 1000));
+      const resolvedAt = new Date(cooldownAt.getTime() - 1_000);
+      await GameChallengeInstance.create({
+        gameId: args.gameId,
+        gameTeamId: args.gameTeamId,
+        challengeId: args.seed.challengeId,
+        gameNodeChallengeId: args.seed.gameNodeChallengeId,
+        status: args.status,
+        assignedAt: new Date(resolvedAt.getTime() - 60_000),
+        resolvedAt,
+        cooldownUntil: cooldownAt,
+        resolutionPayload: { reason: args.reason },
+      });
+    }
+
+    it("surfaces sort_order=0 on a team's first visit", async () => {
+      const fixture = await setupLightweightGame({
+        nodeCodes: ["bay"],
+        startNodeCodeBySlot: { 1: "bay" },
+      });
+      const participant = fixture.participants[0]!;
+      const bayId = fixture.nodeIdByCode.get("bay")!;
+      const [first] = await seedQueue(bayId, ["First", "Second", "Third"]);
+
+      const projection = await buildGameStateProjection(
+        fixture.gameId,
+        participant.gameTeamId,
+      );
+
+      expect(projection.atStation!.currentChallenge!.challengeId).toBe(
+        first!.challengeId,
+      );
+      expect(projection.atStation!.currentChallenge!.title).toBe("First");
+      expect(projection.atStation!.currentChallenge!.status).toBe("available");
     });
 
-    const projection = await buildGameStateProjection(
-      fixture.gameId,
-      participant.gameTeamId,
-    );
-    expect(projection.atStation!.currentChallenge!.challengeId).toBe(
-      first.challengeId,
-    );
-    expect(projection.atStation!.currentChallenge!.title).toBe("First");
+    it("advances to the next sort_order after the team completes the current row", async () => {
+      const fixture = await setupLightweightGame({
+        nodeCodes: ["bay"],
+        startNodeCodeBySlot: { 1: "bay" },
+      });
+      const participant = fixture.participants[0]!;
+      const bayId = fixture.nodeIdByCode.get("bay")!;
+      const queue = await seedQueue(bayId, ["First", "Second", "Third"]);
+      await seedResolvedInstance({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        seed: queue[0]!,
+        status: "completed",
+        reason: "completed",
+      });
+
+      const projection = await buildGameStateProjection(
+        fixture.gameId,
+        participant.gameTeamId,
+      );
+
+      expect(projection.atStation!.currentChallenge!.challengeId).toBe(
+        queue[1]!.challengeId,
+      );
+      expect(projection.atStation!.currentChallenge!.title).toBe("Second");
+      // Row 1 has no history of its own -> status falls back to available.
+      expect(projection.atStation!.currentChallenge!.status).toBe("available");
+    });
+
+    it("pins to the same row after an explicit forfeit and surfaces its cooldown", async () => {
+      const fixture = await setupLightweightGame({
+        nodeCodes: ["bay"],
+        startNodeCodeBySlot: { 1: "bay" },
+      });
+      const participant = fixture.participants[0]!;
+      const bayId = fixture.nodeIdByCode.get("bay")!;
+      const queue = await seedQueue(bayId, ["First", "Second", "Third"]);
+      // Cooldown still in the future to assert it surfaces.
+      const futureCooldownAgoMs = -5 * 60 * 1000;
+      await seedResolvedInstance({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        seed: queue[0]!,
+        status: "failed",
+        reason: "explicit",
+        cooldownAgoMs: futureCooldownAgoMs,
+      });
+
+      const projection = await buildGameStateProjection(
+        fixture.gameId,
+        participant.gameTeamId,
+      );
+
+      expect(projection.atStation!.currentChallenge!.challengeId).toBe(
+        queue[0]!.challengeId,
+      );
+      expect(projection.atStation!.currentChallenge!.status).toBe("cooldown");
+    });
+
+    it("treats an auto-forfeit (reason='checkout') the same as an explicit forfeit", async () => {
+      const fixture = await setupLightweightGame({
+        nodeCodes: ["bay"],
+        startNodeCodeBySlot: { 1: "bay" },
+      });
+      const participant = fixture.participants[0]!;
+      const bayId = fixture.nodeIdByCode.get("bay")!;
+      const queue = await seedQueue(bayId, ["First", "Second", "Third"]);
+      await seedResolvedInstance({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        seed: queue[0]!,
+        status: "failed",
+        reason: "checkout",
+      });
+
+      const projection = await buildGameStateProjection(
+        fixture.gameId,
+        participant.gameTeamId,
+      );
+
+      expect(projection.atStation!.currentChallenge!.challengeId).toBe(
+        queue[0]!.challengeId,
+      );
+    });
+
+    it("wraps back to sort_order=0 after the team completes every row in the queue", async () => {
+      const fixture = await setupLightweightGame({
+        nodeCodes: ["bay"],
+        startNodeCodeBySlot: { 1: "bay" },
+      });
+      const participant = fixture.participants[0]!;
+      const bayId = fixture.nodeIdByCode.get("bay")!;
+      const queue = await seedQueue(bayId, ["First", "Second", "Third"]);
+      // Seed completions chronologically — `createdAt` ordering matters
+      // because the picker keys off the team's most-recent instance.
+      for (let i = 0; i < queue.length; i += 1) {
+        await seedResolvedInstance({
+          gameId: fixture.gameId,
+          gameTeamId: participant.gameTeamId,
+          seed: queue[i]!,
+          status: "completed",
+          reason: "completed",
+          // Older completions first; latest = the last row.
+          cooldownAgoMs: (queue.length - i) * 10 * 60 * 1000,
+        });
+      }
+
+      const projection = await buildGameStateProjection(
+        fixture.gameId,
+        participant.gameTeamId,
+      );
+
+      expect(projection.atStation!.currentChallenge!.challengeId).toBe(
+        queue[0]!.challengeId,
+      );
+      // Row 0 has its own (long-elapsed) completion; cooldown decoded
+      // as elapsed -> status stays `available`.
+      expect(projection.atStation!.currentChallenge!.status).toBe("available");
+    });
+
+    it("scopes the cycle per team — team A's completions don't advance team B's pick", async () => {
+      const fixture = await setupLightweightGame({
+        nodeCodes: ["bay"],
+        startNodeCodeBySlot: { 1: "bay", 2: "bay" },
+      });
+      const teamA = fixture.participants[0]!;
+      const teamB = fixture.participants[1]!;
+      const bayId = fixture.nodeIdByCode.get("bay")!;
+      const queue = await seedQueue(bayId, ["First", "Second", "Third"]);
+      await seedResolvedInstance({
+        gameId: fixture.gameId,
+        gameTeamId: teamA.gameTeamId,
+        seed: queue[0]!,
+        status: "completed",
+        reason: "completed",
+      });
+
+      const projectionA = await buildGameStateProjection(
+        fixture.gameId,
+        teamA.gameTeamId,
+      );
+      const projectionB = await buildGameStateProjection(
+        fixture.gameId,
+        teamB.gameTeamId,
+      );
+
+      expect(projectionA.atStation!.currentChallenge!.challengeId).toBe(
+        queue[1]!.challengeId,
+      );
+      expect(projectionB.atStation!.currentChallenge!.challengeId).toBe(
+        queue[0]!.challengeId,
+      );
+    });
+
+    it("pins to the in-progress row even when it isn't sort_order=0", async () => {
+      // Mid-attempt the player must keep seeing the card they started.
+      // Simulate the rare race where the team somehow started row 1
+      // directly (e.g. row 0 was completed, then row 1 started, then
+      // the projection is sampled).
+      const fixture = await setupLightweightGame({
+        nodeCodes: ["bay"],
+        startNodeCodeBySlot: { 1: "bay" },
+      });
+      const participant = fixture.participants[0]!;
+      const bayId = fixture.nodeIdByCode.get("bay")!;
+      const queue = await seedQueue(bayId, ["First", "Second", "Third"]);
+      // Older completion on row 0 followed by an in-progress row 1.
+      await seedResolvedInstance({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        seed: queue[0]!,
+        status: "completed",
+        reason: "completed",
+      });
+      const inFlight = await GameChallengeInstance.create({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        challengeId: queue[1]!.challengeId,
+        gameNodeChallengeId: queue[1]!.gameNodeChallengeId,
+        status: "in_progress",
+        assignedAt: new Date(),
+      });
+
+      const projection = await buildGameStateProjection(
+        fixture.gameId,
+        participant.gameTeamId,
+      );
+
+      expect(projection.atStation!.currentChallenge!.challengeId).toBe(
+        queue[1]!.challengeId,
+      );
+      expect(projection.atStation!.currentChallenge!.status).toBe("in_progress");
+      expect(projection.atStation!.currentChallenge!.instanceId).toBe(
+        inFlight.id,
+      );
+    });
   });
 
   it("short-circuits atStation to null once the team is hand-completed (Phase J)", async () => {

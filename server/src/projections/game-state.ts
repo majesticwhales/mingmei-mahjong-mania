@@ -2,14 +2,11 @@ import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.ts";
 import { visibilityIncludes } from "../game/visibility-mode.ts";
 import { HttpError } from "../lib/http-error.ts";
-import { Challenge } from "../models/challenge.ts";
 import { Game, type GameStatus } from "../models/game.ts";
-import { GameChallengeInstance } from "../models/game-challenge-instance.ts";
 import { GameEdge } from "../models/game-edge.ts";
 import { GameLine } from "../models/game-line.ts";
 import { GameLocationTeamVisibility } from "../models/game-location-team-visibility.ts";
 import { GameNode } from "../models/game-node.ts";
-import { GameNodeChallenge } from "../models/game-node-challenge.ts";
 import { GameRuleFlag } from "../models/game-rule-flag.ts";
 import { GameScheduledJob } from "../models/game-scheduled-job.ts";
 import { GameTeam } from "../models/game-team.ts";
@@ -22,6 +19,7 @@ import {
   type WindRank,
 } from "../scoring/index.ts";
 import { teamCodeToWindRank } from "../scoring/seat-wind.ts";
+import { pickCurrentChallengeForTeam } from "../services/challenge-queue.ts";
 import {
   isSlotUnlocked,
   mapUnlockedSlotIndices,
@@ -981,13 +979,16 @@ function buildAtStationTiles(params: {
 }
 
 /**
- * Resolve the top challenge at a station plus the team's relationship
- * with it (TDD §3.8). Two queries:
+ * Resolve the team's current challenge at a station plus the team's
+ * relationship with it (TDD §3.8). Row selection is delegated to
+ * `pickCurrentChallengeForTeam` so the per-team cycle rule
+ * (`failed` / `in_progress` pin, `completed` advance, wrap) stays in
+ * one place — the projection here and the `START_CHALLENGE` handler
+ * resolve the same row for the same team.
  *
- *   1. The `sort_order=0` `game_node_challenges` row + its catalog
- *      `challenges` row (title / description / flavour text).
- *   2. The team's most recent `game_challenge_instances` row for that
- *      node-challenge, used to derive the three observable states.
+ * Two queries in the common case, three after a `completed` advance —
+ * the helper handles that. The status decoding below mirrors the
+ * three observable states surfaced to the client.
  *
  * Returns `null` when the station has no challenges configured (the
  * back-compat path). Pure read — never mutates state. Exported so the
@@ -1002,25 +1003,15 @@ export async function buildCurrentChallenge(params: {
 }): Promise<AtStationChallengeDto | null> {
   const { gameNodeId, gameTeamId, nowMs } = params;
 
-  const topRow = await GameNodeChallenge.findOne({
-    where: { gameNodeId },
-    order: [["sortOrder", "ASC"]],
-    include: [
-      {
-        model: Challenge,
-        required: true,
-        attributes: ["id", "title", "description", "flavorText", "imageUrl"],
-      },
-    ],
+  const picked = await pickCurrentChallengeForTeam({
+    gameNodeId,
+    gameTeamId,
+    includeChallenge: true,
   });
-  if (!topRow || !topRow.challenge) {
+  if (!picked || !picked.row.challenge) {
     return null;
   }
-
-  const latestInstance = await GameChallengeInstance.findOne({
-    where: { gameTeamId, gameNodeChallengeId: topRow.id },
-    order: [["createdAt", "DESC"]],
-  });
+  const { row: topRow, latestInstanceForRow: latestInstance } = picked;
 
   let status: AtStationChallengeDto["status"] = "available";
   let instanceId: string | undefined;
