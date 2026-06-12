@@ -6,6 +6,7 @@ import { HttpError } from "../../transport/httpError";
 import type { NodeViewDto } from "../../wire/nodeView";
 import type { RecentEventDto } from "../../wire/projection";
 import { GameContext } from "./Context";
+import type { GameState } from "./types";
 import { useNodeView } from "./useNodeView";
 
 // Phase L §5.4 — `useNodeView` hits `GET /api/games/:id/nodes/:nodeId/view`
@@ -76,19 +77,19 @@ function buildProvider(opts: {
 } = {}) {
   const { status = "active", gameId = "game-1", gameTeamId = "team-1" } = opts;
   return function Provider({ children }: { children: ReactNode }) {
-    const state =
+    const state: GameState =
       status === "active"
-        ? ({
+        ? {
             status: "active",
             id: gameId,
             gameTeamId,
             projection: makeProjection({ gameId }),
             eventLog: [],
             notifications: [],
-          } as const)
+          }
         : status === "loading"
-          ? ({ status: "loading", id: gameId } as const)
-          : ({ status: "absent" } as const);
+          ? { status: "loading", id: gameId }
+          : { status: "absent" };
     return (
       <GameContext.Provider
         value={{
