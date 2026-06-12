@@ -51,16 +51,25 @@ export interface UseNodeViewResult {
 export function useNodeView(nodeId: string | null): UseNodeViewResult {
   const { state } = useGame();
   const gameId = state.status === "active" ? state.id : null;
+  const targetKey = gameId && nodeId ? `${gameId}|${nodeId}` : null;
 
   const [data, setData] = useState<NodeViewDto | null>(null);
   // Initialise `loading` to match the about-to-fire mount fetch so
   // consumers don't see a `false → true → false` flicker on first
   // render. Lazy initialiser ensures the value is computed exactly
   // once.
-  const [loading, setLoading] = useState<boolean>(() =>
-    Boolean(gameId && nodeId),
-  );
+  const [loading, setLoading] = useState<boolean>(() => Boolean(targetKey));
   const [error, setError] = useState<HttpError | null>(null);
+
+  // Tracks the (gameId, nodeId) pair the current `data` was fetched
+  // for. Whenever the consumer's target diverges, we adjust state
+  // during render (per the React-recommended pattern in
+  // [Adjusting state during a render](https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes))
+  // so the consumer never observes a frame of stale data from the
+  // previous target — and we steer clear of the
+  // `react-hooks/set-state-in-effect` lint that fires when an effect
+  // calls setState synchronously.
+  const [storedKey, setStoredKey] = useState<string | null>(targetKey);
 
   // Monotonic token — every fetch grabs a fresh value and only
   // applies its response when the value still matches. Lets us
@@ -71,20 +80,25 @@ export function useNodeView(nodeId: string | null): UseNodeViewResult {
   // "no fetch" state, so an in-flight response is always ignored
   // when the hook is no longer interested.
   const fetchTokenRef = useRef(0);
-  const gameIdRef = useRef(gameId);
-  const nodeIdRef = useRef(nodeId);
-  gameIdRef.current = gameId;
-  nodeIdRef.current = nodeId;
 
-  const runFetch = useCallback((clearPrevious: boolean) => {
-    const targetGameId = gameIdRef.current;
-    const targetNodeId = nodeIdRef.current;
-    if (!targetGameId || !targetNodeId) return;
-    const token = ++fetchTokenRef.current;
-    if (clearPrevious) setData(null);
-    setLoading(true);
+  if (storedKey !== targetKey) {
+    setStoredKey(targetKey);
+    setData(null);
+    setLoading(Boolean(targetKey));
     setError(null);
-    restClient.getNodeView(targetGameId, targetNodeId).then(
+    // Token bump (to invalidate any in-flight stale fetch) is
+    // deferred to the effect below — mutating refs during render
+    // trips the `react-hooks/refs` lint, and we don't need it here
+    // anyway because the effect will fire on this same commit (its
+    // deps changed) and either bump the token (null branch) or call
+    // `runFetch` (which bumps it internally) before any stale
+    // response can race the new state.
+  }
+
+  const runFetch = useCallback(() => {
+    if (!gameId || !nodeId) return;
+    const token = ++fetchTokenRef.current;
+    restClient.getNodeView(gameId, nodeId).then(
       (result) => {
         if (token !== fetchTokenRef.current) return;
         setData(result);
@@ -100,39 +114,43 @@ export function useNodeView(nodeId: string | null): UseNodeViewResult {
         setLoading(false);
       },
     );
-  }, []);
+  }, [gameId, nodeId]);
 
-  // Mount fetch + re-fetch when (gameId, nodeId) changes. Clear the
-  // previous data because a new nodeId is a logically different
-  // view, so showing stale data while the new one loads would be
-  // confusing. Falling back to the "no fetch" state when either id
-  // is null bumps the token so any in-flight response is dropped.
+  // Mount + re-fetch when the (gameId, nodeId) pair changes. The
+  // render-time adjustment above already cleared previous data and
+  // flipped loading on, so the effect just needs to fire the actual
+  // network request — no synchronous setState in the body. Ref
+  // mutation (the token bump on transitions into the "no fetch"
+  // state) is allowed inside effects, which is where we drop it.
   useEffect(() => {
     if (!gameId || !nodeId) {
       fetchTokenRef.current += 1;
-      setData(null);
-      setLoading(false);
-      setError(null);
       return;
     }
-    runFetch(true);
+    runFetch();
   }, [gameId, nodeId, runFetch]);
 
   // Subscribe to `game.event` while a fetch target is active and
-  // trigger a *background* refresh on every inbound event — pass
-  // `clearPrevious=false` so the previous result stays rendered
-  // until the new one lands. No-op when the target is unset.
+  // trigger a *background* refresh on every inbound event — `data`
+  // stays put while `loading` flips back on so the consumer never
+  // sees a blank state. setState in an external-subscription
+  // callback is the explicitly-allowed exception in the
+  // set-state-in-effect rule.
   useEffect(() => {
     if (!gameId || !nodeId) return undefined;
-    const unsub = onSocketEvent("game.event", () => {
-      runFetch(false);
+    return onSocketEvent("game.event", () => {
+      setLoading(true);
+      setError(null);
+      runFetch();
     });
-    return unsub;
   }, [gameId, nodeId, runFetch]);
 
   const refresh = useCallback(() => {
-    runFetch(false);
-  }, [runFetch]);
+    if (!gameId || !nodeId) return;
+    setLoading(true);
+    setError(null);
+    runFetch();
+  }, [gameId, nodeId, runFetch]);
 
   return { data, loading, error, refresh };
 }
