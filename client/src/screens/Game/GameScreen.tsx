@@ -3,9 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
-import { stationHasClaimableWait } from "../../lib/claimWin";
 import {
-  isChallengeOnCooldown,
   isScaffoldChallenge,
   needsChallengeBeforeSwap,
   resolveCheckedInChallenge,
@@ -193,10 +191,10 @@ export function GameScreen() {
     );
   }, [id, outboxState.byGame]);
 
-  // Phase J — claim affordance: tenpai AND at least one station tile
-  // matches a wait by (suit, rank). We do the match here
-  // (rather than inside StationPanel) so the panel stays a pure
-  // presentational component, mirroring the swap-tile data-flow.
+  // Phase J — `claimWinWaits` still lives here because the
+  // `<ClaimWinModal />` needs the full wait list (the StationPanel
+  // itself derives the simpler "is the button enabled" bit from
+  // `nodeView.availableActions[].claim_win` directly).
   const claimWinWaits = useMemo(() => {
     if (!projection || handCompleted) return null;
     const analysis = projection.handAnalysis;
@@ -205,15 +203,12 @@ export function GameScreen() {
     return analysis.waits;
   }, [projection, handCompleted]);
 
-  const canClaimWin = useMemo(() => {
-    if (!claimWinWaits || !atStation) return false;
-    // Phase L Chunk 4 B-2: `atStation.tiles` is the exhaustive per-slot
-    // `MapNodeTileDto[]`; `stationHasClaimableWait` filters out the
-    // null-tile (hidden/locked) entries internally.
-    return stationHasClaimableWait(atStation.tiles, claimWinWaits);
-  }, [claimWinWaits, atStation]);
-
-  const challengeGateActive = useMemo(
+  // Phase H legacy scaffold gate: `needsChallengeBeforeSwap` returns
+  // true when the team is at a station that has no server-configured
+  // challenges yet AND hasn't manually completed the placeholder. The
+  // server's `availableActions[]` can't see the scaffold (it only
+  // knows about real challenges), so we feed this in as an override.
+  const showChallengeOverride = useMemo(
     () => needsChallengeBeforeSwap(atStation, scaffoldChallengeComplete),
     [atStation, scaffoldChallengeComplete],
   );
@@ -221,15 +216,6 @@ export function GameScreen() {
     () => resolveCheckedInChallenge(atStation, checkedInNodeName, scaffoldChallengeComplete),
     [atStation, checkedInNodeName, scaffoldChallengeComplete],
   );
-  const challengeOnCooldown = useMemo(
-    () => isChallengeOnCooldown(atStation),
-    [atStation],
-  );
-  const showSwapTile = !challengeGateActive;
-  const showChallenge = challengeGateActive;
-  const challengeCooldownUntil = challengeOnCooldown
-    ? atStation?.currentChallenge?.cooldownUntil
-    : undefined;
 
   const runCommand = useCallback(async (task: () => Promise<void>) => {
     try {
@@ -498,9 +484,6 @@ export function GameScreen() {
         <MapShell
           network={network}
           mapNodes={projection.mapNodes}
-          visibilityPhase={projection.visibilityPhase}
-          visibilityPhaseCount={projection.visibilityPhaseCount}
-          phaseDrivenSlotMap={projection.phaseDrivenSlotMap}
           selectedStationId={mapSelectedNodeId}
           onSelectStation={handleSelectStation}
           onMapBackgroundClick={viewingNode ? handleClosePanel : undefined}
@@ -514,18 +497,14 @@ export function GameScreen() {
         />
       )}
       <StationPanel
-        atStation={atStation}
-        viewingNode={viewingNode}
+        viewingNodeId={viewingNode?.id ?? null}
         checkedInNodeName={checkedInNodeName}
         stationLines={stationLines}
         handTiles={projection.handTiles}
         commandsPending={commandsPending}
         checkInPending={checkInPending || isSyncingCheckIn}
         commandsDisabled={gameEnded || Boolean(handCompleted)}
-        canClaimWin={canClaimWin}
-        showSwapTile={showSwapTile}
-        showChallenge={showChallenge}
-        challengeCooldownUntil={challengeCooldownUntil}
+        showChallengeOverride={showChallengeOverride}
         onClose={handleClosePanel}
         onCheckIn={handleCheckIn}
         onCheckOut={handleCheckOut}
