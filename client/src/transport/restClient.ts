@@ -9,6 +9,7 @@ import type {
   MapTemplateSummary,
   StartLobbyResponse,
 } from "../wire/lobby";
+import type { NodeViewDto } from "../wire/nodeView";
 import type { GameSummaryDto } from "../wire/summary";
 import { HttpError } from "./httpError";
 
@@ -217,6 +218,25 @@ export const restClient = {
     return request<GameSummaryDto>({
       method: "GET",
       path: `/api/games/${gameId}/summary`,
+    });
+  },
+  /**
+   * Phase L §3.14 — per-team node view for the StationPanel.
+   *
+   * Returns the exhaustive per-slot `tiles[]` (matching
+   * `mapNodes[teamNode].tiles[]` from the socket projection when the
+   * team isn't at this node, or the at-station-privileged view when
+   * they are), the current challenge, and the action matrix.
+   *
+   * Error codes the caller should plan for:
+   *   - `forbidden` (403) — requester isn't a participant of this game.
+   *   - `node_not_found` (404) — `nodeId` isn't on this game's map.
+   *   - `game_ended` (409) — game terminated; switch to the summary surface.
+   */
+  getNodeView(gameId: string, nodeId: string) {
+    return request<NodeViewDto>({
+      method: "GET",
+      path: `/api/games/${gameId}/nodes/${nodeId}/view`,
     });
   },
 };
