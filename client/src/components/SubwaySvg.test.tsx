@@ -80,9 +80,6 @@ describe("SubwaySvg per-slot rendering (Phase L §3.13)", () => {
       <SubwaySvg
         network={network()}
         mapNodes={[makeNode(tiles)]}
-        visibilityPhase={0}
-        visibilityPhaseCount={3}
-        phaseDrivenSlotMap={false}
         selectedStationId={null}
         onSelectStation={vi.fn()}
       />,
@@ -109,9 +106,6 @@ describe("SubwaySvg per-slot rendering (Phase L §3.13)", () => {
       <SubwaySvg
         network={network()}
         mapNodes={[makeNode(tiles)]}
-        visibilityPhase={0}
-        visibilityPhaseCount={3}
-        phaseDrivenSlotMap={false}
         selectedStationId={null}
         onSelectStation={vi.fn()}
       />,
@@ -143,9 +137,6 @@ describe("SubwaySvg per-slot rendering (Phase L §3.13)", () => {
       <SubwaySvg
         network={network()}
         mapNodes={[makeNode(tiles)]}
-        visibilityPhase={0}
-        visibilityPhaseCount={3}
-        phaseDrivenSlotMap={false}
         selectedStationId={null}
         onSelectStation={vi.fn()}
       />,
@@ -161,35 +152,6 @@ describe("SubwaySvg per-slot rendering (Phase L §3.13)", () => {
     expect(slots[2]!.classList.contains("station-marker__tile-slot--hidden")).toBe(true);
   });
 
-  it("ignores visibilityPhase / phaseDrivenSlotMap when deciding visibility (telemetry only)", () => {
-    // Server says slot 0 is visible, slot 1 is hidden. The phase telemetry
-    // would, pre-Phase-L, have rotated the visible slot to index 1 — we're
-    // verifying that's no longer the case.
-    const tiles: MapNodeTileDto[] = [
-      { slotIndex: 0, tile: tile({ suit: "pin", rank: 5, copyIndex: 0 }), visible: true, locked: false },
-      { slotIndex: 1, tile: null, visible: false, locked: false },
-      { slotIndex: 2, tile: null, visible: false, locked: false },
-    ];
-
-    const { container } = render(
-      <SubwaySvg
-        network={network()}
-        mapNodes={[makeNode(tiles)]}
-        // Stale phase telemetry pointing at slot 1.
-        visibilityPhase={1}
-        visibilityPhaseCount={3}
-        phaseDrivenSlotMap={true}
-        selectedStationId={null}
-        onSelectStation={vi.fn()}
-      />,
-    );
-
-    const slots = container.querySelectorAll(".station-marker__tile-slot");
-    expect(slots[0]!.classList.contains("station-marker__tile-slot--hidden")).toBe(false);
-    expect(slots[1]!.classList.contains("station-marker__tile-slot--hidden")).toBe(true);
-    expect(slots[2]!.classList.contains("station-marker__tile-slot--hidden")).toBe(true);
-  });
-
   it("falls back to face-down placeholders when the node carries no tiles", () => {
     // E.g. the node is absent from `mapNodes` entirely — server omitted
     // it (impossible today, but the renderer must not crash).
@@ -197,9 +159,6 @@ describe("SubwaySvg per-slot rendering (Phase L §3.13)", () => {
       <SubwaySvg
         network={network()}
         mapNodes={[]}
-        visibilityPhase={0}
-        visibilityPhaseCount={3}
-        phaseDrivenSlotMap={false}
         selectedStationId={null}
         onSelectStation={vi.fn()}
       />,
@@ -232,9 +191,6 @@ describe("SubwaySvg per-slot rendering (Phase L §3.13)", () => {
             code: nonTileStation.code,
           }),
         ]}
-        visibilityPhase={0}
-        visibilityPhaseCount={3}
-        phaseDrivenSlotMap={false}
         selectedStationId={null}
         onSelectStation={vi.fn()}
       />,
