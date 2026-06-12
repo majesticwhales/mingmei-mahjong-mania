@@ -98,7 +98,11 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
     expect(node.tiles.map((t) => t.locked)).toEqual([false, true, true]);
   });
 
-  it("slot mode: atStation mirrors mapNodes[teamNode] from the start (Phase L B-2 — no at-station privilege)", async () => {
+  it("slot mode: atStation matches mapNodes[teamNode] when claim and map timers coincide", async () => {
+    // With `slot_unlock_offsets_seconds === slot_map_unlock_offsets_seconds`
+    // the at-station privilege has nothing to flip — every claim-locked
+    // slot is also map-hidden and every claim-unlocked slot is also
+    // map-revealed.
     const fixture = await setupLightweightGame({
       nodeCodes: ["a"],
       startNodeCodeBySlot: { 1: "a" },
@@ -119,9 +123,50 @@ describe("buildGameStateProjection (phase-driven tile slots)", () => {
     const aNode = projection.mapNodes.find((n) => n.code === "a")!;
     expect(aNode.tiles.map((t) => t.visible)).toEqual([true, false, false]);
     expect(aNode.tiles.map((t) => t.locked)).toEqual([false, true, true]);
-    // atStation is the same per-slot view as the team's mapNodes entry
-    // — slots 1 and 2 are hidden-and-locked, not pre-revealed.
     expect(projection.atStation?.tiles).toEqual(aNode.tiles);
+  });
+
+  it("at-station privilege: claim-unlocked slots reveal at the team's station before the map timer fires (TDD §3.3 Tier 2 spec)", async () => {
+    // Tier 2 tile: claim timer at t=0 (claimable from start), map
+    // timer at t=3600 (hidden from the map until 60 min). When the
+    // team is at their station, the at-station privilege flips slot 1
+    // to `visible: true` even though the map view still says hidden.
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["a", "b"],
+      startNodeCodeBySlot: { 1: "a" },
+      nodeTilesByCode: { a: 3, b: 3 },
+      slotsPerNode: 3,
+      visibilityPhaseCount: 3,
+      visibilityMode: "slot",
+      slotUnlockOffsetsSeconds: [0, 0, 3600],
+      slotMapUnlockOffsetsSeconds: [0, 3600, 7200],
+    });
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      fixture.participants[0]!.gameTeamId,
+      { now: new Date() },
+    );
+
+    const aNode = projection.mapNodes.find((n) => n.code === "a")!;
+    const bNode = projection.mapNodes.find((n) => n.code === "b")!;
+    // Map view (everyone, all nodes): only Tier 1 (slot 0) is map-visible.
+    expect(aNode.tiles.map((t) => t.visible)).toEqual([true, false, false]);
+    expect(aNode.tiles.map((t) => t.locked)).toEqual([false, false, true]);
+    expect(bNode.tiles.map((t) => t.visible)).toEqual([true, false, false]);
+    expect(bNode.tiles.map((t) => t.locked)).toEqual([false, false, true]);
+
+    // At the team's station (`a`): Tier 2 (slot 1) flips visible —
+    // claim-unlocked + at-station privilege. Tier 3 (slot 2) stays
+    // hidden because its claim timer (3600s) hasn't elapsed.
+    const stationTiles = projection.atStation?.tiles ?? [];
+    expect(stationTiles.map((t) => t.visible)).toEqual([true, true, false]);
+    expect(stationTiles.map((t) => t.locked)).toEqual([false, false, true]);
+    expect(stationTiles[1]!.tile).not.toBeNull();
+    // The privilege is station-only: `bNode` (not the team's node)
+    // still keeps Tier 2 hidden on the map.
+    expect(bNode.tiles[1]!.visible).toBe(false);
+    expect(bNode.tiles[1]!.tile).toBeNull();
   });
 
   it("slot mode adds map tiles as each slot unlocks", async () => {

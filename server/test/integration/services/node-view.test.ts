@@ -251,6 +251,62 @@ describe("buildNodeView", () => {
     }
   });
 
+  it("applies the at-station privilege when the team is at this node (claim-unlocked + map-hidden → visible)", async () => {
+    // Tier 2 spec (TDD §3.3): slot 1 is claimable from t=0 but map-
+    // hidden until t=3600. When the team is at the node, the at-
+    // station privilege flips slot 1 to `visible: true` even though
+    // the strict map view says hidden.
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay"],
+      startNodeCodeBySlot: { 1: "bay" },
+      nodeTilesByCode: { bay: 2 },
+      slotsPerNode: 2,
+      visibilityMode: "slot",
+      slotUnlockOffsetsSeconds: [0, 0],
+      slotMapUnlockOffsetsSeconds: [0, 3600],
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+
+    const view = await buildNodeView({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      nodeId: bayId,
+    });
+
+    expect(view.tiles.map((t) => t.visible)).toEqual([true, true]);
+    expect(view.tiles.map((t) => t.locked)).toEqual([false, false]);
+    expect(view.tiles[1]!.tile).not.toBeNull();
+  });
+
+  it("withholds the at-station privilege from other nodes — browsing elsewhere keeps the map view", async () => {
+    // Same offsets as the privilege test, but the team is at `north`
+    // and views `bay`. Slot 1's claim timer has fired but the team
+    // isn't at this station, so the strict map rule applies and slot
+    // 1 stays hidden.
+    const fixture = await setupLightweightGame({
+      nodeCodes: ["bay", "north"],
+      startNodeCodeBySlot: { 1: "north" },
+      nodeTilesByCode: { bay: 2, north: 2 },
+      slotsPerNode: 2,
+      visibilityMode: "slot",
+      slotUnlockOffsetsSeconds: [0, 0],
+      slotMapUnlockOffsetsSeconds: [0, 3600],
+    });
+    const participant = fixture.participants[0]!;
+    const bayId = fixture.nodeIdByCode.get("bay")!;
+
+    const view = await buildNodeView({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      nodeId: bayId,
+    });
+
+    expect(view.tiles.map((t) => t.visible)).toEqual([true, false]);
+    expect(view.tiles.map((t) => t.locked)).toEqual([false, false]);
+    expect(view.tiles[1]!.tile).toBeNull();
+  });
+
   it("throws 409 game_ended once the game row flips to ended", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["bay"],

@@ -110,9 +110,12 @@ describe("buildGameStateProjection (visibility mode)", () => {
       expect(bNode.tiles.map((t) => t.visible)).toEqual([false, false]);
       expect(bNode.tiles.map((t) => t.tile)).toEqual([null, null]);
 
-      // Phase L Chunk 4 B-2: atStation is a thin alias of the team's
-      // mapNodes entry — same fog/timer redaction, no at-station
-      // privilege.
+      // The at-station privilege (TDD §3.3) doesn't fire here: slot 1's
+      // claim timer hasn't elapsed (locked=true) AND its map timer is
+      // null, so `nodeFaceUp && (mapVisible || !locked)` collapses to
+      // false either way. atStation matches mapNodes[teamNode] in this
+      // window; they diverge only when a slot is claim-unlocked but
+      // not yet map-revealed (see the dedicated privilege test).
       expect(projection.atStation?.tiles).toEqual(aNode.tiles);
 
       expect(projection.nextVisibilityChangeAt).not.toBeNull();
@@ -210,9 +213,11 @@ describe("buildGameStateProjection (visibility mode)", () => {
       expect(bNode.tiles.map((t) => t.visible)).toEqual([true, false]);
       expect(bNode.tiles.map((t) => t.locked)).toEqual([false, true]);
 
-      // Checked in at `a`: atStation mirrors aNode — slot 0 is
-      // visible, slot 1's `slot_map_unlock_offsets_seconds = null`
-      // hides it from atStation too (no pre-L4 "at-station privilege").
+      // Checked in at `a`: the at-station privilege (TDD §3.3) doesn't
+      // fire because slot 1's claim timer is 60 min away — locked=true
+      // and `mapVisible || !locked` resolves to false. atStation
+      // matches aNode here; the privilege only flips a slot when its
+      // claim timer has elapsed but the map timer hasn't.
       expect(projection.atStation?.tiles).toEqual(aNode.tiles);
 
       expect(projection.nextVisibilityChangeAt).toBeNull();

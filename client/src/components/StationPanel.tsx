@@ -96,11 +96,23 @@ function renderLegacyStationTiles(tiles: MapNodeTileDto[] | undefined) {
   ));
 }
 
-function stationTilesForView(viewingNode: MapNodeDto) {
+function stationTilesForView(
+  viewingNode: MapNodeDto,
+  atStation: AtStationDto | null,
+  isViewingCheckedInStation: boolean,
+) {
+  // At-station privilege (TDD §3.3 Tier 2/3 spec): when the team is
+  // viewing their checked-in station, the server's `atStation.tiles[]`
+  // exposes claim-unlocked slots even when their map-reveal timer
+  // hasn't fired yet. Other views (browsing elsewhere, no check-in)
+  // fall back to the strict map view from `viewingNode.tiles[]`.
+  const tiles = isViewingCheckedInStation && atStation
+    ? atStation.tiles
+    : viewingNode.tiles;
   if (isTileStation(viewingNode.code)) {
-    return renderTripleStationSlots(viewingNode.tiles);
+    return renderTripleStationSlots(tiles);
   }
-  return renderLegacyStationTiles(viewingNode.tiles);
+  return renderLegacyStationTiles(tiles);
 }
 
 export function StationPanel({
@@ -131,7 +143,9 @@ export function StationPanel({
   const isBrowsingElsewhere =
     viewingId != null && checkedInId != null && viewingId !== checkedInId;
   const showCheckIn = viewingId != null && !isViewingCheckedInStation;
-  const stationTiles = viewingNode ? stationTilesForView(viewingNode) : null;
+  const stationTiles = viewingNode
+    ? stationTilesForView(viewingNode, atStation, isViewingCheckedInStation)
+    : null;
   const stationSlotsTriple = Boolean(viewingNode && isTileStation(viewingNode.code));
   const actionsDisabled = commandsPending || commandsDisabled || checkInPending;
 

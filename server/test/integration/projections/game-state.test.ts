@@ -331,13 +331,13 @@ describe("buildGameStateProjection", () => {
     });
   });
 
-  it("multi-slot atStation: tiles[] mirrors mapNodes[teamNode].tiles[] byte-for-byte", async () => {
-    // Phase L Chunk 4 B-2: `atStation.tiles[]` is the same array the
-    // projection emitted for `mapNodes[teamNode].tiles[]`. The pre-L4
-    // "checked-in teams see every tile regardless of fog/timer"
-    // privilege is gone — a locked slot is hidden in `atStation` too,
-    // so the client renders a "locked, opens in X" countdown rather
-    // than the tile face.
+  it("multi-slot atStation: tiles[] matches mapNodes[teamNode].tiles[] when claim and map timers coincide", async () => {
+    // The at-station privilege (TDD §3.3) only flips a slot when its
+    // *claim* timer has elapsed but its *map* timer has not. When
+    // `slot_unlock_offsets_seconds == slot_map_unlock_offsets_seconds`
+    // (mirror default) the privilege never fires — atStation matches
+    // mapNodes[teamNode] byte-for-byte. The privilege-fires case is
+    // covered in `phase-slot-visibility.test.ts`.
     const fixture = await setupLightweightGame({
       nodeCodes: ["a"],
       startNodeCodeBySlot: { 1: "a" },

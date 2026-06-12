@@ -288,18 +288,29 @@ export async function buildNodeView(
   // Phase L §3.13 parity: same fold the projection's per-node loop runs
   // (`!phaseLayerActive || faceUpNodeIds.has(node.id)`). With only one
   // node in scope we substitute a single `findOne` for the projection's
-  // bulk `findAll` — both branches read the same `game_location_team_visibility`
-  // rows so the rendered `visible` / `locked` flags must agree.
+  // bulk `findAll`.
+  //
+  // **At-station privilege** (TDD §3.3 Tier 2/3 spec): when the
+  // requester's team is checked in at this node, the visibility rule
+  // relaxes — claim-unlocked slots are station-visible even before
+  // the map-reveal timer fires. This mirrors the
+  // `buildGameStateProjection` `atStation.tiles[]` rule so the
+  // socket projection and the REST endpoint never disagree.
   const phaseLayerActive = visibilityIncludes(game.visibilityMode, "phase");
   const slotLayerActive = visibilityIncludes(game.visibilityMode, "slot");
   const nodeFaceUp = !phaseLayerActive || visibilityRow != null;
+  const atThisNode = position?.currentGameNodeId === nodeId;
   const tiles: NodeViewTileDto[] = [];
   for (let slotIndex = 0; slotIndex < game.slotsPerNode; slotIndex += 1) {
     const slotMapUnlocked = !slotLayerActive
       || isSlotMapUnlocked(game, slotIndex, nowMs);
-    const visible = nodeFaceUp && slotMapUnlocked;
     const locked = slotLayerActive
       && !isSlotUnlocked(game, slotIndex, nowMs);
+    // Map view: `visible = nodeFaceUp && slotMapUnlocked`.
+    // Station view (at this node): `visible = nodeFaceUp && (slotMapUnlocked || !locked)`.
+    const visible = atThisNode
+      ? nodeFaceUp && (slotMapUnlocked || !locked)
+      : nodeFaceUp && slotMapUnlocked;
     const placement = tilesBySlot.get(slotIndex) ?? null;
     tiles.push({
       slotIndex,

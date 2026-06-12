@@ -647,18 +647,40 @@ export async function buildGameStateProjection(
       })
       : null;
 
-  // Phase L §3.13: `atStation.tiles[]` is sourced from the team's
-  // already-resolved `mapNodes[]` entry — same fog + timer math, no
-  // recomputation. `mapNodes` is built scoped to this team so the
-  // visibility flags inherit per-team redaction automatically.
-  const teamMapNode = teamPosition?.currentGameNodeId
-    ? mapNodes.find((n) => n.id === teamPosition.currentGameNodeId) ?? null
+  // Phase L §3.13 + tier spec (TDD §3.3): `atStation.tiles[]` shares
+  // the per-slot shape with `mapNodes[teamNode].tiles[]` but applies
+  // an *at-station privilege* on top of the map gates — a slot whose
+  // claim-unlock timer has elapsed becomes station-visible even when
+  // the map-reveal timer hasn't. Tier 2 (claim=0, map>0) renders at
+  // the station from t=0; Tier 3 (claim>0, map=claim+δ) joins as soon
+  // as the claim timer fires. The map view (`mapNodes[].tiles[]`)
+  // keeps the stricter `mapVisible` gate so the fog-of-war stays
+  // intact for everyone else (including the team browsing other
+  // stations).
+  const teamNodeId = teamPosition?.currentGameNodeId ?? null;
+  const teamMapNode = teamNodeId
+    ? mapNodes.find((n) => n.id === teamNodeId) ?? null
     : null;
+  const atStationTiles: MapNodeTileDto[] | null =
+    teamNodeId && teamMapNode
+      ? buildAtStationTiles({
+        game,
+        teamNodeId,
+        slotsPerNode,
+        nowMs,
+        phaseLayerActive,
+        slotLayerActive,
+        faceUpNodeIds,
+        mapVisibleSlotSet,
+        tilesByNodeSlot,
+      })
+      : null;
   const atStation = handCompletedFlag
     ? null
     : buildAtStation({
       teamPosition,
       teamNode: teamMapNode,
+      atStationTiles,
       currentChallenge,
     });
 
@@ -857,28 +879,89 @@ function resolveMapVisibleSlotIndices(params: {
 function buildAtStation(params: {
   teamPosition: GameTeamPosition | null;
   teamNode: MapNodeDto | null;
+  atStationTiles: MapNodeTileDto[] | null;
   currentChallenge: AtStationChallengeDto | null;
 }): AtStationDto | null {
-  const { teamPosition, teamNode, currentChallenge } = params;
-  if (!teamPosition?.currentGameNodeId || !teamNode) {
+  const { teamPosition, teamNode, atStationTiles, currentChallenge } = params;
+  if (!teamPosition?.currentGameNodeId || !teamNode || !atStationTiles) {
     return null;
   }
-  // Phase L §3.13: `atStation.tiles[]` is the same exhaustive per-slot
-  // view the projection emitted for `mapNodes[teamNode].tiles[]` — the
-  // station-side surface inherits whatever map fog + slot timer state
-  // the team's `mapNodes` entry resolved to, guaranteeing the two
-  // surfaces never drift. Map-fog gating produces the same `null`
-  // tile / `visible: false` rows here that the map shows, but the
-  // station UI surfaces them as "locked / hidden slot" rather than
-  // collapsing them out (the team needs to see the locked countdown).
+  // `atStationTiles` is the at-station-privileged view computed at the
+  // projection scope (see [`buildAtStationTiles`](#) below).
+  // `MapNodeTileDto[]` shape is identical to `mapNodes[].tiles[]`, but
+  // the `visible` flag is loosened so claim-unlocked slots reveal at
+  // the station even before their map-reveal timer fires.
   return {
     nodeId: teamNode.id,
     code: teamNode.code,
-    tiles: teamNode.tiles,
+    tiles: atStationTiles,
     currentChallenge,
     pendingSwapCredit: teamPosition.pendingSwapCredit,
     creditEarnedInSession: teamPosition.creditEarnedInSession,
   };
+}
+
+/**
+ * Per-slot tile shape for the team's current station. Mirrors the
+ * `mapNodes[teamNode].tiles[]` loop in `buildGameStateProjection` but
+ * applies the **at-station privilege** (TDD §3.3 Tier 2/3 spec): a
+ * slot whose claim-unlock timer has elapsed becomes station-visible
+ * even when the map-reveal timer has not. The map view stays strict
+ * (`visible = nodeFaceUp && mapVisibleSlot`); the station view
+ * relaxes to `visible = nodeFaceUp && (mapVisibleSlot || !locked)`.
+ *
+ * Mode interactions:
+ *   - **phase-only** (slot layer off): `locked === false` everywhere,
+ *     so `!locked === true` always. Every slot at a face-up node is
+ *     station-visible. The map view still respects phase fog.
+ *   - **slot-only** (phase layer off): `nodeFaceUp === true`. Station
+ *     view exposes any claim-unlocked slot; map view still respects
+ *     the `slot_map_unlock_offsets_seconds` timeline.
+ *   - **both layers on**: most expressive. Tier 2 (claim=0, map>0)
+ *     surfaces at the station from t=0; Tier 3 (claim>0) waits for
+ *     the claim timer before the station reveal.
+ *   - **none**: everything visible everywhere.
+ */
+function buildAtStationTiles(params: {
+  game: Game;
+  teamNodeId: string;
+  slotsPerNode: number;
+  nowMs: number;
+  phaseLayerActive: boolean;
+  slotLayerActive: boolean;
+  faceUpNodeIds: Set<string>;
+  mapVisibleSlotSet: Set<number>;
+  tilesByNodeSlot: Map<string, Map<number, TileDto>>;
+}): MapNodeTileDto[] {
+  const {
+    game,
+    teamNodeId,
+    slotsPerNode,
+    nowMs,
+    phaseLayerActive,
+    slotLayerActive,
+    faceUpNodeIds,
+    mapVisibleSlotSet,
+    tilesByNodeSlot,
+  } = params;
+  const nodeFaceUp = !phaseLayerActive || faceUpNodeIds.has(teamNodeId);
+  const bySlot = tilesByNodeSlot.get(teamNodeId);
+  const tiles: MapNodeTileDto[] = [];
+  for (let slotIndex = 0; slotIndex < slotsPerNode; slotIndex += 1) {
+    const mapVisibleSlot = mapVisibleSlotSet.has(slotIndex);
+    const locked = slotLayerActive && !isSlotUnlocked(game, slotIndex, nowMs);
+    // At-station privilege: claim-unlocked OR map-revealed → visible.
+    // Falls back to the map rule when the slot is still claim-locked.
+    const visible = nodeFaceUp && (mapVisibleSlot || !locked);
+    const placement = bySlot?.get(slotIndex) ?? null;
+    tiles.push({
+      slotIndex,
+      tile: visible ? placement : null,
+      visible,
+      locked,
+    });
+  }
+  return tiles;
 }
 
 /**
