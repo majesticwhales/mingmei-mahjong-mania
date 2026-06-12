@@ -1355,7 +1355,7 @@ The client side of server Phase L ([docs/TDD_server.md §3.12–§3.14](TDD_serv
 
 **Manual smoke:** start a game with `slots_per_node = 4`; verify the projection shows all four slots in `tiles[]` with the right per-team `visible` / `locked` flags by inspecting the network tab.
 
-#### Chunk L4 — node-view endpoint
+#### Chunk L4 — node-view endpoint *(shipped)*
 
 **Goal:** the new `GET /api/games/:id/nodes/:nodeId/view` is live + the client can call it. No StationPanel rewire yet — that's L5.
 
