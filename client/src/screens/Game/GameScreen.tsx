@@ -139,6 +139,13 @@ export function GameScreen() {
   const isCheckInSynced = Boolean(
     pendingCheckInNodeId && atStation?.nodeId === pendingCheckInNodeId,
   );
+  // Drop the optimistic check-in target once the projection catches up.
+  // Adjust state during render (not in an effect) so eslint's
+  // react-hooks/set-state-in-effect rule stays satisfied. Without this, a
+  // stale `pendingCheckInNodeId` survives checkout and locks every station.
+  if (isCheckInSynced) {
+    setPendingCheckInNodeId(null);
+  }
   const navigatingToNodeId = isCheckInSynced ? null : pendingCheckInNodeId;
   const panelSelectedNodeId = isCheckInSynced ? null : selectedNodeId;
 
@@ -382,6 +389,7 @@ export function GameScreen() {
     await runCommand(async () => {
       await checkOutCommand({});
       setSelectedNodeId(null);
+      setPendingCheckInNodeId(null);
     });
   }
 
