@@ -82,7 +82,7 @@ Hand **styling** is a client concern; hand **order** is always server-provided.
 | Deal | **Fisher–Yates** shuffle; random always |
 | Hand order | **Server-sorted** (`suit_sort_order` → `rank`); client renders as given |
 | Visibility phases | **Configurable count** `visibility_phase_count` (default 4); N phases ⇒ N visibility groups; phase 0 reveals home group, phase N-1 reveals all. Ephemeral view while checked in remains independent. |
-| Game config | **Lobby**, snapshotted to `games` at start. **Live create path** ([§3.15](#315-lobby-creation-presets)): the host picks one boolean — `isTestGame` — on the Lobbies hub; the server resolves every other knob from the production / test preset (duration, phase count + interval, notifications, visibility mode) and auto-distributes the per-slot offsets from the resolved duration. The dormant host config form preserves the host-only `PATCH /api/lobbies/:id/config` surface for a future re-introduction; see [client TDD §5.3](TDD_client.md#53-lobbycontext) for the dormancy callout. |
+| Game config | **Lobby**, snapshotted to `games` at start. **Live create path** ([§3.15](#315-lobby-creation-presets)): the host picks one boolean — `isTestGame` — on the Lobbies hub; the server resolves every other knob from the production / test preset (duration, phase count + interval, notifications, visibility mode) and derives the per-slot offsets from the preset's phase interval via `deriveTierOffsets` (Tier 1: `claim=0/map=0`, Tier 2: `claim=0/map=P`, Tier 3+: `claim=(k-1)·P/map=k·P` — see [§3.3](#33-visibility-and-fog) and [§6.3](#63-atstation)). The dormant host config form preserves the host-only `PATCH /api/lobbies/:id/config` surface for a future re-introduction; see [client TDD §5.3](TDD_client.md#53-lobbycontext) for the dormancy callout. |
 | Lobby start | `min_players_to_start` (default **4**); every member picks a team (1–4); **>= 1 player per team** before start; multiple players may share the same team |
 | Travel | **Any station** on check-in (honor + geofence); skipping stations OK |
 | Commands | `CHECK_IN`, `CHECK_OUT`, `SWAP_TILE`, `SWAP_LOCATION_TILES` (separate) |
@@ -216,6 +216,16 @@ canSwapSlot(team, node, slotIndex) =
 **Mode gate:** The per-slot tier (claim-unlock + map-reveal) is gated by `games.visibility_mode`. It runs only when the snapshotted mode is `slot` or `both`. When the mode excludes slot (`none` / `phase`), `game-schedule-service` emits no `SLOT_UNLOCKED` / `SLOT_MAP_UNLOCKED` jobs and the projection treats every slot as unlocked **and** map-visible (the `slot_unlock_offsets_seconds[k]` / `slot_map_unlock_offsets_seconds[k]` snapshot columns are ignored). The lobby surface rejects patches that set non-zero `slot_unlock_offsets_seconds[k>0]` or any non-`0` / `NULL` entry in `slot_map_unlock_offsets_seconds[k>0]` while slot is off, and resets both snapshots to their trivial all-zero shapes on mode transition.
 
 **Per-slot claim unlock (chunk 4):** Each addressable slot at a node has a uniform game-wide claim-unlock offset (`games.slot_unlock_offsets_seconds[slotIndex]`). Slot 0 always has offset 0 (claimable at game start). Higher slots may carry positive offsets; `SWAP_TILE` rejects with `409 slot_locked` if the targeted slot is still locked at the wall-clock check. The rule is wall-clock-based and independent of whether the `SLOT_UNLOCKED` scheduled job has actually fired (the job exists for replay/broadcast, not gameplay).
+
+**Tier spec — canonical 3-slot configuration.** The production + test presets ([§3.15](#315-lobby-creation-presets)) both materialise the same three tiers; only the phase interval `P` differs (production: `P = 3600s`; test: `P = 60s`):
+
+| Tier | `slotIndex` | Claim offset | Map offset | Behaviour |
+|------|-------------|--------------|------------|-----------|
+| 1    | 0           | 0            | 0          | Visible on the map and claimable from `t=0`. |
+| 2    | 1           | 0            | `P`        | Claimable from `t=0`; **station-visible** from `t=0` via the at-station privilege ([§6.3](#63-atstation)); map-visible at `t=P`. |
+| 3    | 2           | `P`          | `2P`       | Out of play until `t=P`; then station-visible + claimable; map-visible at `t=2P`. |
+
+For `slotsPerNode > 3` the pattern continues: `claim[k≥2] = (k-1)·P`, `map[k] = k·P`. `deriveTierOffsets` ([§3.15](#315-lobby-creation-presets)) is the single source of truth for these defaults.
 
 **Per-slot map reveal (Phase L §3.13):** `games.slot_map_unlock_offsets_seconds[slotIndex]` is a second, independent timeline that controls when each slot's tile becomes visible on the map projection. The same column carries the "never on map" tier as a `NULL` element. Cardinality equals `slots_per_node`; slot 0 is always `0` (visible from game start); for `k >= 1`, the entry is either `NULL` (out of play on the map) or a non-negative integer satisfying `slot_map_unlock_offsets_seconds[k] >= slot_unlock_offsets_seconds[k]` — a slot must be claimable before it can be revealed on the map. The two timelines define the **at-station privilege** (see §6.3): the map view stays strict (`mapNodes[].tiles[k].visible` flips on at `slot_map_unlock_offsets_seconds[k]`), while the team's own station relaxes to the looser **claim** timer — `atStation.tiles[k].visible` flips on at `slot_unlock_offsets_seconds[k]`. Concretely, the Tier 2 spec from §3.3 (`claim=0`, `map=3600`) renders the tile at the team's station from t=0 and on the map at t=3600. The map-reveal timer is also published as a `SLOT_MAP_UNLOCKED` scheduled job; if it coincides exactly with `SLOT_UNLOCKED`, only the claim job is emitted (the projection re-derives map visibility from `started_at + offset` anyway).
 
@@ -845,10 +855,32 @@ export const TEST_LOBBY_PRESET: LobbyGamePreset = {
 
 export function lobbyPresetForTestFlag(isTestGame: boolean): LobbyGamePreset;
 
+export interface TierOffsets {
+  slotUnlockOffsetsSeconds: number[];   // claim
+  slotMapUnlockOffsetsSeconds: number[]; // map
+}
+
+/**
+ * Live source for slot offsets on `createLobby`. Implements the tier
+ * spec from §3.3:
+ *   slot 0  -> claim=0,        map=0           (Tier 1: visible from t=0)
+ *   slot 1  -> claim=0,        map=P           (Tier 2: claimable from t=0
+ *                                                via the at-station privilege,
+ *                                                map-revealed at t=P)
+ *   slot k≥2 -> claim=(k-1)·P, map=k·P         (Tier 3+)
+ * where P = phaseIntervalSeconds. Both presets share the formula —
+ * only `P` differs (production: 3600; test: 60).
+ */
+export function deriveTierOffsets(
+  slotsPerNode: number,
+  phaseIntervalSeconds: number,
+): TierOffsets;
+
+/** Dormant — used only by the dormant `ConfigForm` / `slotTier.ts` paths. */
 export function deriveAutoDistributedOffsets(
   slotsPerNode: number,
   gameDurationSeconds: number,
-): number[];  // [0, round(D × 1 / N), round(D × 2 / N), …, round(D × (N-1) / N)]
+): number[];
 ```
 
 `createLobby(hostUserId, { isTestGame? })` in `lobby-service.ts` consumes the preset like so:
@@ -858,23 +890,24 @@ export function deriveAutoDistributedOffsets(
 | `gameDurationSeconds` | `options.gameDurationSeconds ?? preset.gameDurationSeconds`. |
 | `visibilityPhaseIntervalSeconds` / `visibilityPhaseCount` / `visibilityMode` | `options.{x} ?? preset.{x}`. |
 | `slotsPerNode` / `deadWallSize` | `options.{x} ?? template.default{X}` (still template-derived — these are physical map properties, not duration-derived). |
-| `slotUnlockOffsetsSeconds` | If `visibilityMode` excludes the slot layer (`"none"` / `"phase"`) → `[0, 0, …]`. Otherwise `options.slotUnlockOffsetsSeconds ?? deriveAutoDistributedOffsets(slotsPerNode, gameDurationSeconds)` — evenly spaced unlocks across the preset duration. |
-| `slotMapUnlockOffsetsSeconds` | Same resolution as `slotUnlockOffsetsSeconds`, falling back to `deriveAutoDistributedOffsets` so map-reveal mirrors claim-unlock by default. The mirror trivially satisfies the [`map[k] >= claim[k]`](#41-identity-and-membership) DB CHECK, and (per [`game-schedule-service`](#46-scheduled-jobs)) coincident timers dedupe to a single `SLOT_UNLOCKED` event so no extra `SLOT_MAP_UNLOCKED` jobs fire on the default create path. |
+| `slotUnlockOffsetsSeconds` | If `visibilityMode` excludes the slot layer (`"none"` / `"phase"`) → `[0, 0, …]`. Otherwise `options.slotUnlockOffsetsSeconds ?? deriveTierOffsets(slotsPerNode, visibilityPhaseIntervalSeconds).slotUnlockOffsetsSeconds` — `claim[0] = claim[1] = 0`, `claim[k≥2] = (k-1)·P`. |
+| `slotMapUnlockOffsetsSeconds` | Symmetric resolution from the same `deriveTierOffsets` call: `map[k] = k·P`. The split `claim[1] = 0 < map[1] = P` is what enables the **at-station privilege** ([§6.3](#63-atstation)) — Tier 2 surfaces at the team's station from t=0 while the map view still hides it until t=P. The `map[k] >= claim[k]` invariant from [§4.1](#41-identity-and-membership) holds by construction. |
 | `notifications` | Seeded by `notification-service` from `preset.notifications` (one `lobby_notifications` row per entry). |
 | `teamAssignmentMode` / `minPlayersToStart` / `defaultStartNodeCode` | `options.{x} ?? sensible-default` (`"pick"`, `4`, `template.defaultStartNodeCode`). |
 
-**Worked example — production preset, `slots_per_node = 3` (TTC 2026 default):**
-- `claim = [0, 4800, 9600]` (`round(14_400 × k / 3)`).
-- `map   = [0, 4800, 9600]` (mirrors claim).
-- Scheduled jobs at start: 1 `GAME_END` + 2 `SLOT_UNLOCKED` (k=1, k=2) + 0 `SLOT_MAP_UNLOCKED` (claim == map dedupes per scheduler rule) + 2 `VISIBILITY_PHASE_ADVANCE` (k=1, k=2) + 3 `NOTIFICATION` = **8 jobs**.
+**Worked example — production preset, `slots_per_node = 3` (TTC 2026 default), `P = 3600s`:**
+- `claim = [0, 0, 3600]`
+- `map   = [0, 3600, 7200]`
+- Scheduled jobs at start: 1 `GAME_END` + 1 `SLOT_UNLOCKED` (only k=2 has a positive claim offset) + 2 `SLOT_MAP_UNLOCKED` (k=1 at P, k=2 at 2P — both differ from their claim offsets so no dedupe) + 2 `VISIBILITY_PHASE_ADVANCE` (k=1, k=2) + 3 `NOTIFICATION` = **9 jobs**.
 
-**Worked example — test preset, `slots_per_node = 3`:**
-- `claim = map = [0, 80, 160]`.
-- Job mix: 1 + 2 + 0 + 2 + 3 = **8 jobs**, same shape as production but compressed in time.
+**Worked example — test preset, `slots_per_node = 3`, `P = 60s`:**
+- `claim = [0, 0, 60]`
+- `map   = [0, 60, 120]`
+- Same job mix as production: 1 + 1 + 2 + 2 + 3 = **9 jobs**, same shape, expedited clock.
 
 **Template-default columns are dormant on the create path.** `map_templates.default_slot_unlock_offsets_seconds` and `map_templates.default_slot_map_unlock_offsets_seconds` (both [§4.3](#43-map-catalog-and-instances)) remain on the schema (and migrations still seed TTC 2026's `[0, 2400, 4800]` / `[0, 3600, 7200]`) but `createLobby` no longer consults them. They're kept as forward-compat tooling hooks for a future "map-template-driven slot tiers" feature — e.g. an admin-tooling endpoint that re-seeds slot offsets from the template. The Phase L map-reveal editor surfaced in [client TDD §7.3](TDD_client.md#73-wireframes) (dormant `ConfigForm`) would also rehydrate from these columns when re-mounted.
 
-**Knob-lock interaction.** `assertPatchObeysVisibilityLock` runs **before** the slot-offset structural validators on the `updateConfig` path so a host who patches a locked knob always sees the policy-level `visibility_knob_locked` error rather than a downstream cross-check `validation_error`. The same lock is consulted at create time on host-supplied options only — the preset-driven auto-distribute path is exempt by construction (when the slot layer is off, both offset arrays coerce to all-zeros before validation).
+**Knob-lock interaction.** `assertPatchObeysVisibilityLock` runs **before** the slot-offset structural validators on the `updateConfig` path so a host who patches a locked knob always sees the policy-level `visibility_knob_locked` error rather than a downstream cross-check `validation_error`. The same lock is consulted at create time on host-supplied options only — the preset-driven `deriveTierOffsets` path is exempt by construction (when the slot layer is off, both offset arrays coerce to all-zeros before validation).
 
 ---
 
@@ -914,8 +947,8 @@ Sequelize model: `User` (`server/src/models/user.ts`).
 | `visibility_phase_interval_seconds` | |
 | `visibility_phase_count` | INT NOT NULL DEFAULT 4 (sourced from `map_template.default_visibility_phase_count`); snapshotted to `games.visibility_phase_count` at start. `>= 1`. |
 | `slots_per_node` | INT NOT NULL DEFAULT 1 (sourced from `map_template.default_slots_per_node`); snapshotted to `games.slots_per_node` at start. `>= 1`. Capacity, not realized count. |
-| `slot_unlock_offsets_seconds` | INTEGER[] NOT NULL DEFAULT `{0}`. One offset per slot index. `cardinality = slots_per_node`; entry `[1]` must be `0` (slot 0 always unlocked); all entries `>= 0`. **Live source on `createLobby`:** auto-distributed from the resolved `game_duration_seconds` of the chosen preset ([§3.15](#315-lobby-creation-presets)) — `deriveAutoDistributedOffsets(slotsPerNode, gameDurationSeconds)`. Coerced to `[0, 0, …]` when `visibility_mode` excludes the slot layer. `map_template.default_slot_unlock_offsets_seconds` is no longer consulted on the create path; the template column survives as a forward-compat tooling hook. Host-editable while `waiting` (dormant — no UI; see [client TDD §5.3](TDD_client.md#53-lobbycontext)); snapshotted to `games.slot_unlock_offsets_seconds` at start. Uniform across nodes and teams. |
-| `slot_map_unlock_offsets_seconds` | INTEGER[] NOT NULL DEFAULT `{0}`. Per-slot map-reveal timeline ([§3.13](#313-server-authoritative-tile-visibility)). `cardinality = slots_per_node`; entry `[0]` must be `0` (slot 0 is on the map from game start). For `k >= 1`, each entry is either `NULL` (slot is never on the map — the "out of play on map" tier) or a non-negative integer satisfying `slot_map_unlock_offsets_seconds[k] >= slot_unlock_offsets_seconds[k]` (map reveal cannot precede claim unlock). **Live source on `createLobby`:** mirrors `slot_unlock_offsets_seconds` (same auto-distribute formula), which trivially satisfies the `map >= claim` invariant and (per scheduler dedupe rules in [§4.6](#46-scheduled-jobs)) means no `SLOT_MAP_UNLOCKED` jobs fire on the default create path. `map_template.default_slot_map_unlock_offsets_seconds` is dormant on the create path; host-editable while `waiting` (dormant — no UI). |
+| `slot_unlock_offsets_seconds` | INTEGER[] NOT NULL DEFAULT `{0}`. One offset per slot index. `cardinality = slots_per_node`; entry `[1]` must be `0` (slot 0 always unlocked); all entries `>= 0`. **Live source on `createLobby`:** `deriveTierOffsets(slotsPerNode, visibilityPhaseIntervalSeconds).slotUnlockOffsetsSeconds` ([§3.15](#315-lobby-creation-presets)) — `claim[0] = claim[1] = 0`, `claim[k≥2] = (k-1)·P`. Coerced to `[0, 0, …]` when `visibility_mode` excludes the slot layer. `map_template.default_slot_unlock_offsets_seconds` is no longer consulted on the create path; the template column survives as a forward-compat tooling hook. Host-editable while `waiting` (dormant — no UI; see [client TDD §5.3](TDD_client.md#53-lobbycontext)); snapshotted to `games.slot_unlock_offsets_seconds` at start. Uniform across nodes and teams. |
+| `slot_map_unlock_offsets_seconds` | INTEGER[] NOT NULL DEFAULT `{0}`. Per-slot map-reveal timeline ([§3.13](#313-server-authoritative-tile-visibility)). `cardinality = slots_per_node`; entry `[0]` must be `0` (slot 0 is on the map from game start). For `k >= 1`, each entry is either `NULL` (slot is never on the map — the "out of play on map" tier) or a non-negative integer satisfying `slot_map_unlock_offsets_seconds[k] >= slot_unlock_offsets_seconds[k]` (map reveal cannot precede claim unlock). **Live source on `createLobby`:** `deriveTierOffsets(slotsPerNode, visibilityPhaseIntervalSeconds).slotMapUnlockOffsetsSeconds` — `map[k] = k·P`. The split `claim[1] = 0 < map[1] = P` is what enables the at-station privilege ([§6.3](#63-atstation)). `map_template.default_slot_map_unlock_offsets_seconds` is dormant on the create path; host-editable while `waiting` (dormant — no UI). |
 | `visibility_mode` | VARCHAR(8) NOT NULL DEFAULT `'both'` CHECK in (`none`, `phase`, `slot`, `both`). Picks which of the two visibility layers (§3.2 phase reveal / §3.3 per-slot tier) are active for the resulting game. Sourced from `map_template.default_visibility_mode`; host-editable. Snapshotted to `games.visibility_mode` at start. Picking a mode that excludes a layer **locks** the corresponding knobs at the service layer: phase-off rejects any patch that sets `visibility_phase_count` / `visibility_phase_interval_seconds`; slot-off rejects non-zero `slot_unlock_offsets_seconds[k>0]` and any non-`0` / non-`NULL` entry in `slot_map_unlock_offsets_seconds[k>0]`. On mode transition the locked knobs are reset to safe defaults (zero arrays). |
 | `team_assignment_mode` | `pick` \| `random` \| `mixed` |
 | `min_players_to_start` | default **4** |
@@ -1021,8 +1054,8 @@ Seeded: `east`, `south`, `west`, `north` (`20260517180000-seed-team-definitions.
 | `default_duration_seconds` | Default `games.duration_seconds` if not overridden on the lobby. |
 | `default_hand_size` | Default `lobby.hand_size`. Standard riichi = 13. |
 | `default_slots_per_node` | Default tile-slot capacity at each node on this template. Lobbies inherit it as `slots_per_node` (default 1). Map authors can model "roughly even but not identical" distributions by picking a slot count that, combined with the catalog and hand sizes, leaves room for the deal-time invariant to hold. |
-| `default_slot_unlock_offsets_seconds` | INTEGER[] NOT NULL DEFAULT `{0}`. Per-slot unlock offsets in seconds from `started_at`; one entry per slot index. `cardinality = default_slots_per_node`; entry `[1]` must be `0`; all entries `>= 0`. **Dormant on lobby create** (post-§3.15): `createLobby` auto-distributes slot offsets from the chosen preset's `gameDurationSeconds` instead of reading this column. Preserved for future map-template-driven tooling. |
-| `default_slot_map_unlock_offsets_seconds` | INTEGER[] NOT NULL DEFAULT `{0}`. Per-slot map-reveal offsets in seconds from `started_at`; one entry per slot index ([§3.13](#313-server-authoritative-tile-visibility)). `cardinality = default_slots_per_node`; entry `[0]` is `0`; entries `k >= 1` are either `NULL` (never on map) or `>= default_slot_unlock_offsets_seconds[k]`. **Dormant on lobby create** (post-§3.15): `createLobby` mirrors the auto-distributed claim timeline instead of reading this column. Preserved for the same reason as the claim column. |
+| `default_slot_unlock_offsets_seconds` | INTEGER[] NOT NULL DEFAULT `{0}`. Per-slot unlock offsets in seconds from `started_at`; one entry per slot index. `cardinality = default_slots_per_node`; entry `[1]` must be `0`; all entries `>= 0`. **Dormant on lobby create** (post-§3.15): `createLobby` derives tier offsets from the chosen preset's `visibilityPhaseIntervalSeconds` instead of reading this column. Preserved for future map-template-driven tooling. |
+| `default_slot_map_unlock_offsets_seconds` | INTEGER[] NOT NULL DEFAULT `{0}`. Per-slot map-reveal offsets in seconds from `started_at`; one entry per slot index ([§3.13](#313-server-authoritative-tile-visibility)). `cardinality = default_slots_per_node`; entry `[0]` is `0`; entries `k >= 1` are either `NULL` (never on map) or `>= default_slot_unlock_offsets_seconds[k]`. **Dormant on lobby create** (post-§3.15): `createLobby` derives the map timeline from the same preset phase interval that drives the claim timeline. Preserved for the same reason as the claim column. |
 | `default_visibility_phase_count` | Default `lobby.visibility_phase_count`. Default 4. |
 | `default_visibility_mode` | VARCHAR(8) NOT NULL DEFAULT `'both'` CHECK in (`none`, `phase`, `slot`, `both`). Default visibility mode lobbies built from this template inherit; see `lobbies.visibility_mode` for semantics. |
 | `default_start_node_code` | Station code where teams spawn at game start (nullable; null = teams start unchecked). |

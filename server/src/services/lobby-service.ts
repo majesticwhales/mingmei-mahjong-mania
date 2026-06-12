@@ -26,7 +26,7 @@ import {
 import { serializeLobbyNotification } from "./lobby-notification-service.ts";
 import { getBroadcaster } from "../socket/broadcaster-registry.ts";
 import {
-  deriveAutoDistributedOffsets,
+  deriveTierOffsets,
   lobbyPresetForTestFlag,
 } from "../game/lobby-presets.ts";
 
@@ -491,27 +491,35 @@ export async function createLobby(
   //   2. Slot layer disabled by `visibilityMode` ("none" / "phase") →
   //      coerce to the trivial all-zero arrays. The knob lock (see
   //      `assertPatchObeysVisibilityLock`) only audits host-supplied
-  //      values, so without this branch an auto-distributed default
-  //      would silently violate the lock at update time.
-  //   3. Otherwise auto-distribute evenly across the resolved game
-  //      duration (so a 4h production game with 3 slots/node yields
-  //      [0, 4800, 9600], and a 240s test game yields [0, 80, 160]).
-  //      The map-reveal timeline mirrors the claim timeline by default,
-  //      which trivially satisfies `map[k] >= claim[k]` and means no
-  //      separate SLOT_MAP_UNLOCKED jobs fire unless the host explicitly
-  //      delays the map reveal. Template defaults remain on the model
-  //      for migration history / future tooling but are no longer
-  //      consulted on lobby create.
+  //      values, so without this branch a tier-derived default would
+  //      silently violate the lock at update time.
+  //   3. Otherwise derive the per-tier claim + map offsets from the
+  //      preset's `visibilityPhaseIntervalSeconds` (TDD §3.3 spec —
+  //      Tier 1: claim=0/map=0, Tier 2: claim=0/map=P, Tier 3:
+  //      claim=P/map=2P, …). A 4h production game with P=3600s and 3
+  //      slots/node yields claim `[0, 0, 3600]` + map `[0, 3600, 7200]`;
+  //      a 240s test game with P=60s yields claim `[0, 0, 60]` + map
+  //      `[0, 60, 120]`. The two presets stay behaviourally identical;
+  //      only the absolute clock differs.
+  //
+  //      The claim ≠ map split is what enables the at-station privilege
+  //      (TDD §6.3): Tier 2's claim=0 makes it station-visible from
+  //      t=0 while map=P keeps it map-hidden until the phase advances.
+  //      Template defaults (`map_templates.default_slot_*`) remain on
+  //      the model for migration history / future tooling but are no
+  //      longer consulted on lobby create.
   const slotLayerActive = visibilityIncludes(visibilityMode, "slot");
-  const slotUnlockOffsetsSeconds = options.slotUnlockOffsetsSeconds
-    ?? (slotLayerActive
-      ? deriveAutoDistributedOffsets(slotsPerNode, gameDurationSeconds)
-      : new Array<number>(slotsPerNode).fill(0));
+  const tierOffsets = slotLayerActive
+    ? deriveTierOffsets(slotsPerNode, visibilityPhaseIntervalSeconds)
+    : {
+        slotUnlockOffsetsSeconds: new Array<number>(slotsPerNode).fill(0),
+        slotMapUnlockOffsetsSeconds: new Array<number>(slotsPerNode).fill(0),
+      };
+  const slotUnlockOffsetsSeconds =
+    options.slotUnlockOffsetsSeconds ?? tierOffsets.slotUnlockOffsetsSeconds;
   const slotMapUnlockOffsetsSeconds: Array<number | null> =
     options.slotMapUnlockOffsetsSeconds
-    ?? (slotLayerActive
-      ? deriveAutoDistributedOffsets(slotsPerNode, gameDurationSeconds)
-      : new Array<number | null>(slotsPerNode).fill(0));
+    ?? tierOffsets.slotMapUnlockOffsetsSeconds;
   validateSlotUnlockOffsetsSeconds(slotUnlockOffsetsSeconds, slotsPerNode);
   validateSlotMapUnlockOffsetsSeconds(
     slotMapUnlockOffsetsSeconds,
