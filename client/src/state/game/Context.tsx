@@ -87,30 +87,34 @@ export function GameProvider({ children }: { children: ReactNode }) {
       if (activeGameIdRef.current !== id) return;
 
       clearResyncTimer();
-      try {
-        const result = await emitGameJoin(id);
-        if (activeGameIdRef.current !== id) return;
-        resyncAttemptRef.current = 0;
-        dispatch({
-          type: "game/resynced",
-          gameTeamId: result.gameTeamId,
-          projection: result.state,
-        });
-      } catch (error) {
-        if (activeGameIdRef.current !== id) return;
-        if (
-          error instanceof HttpError &&
-          RESYNC_TERMINAL_CODES.has(error.code)
-        ) {
+
+      const tryResync = async (attempt: number): Promise<void> => {
+        try {
+          const result = await emitGameJoin(id);
+          if (activeGameIdRef.current !== id) return;
           resyncAttemptRef.current = 0;
-          return;
+          dispatch({
+            type: "game/resynced",
+            gameTeamId: result.gameTeamId,
+            projection: result.state,
+          });
+        } catch (error) {
+          if (activeGameIdRef.current !== id) return;
+          if (
+            error instanceof HttpError &&
+            RESYNC_TERMINAL_CODES.has(error.code)
+          ) {
+            resyncAttemptRef.current = 0;
+            return;
+          }
+          resyncAttemptRef.current = attempt + 1;
+          resyncTimerRef.current = setTimeout(() => {
+            void tryResync(attempt + 1);
+          }, resyncBackoffMs(attempt));
         }
-        const attempt = resyncAttemptRef.current;
-        resyncAttemptRef.current = attempt + 1;
-        resyncTimerRef.current = setTimeout(() => {
-          void resyncActiveGame(id);
-        }, resyncBackoffMs(attempt));
-      }
+      };
+
+      await tryResync(resyncAttemptRef.current);
     },
     [clearResyncTimer, connState.status],
   );
