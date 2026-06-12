@@ -67,9 +67,6 @@ describe("startFromLobby", () => {
     expect(game?.slotsPerNode).toBe(3);
     expect(game?.deadWallSize).toBe(15);
     expect(game?.visibilityPhaseCount).toBe(3);
-    // Production preset's challenge cooldown floor snapshots through
-    // to games.challenge_cooldown_seconds (TDD §3.8).
-    expect(game?.challengeCooldownSeconds).toBe(300);
   });
 
   it("snapshots non-default slotsPerNode and visibilityPhaseCount from the lobby onto the game", async () => {

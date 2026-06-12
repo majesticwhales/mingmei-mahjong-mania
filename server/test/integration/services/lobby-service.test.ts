@@ -55,46 +55,6 @@ describe("lobby-service", () => {
     expect(lobby.config.slotUnlockOffsetsSeconds).toEqual([0, 0, 60]);
     expect(lobby.config.slotMapUnlockOffsetsSeconds).toEqual([0, 60, 120]);
     expect(lobby.notifications.map((n) => n.atSeconds)).toEqual([180, 210, 235]);
-    // Test preset uses a short challenge cooldown so the swap-credit
-    // loop can actually be exercised inside a 240s game (TDD §3.8).
-    expect(lobby.config.challengeCooldownSeconds).toBe(5);
-  });
-
-  it("defaults challengeCooldownSeconds from the production preset (300)", async () => {
-    const host = await registerAdminUser();
-    const lobby = await lobbyService.createLobby(host.user.id);
-    expect(lobby.config.challengeCooldownSeconds).toBe(300);
-  });
-
-  it("accepts a host override on createLobby and via updateConfig", async () => {
-    const host = await registerAdminUser();
-    const created = await lobbyService.createLobby(host.user.id, {
-      challengeCooldownSeconds: 42,
-    });
-    expect(created.config.challengeCooldownSeconds).toBe(42);
-
-    const updated = await lobbyService.updateConfig(
-      created.id,
-      host.user.id,
-      { challengeCooldownSeconds: 0 },
-    );
-    expect(updated.config.challengeCooldownSeconds).toBe(0);
-  });
-
-  it("rejects a negative challengeCooldownSeconds", async () => {
-    const host = await registerAdminUser();
-    await expect(
-      lobbyService.createLobby(host.user.id, {
-        challengeCooldownSeconds: -1,
-      }),
-    ).rejects.toMatchObject({ status: 400, code: "validation_error" });
-
-    const created = await lobbyService.createLobby(host.user.id);
-    await expect(
-      lobbyService.updateConfig(created.id, host.user.id, {
-        challengeCooldownSeconds: -1,
-      }),
-    ).rejects.toMatchObject({ status: 400, code: "validation_error" });
   });
 
   it("rejects an invalid default start station on create", async () => {

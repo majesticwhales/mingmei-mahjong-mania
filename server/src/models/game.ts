@@ -152,16 +152,6 @@ export class Game extends BaseModel {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   declare deadWallSize: number;
 
-  /**
-   * Per-(team, challenge) cooldown floor (in seconds) applied after a
-   * challenge resolves. Snapshotted from `lobby.challenge_cooldown_seconds`
-   * at game start; read by `complete-challenge.ts`, `forfeit-challenge.ts`,
-   * and `autoForfeitActiveChallenge` to stamp `cooldown_until` on the
-   * resolved instance. See TDD §3.8.
-   */
-  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 300 })
-  declare challengeCooldownSeconds: number;
-
   @HasMany(() => GameTeam)
   declare teams?: GameTeam[];
 

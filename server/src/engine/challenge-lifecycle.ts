@@ -5,26 +5,22 @@ import { GameNode } from "../models/game-node.ts";
 import { GameNodeChallenge } from "../models/game-node-challenge.ts";
 
 /**
- * Convert the game's per-(team, challenge) cooldown floor (stored in
- * seconds on `games.challenge_cooldown_seconds`, sourced from the chosen
- * `LobbyGamePreset` and editable by the host on the lobby) into the
- * millisecond delta used to stamp `cooldown_until`. While
- * `cooldown_until > now()`, `START_CHALLENGE` against the same node
- * challenge rejects with `409 challenge_on_cooldown`. See TDD §3.8.
+ * Per-(team, challenge) cooldown after either an honor-system completion
+ * or a forfeit. While `cooldown_until > now()`, `START_CHALLENGE` against
+ * that same node challenge rejects with `409 challenge_on_cooldown`.
+ *
+ * Five minutes per product spec; bump if product wants a longer floor.
+ * Tunable per-challenge cooldowns would live on `challenges.parameters`
+ * (or a new column) in a future iteration.
  */
-export function challengeCooldownMsFromGame(game: {
-  challengeCooldownSeconds: number;
-}): number {
-  return game.challengeCooldownSeconds * 1000;
-}
+export const CHALLENGE_COOLDOWN_MS = 5 * 60 * 1000;
 
 /**
  * Auto-forfeit any in-progress challenge instance owned by the issuing
  * team within the given game. Used by `CHECK_IN` (implicit check-out
- * branch), `CHECK_OUT`, and `CLAIM_WIN` so a team cannot "carry" an
- * active challenge across stations / a game-end transition: stepping
- * off the station they started on counts as a failed attempt and
- * triggers the standard per-game cooldown floor.
+ * branch) and `CHECK_OUT` so a team cannot "carry" an active challenge
+ * across stations: stepping off the station they started on counts as a
+ * failed attempt and triggers the standard 5-minute cooldown.
  *
  * Returns the `CHALLENGE_FORFEITED` event to emit, or `null` when the
  * team has no in-progress instance. The caller appends the event to its
@@ -40,8 +36,6 @@ export async function autoForfeitActiveChallenge(args: {
   transaction: Transaction;
   gameId: string;
   gameTeamId: string;
-  /** `ctx.game.challengeCooldownSeconds * 1000` — see `challengeCooldownMsFromGame`. */
-  cooldownMs: number;
   now?: Date;
 }): Promise<EmittedEvent | null> {
   const active = await GameChallengeInstance.findOne({
@@ -76,7 +70,7 @@ export async function autoForfeitActiveChallenge(args: {
   }
 
   const now = args.now ?? new Date();
-  const cooldownUntil = new Date(now.getTime() + args.cooldownMs);
+  const cooldownUntil = new Date(now.getTime() + CHALLENGE_COOLDOWN_MS);
 
   active.status = "failed";
   active.resolvedAt = now;
