@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
+import { useLockDocumentScroll } from "../../hooks/useLockDocumentScroll";
 import { resolveCheckedInChallenge } from "../../lib/challengeContext";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useIsAdmin } from "../../state/auth/hooks";
@@ -72,6 +73,8 @@ export function GameScreen() {
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [checkInPending, setCheckInPending] = useState(false);
   const [pendingCheckInNodeId, setPendingCheckInNodeId] = useState<string | null>(null);
+
+  useLockDocumentScroll();
 
   useEffect(() => {
     if (!id) return;
