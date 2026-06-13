@@ -334,7 +334,9 @@ describe("StationPanel — useNodeView integration", () => {
     ).not.toBeDisabled();
   });
 
-  it("renders the cooldown timestamp from nodeView.currentChallenge.cooldownUntil when the challenge is on cooldown", () => {
+  it("renders a live cooldown countdown from nodeView.currentChallenge.cooldownUntil", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-11T21:25:00.000Z"));
     const cooldownUntil = "2026-06-11T21:30:00.000Z";
     const challenge: AtStationChallengeDto = {
       challengeId: "c-1",
@@ -368,9 +370,11 @@ describe("StationPanel — useNodeView integration", () => {
 
     const cooldown = container.querySelector(".station-panel__challenge-cooldown");
     expect(cooldown).not.toBeNull();
+    expect(cooldown!.textContent).toContain("5:00");
     expect(cooldown!.querySelector("time")?.getAttribute("datetime")).toBe(
       cooldownUntil,
     );
+    vi.useRealTimers();
   });
 
   it("renders 'Check out from <name>' (without the at-station action cluster) when browsing a different station while checked in", () => {

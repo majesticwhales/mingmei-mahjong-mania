@@ -1279,13 +1279,13 @@ html.scroll-locked body {
 
 .challenge-modal__title {
   margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-  line-height: 1.3;
+  color: var(--panel-muted);
+  font-size: 0.95rem;
+  font-style: italic;
+  line-height: 1.45;
 }
 
-.challenge-modal__description,
-.challenge-modal__flavor {
+.challenge-modal__description {
   margin: 0;
   color: var(--panel-muted);
   font-size: 0.95rem;

@@ -29,16 +29,15 @@ export function ChallengeModal({
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="challenge-modal-title">
       <div className="modal challenge-modal">
         <header className="modal__header">
-          <h2 id="challenge-modal-title">Station challenge</h2>
+          <h2 id="challenge-modal-title">{title}</h2>
           <button type="button" className="btn btn--ghost" aria-label="Close" onClick={onClose}>
             ×
           </button>
         </header>
 
         <div className="challenge-modal__body">
-          <h3 className="challenge-modal__title">{title}</h3>
+          {flavorText && <p className="challenge-modal__title">{flavorText}</p>}
           {description && <p className="challenge-modal__description">{description}</p>}
-          {flavorText && <p className="challenge-modal__flavor">{flavorText}</p>}
 
           {imageUrl && (
             <div className="challenge-modal__image" aria-label="Challenge illustration">

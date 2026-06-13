@@ -9,11 +9,22 @@ export interface PickedChallenge {
   /**
    * The team's most-recent `GameChallengeInstance` for the picked row,
    * or `null` if the team has never attempted this specific row.
-   * Callers use this to decode the surfaced status
-   * (`available` / `in_progress` / `cooldown`) and to drive cooldown
-   * guards without re-querying.
+   * Drives status / `instanceId` surfacing — specifically the
+   * `in_progress` branch where the active row's instance id is what
+   * the client needs.
    */
   latestInstanceForRow: GameChallengeInstance | null;
+  /**
+   * The team's most-recent `GameChallengeInstance` at the **node**
+   * across every row in the queue, or `null` if the team has never
+   * attempted any row here. Drives the station-wide cooldown gate:
+   * a `completed` row stamps `cooldown_until` and that gate must
+   * still apply after the cycle advances to the next row. Equal to
+   * `latestInstanceForRow` whenever the cycle pinned (`failed` /
+   * `in_progress`), and differs only on the post-`completed`
+   * advance.
+   */
+  latestInstanceAtNode: GameChallengeInstance | null;
 }
 
 /**
@@ -114,7 +125,8 @@ export async function pickCurrentChallengeForTeam(args: {
 
   if (latestInstanceForRow == null && latestAtNode != null) {
     // We advanced past the row whose latest we already loaded; fetch
-    // the picked row's own latest for status / cooldown decoding.
+    // the picked row's own latest for status decoding (the
+    // station-wide cooldown gate still uses `latestAtNode`).
     latestInstanceForRow = await GameChallengeInstance.findOne({
       where: { gameTeamId, gameNodeChallengeId: pickedRow.id },
       order: [["createdAt", "DESC"]],
@@ -122,5 +134,9 @@ export async function pickCurrentChallengeForTeam(args: {
     });
   }
 
-  return { row: pickedRow, latestInstanceForRow };
+  return {
+    row: pickedRow,
+    latestInstanceForRow,
+    latestInstanceAtNode: latestAtNode,
+  };
 }

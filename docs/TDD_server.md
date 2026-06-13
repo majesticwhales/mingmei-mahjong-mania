@@ -332,7 +332,7 @@ The rule keys off the team's most-recent `game_challenge_instances` row at the s
 | `completed`                           | Advance to `(latestIndex + 1) mod N`, wrapping at end of queue       |
 | reserved future statuses              | Default to pin (defensive — these are unreachable in the honor MVP)  |
 
-Cooldown scoping is unchanged: `cooldown_until` lives on each `game_challenge_instances` row and is only checked against the **picked** row. Failing a card pins to the same row, so the cooldown blocks immediate retry exactly as before. Completing a card advances to a different row whose own cooldown is independent.
+Cooldown is **station-wide**: `cooldown_until` still lives on each `game_challenge_instances` row, but the gate consulted by both `buildCurrentChallenge` and the `START_CHALLENGE` handler is the team's most-recent resolved instance at the node across **any** row in the queue (`PickedChallenge.latestInstanceAtNode`). Failing a card pins to the same row, so the gate fires against that row's stamp as before; completing a card advances the cycle to the next row but the previous row's cooldown still applies until it elapses. This keeps the honor-system "great, you got the credit, now go somewhere else for a few minutes" rule symmetric across `completed` and `failed` resolutions.
 
 #### Per-team challenge state machine
 
@@ -341,9 +341,9 @@ Per-team progress on a single station challenge is tracked in `game_challenge_in
 
 | State         | Definition                                                                      | Engine command                                 |
 | ------------- | ------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `available`   | No row exists OR the latest row has `cooldown_until <= now()`. Team can engage. | `START_CHALLENGE`                              |
-| `in_progress` | Latest row has `status = "in_progress"`. Team is actively working on it.        | `CHALLENGE_COMPLETED` or `CHALLENGE_FORFEITED` |
-| `cooldown`    | Latest row has `status ∈ {completed, failed}` and `cooldown_until > now()`.     | (none — wait)                                  |
+| `available`   | No prior attempt at the node OR the team's latest resolution at the node has `cooldown_until <= now()`. Team can engage.                       | `START_CHALLENGE`                              |
+| `in_progress` | The picked row's latest instance has `status = "in_progress"`. Team is actively working on it.                                                  | `CHALLENGE_COMPLETED` or `CHALLENGE_FORFEITED` |
+| `cooldown`    | The team's latest resolution at the node has `status ∈ {completed, failed}` and `cooldown_until > now()` — applies even after the cycle advanced. | (none — wait)                                  |
 
 
 **Cooldown:** per-game knob sourced from the chosen `LobbyGamePreset.challengeCooldownSeconds` (production: 300s / test: 5s), editable on the lobby and snapshotted to `games.challenge_cooldown_seconds` at start. The engine reads from the game row via `challengeCooldownMsFromGame(ctx.game)` in `engine/challenge-lifecycle.ts`; there is no longer a global `CHALLENGE_COOLDOWN_MS` constant. Applies identically to `completed` (honor-system "great, you got the credit, now go somewhere else for a few minutes") and `failed` (so a team can't spam-forfeit to skip an unwanted challenge).
