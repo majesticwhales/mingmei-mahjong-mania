@@ -339,7 +339,7 @@
         "title": "Eglinton Station",
         "description": "Time to play a playground classic: \"Hot and Cold\"! One player must secretly pick an establishment at least five minutes away by walking from Eglinton station. The other player, starting at Eglinton station, must ask questions about the location relative to other locations, and the first player must answer \"hot\" if the direction or location they have chosen is closer than their previous guess (ex. Q: \"Is it the library?\" A: \"Hot\"). The guesser is permitted up to ten questions. You may progress once the location has been correctly guessed.",
         "flavorText": "🔥 Hot & Cold ❄️",
-        "imageUrl": null
+        "imageUrl": "/challenges/eglinton.jpg"
       }
     ],
     "aga-khan": [
