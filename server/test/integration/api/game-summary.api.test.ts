@@ -5,7 +5,8 @@ import { GameTile } from "../../../src/models/game-tile.ts";
 import { GameTilePlacement } from "../../../src/models/game-tile-placement.ts";
 import { TileType } from "../../../src/models/tile-type.ts";
 import { runSchedulerTick } from "../../../src/scheduler/run-tick.ts";
-import { registerUser } from "../../setup/auth.ts";
+import { endGameEarly } from "../../../src/services/game-end-service.ts";
+import { registerUser, setUserAdmin } from "../../setup/auth.ts";
 import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 import { setupLightweightGame } from "../../setup/game.ts";
 import { bearer, getAgent, type ApiAgent } from "../../setup/http.ts";
@@ -338,6 +339,28 @@ describe("GET /api/games/:id/summary", () => {
     expect(res.status).toBe(200);
     expect(res.body.winningGameTeamId).toBeNull();
     expect(res.body.endReason).toBe("all_teams_completed");
+  });
+
+  it("returns endReason='manual' when an admin ends the game early with incomplete teams", async () => {
+    // Drive the end transition through `endGameEarly` (the same code
+    // path the admin "End game" button hits) instead of the scheduler.
+    // The summary endpoint reads back the `GAME_ENDED` payload either
+    // way, so the new `manual` enum value flows through unchanged.
+    const fixture = await setupLightweightGame({
+      participantCount: 1,
+      nodeCodes: ["bay"],
+    });
+    const admin = await registerUser();
+    await setUserAdmin(admin.user.id);
+    await endGameEarly(fixture.gameId, admin.user.id);
+
+    const participant = fixture.participants[0]!;
+    const token = signAccessToken(participant.userId);
+    const res = await agent
+      .get(`/api/games/${fixture.gameId}/summary`)
+      .set(bearer(token));
+    expect(res.status).toBe(200);
+    expect(res.body.endReason).toBe("manual");
   });
 
   it("isYakuman is true on a 0-fu / non-zero-han snapshot and false on noten / normal wins", async () => {

@@ -145,6 +145,25 @@ describe("GameSummaryScreen", () => {
     expect(screen.getByText("Riichi")).toBeInTheDocument();
   });
 
+  it("renders the manual end-reason label when the admin ended the game early", async () => {
+    const summary: GameSummaryDto = {
+      gameId: "game-1",
+      endedAt: "2026-06-10T18:00:00.000Z",
+      endReason: "manual",
+      winningGameTeamId: null,
+      teams: [team({})],
+    };
+    vi.spyOn(restClient, "getGameSummary").mockResolvedValue(summary);
+
+    render(wrap(<GameSummaryScreen />));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/ended early by an admin/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
   it("links to the read-only map view", async () => {
     const summary: GameSummaryDto = {
       gameId: "game-1",
