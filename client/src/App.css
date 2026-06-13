@@ -1298,6 +1298,14 @@ html.scroll-locked body {
   line-height: 1.45;
 }
 
+.challenge-modal__description {
+  white-space: pre-line;
+}
+
+.challenge-modal__flavor {
+  font-style: italic;
+}
+
 .challenge-modal__image {
   display: flex;
   justify-content: center;
