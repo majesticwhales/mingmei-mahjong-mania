@@ -252,22 +252,54 @@
     ],
     "king": [
       {
-        "code": "king",
+        "code": "king-0",
         "type": "task",
         "title": "King Station",
         "description": "Treat yourself with a five-course meal! The meal must consist of five distinct food items: Appetizer, soup, entrée, salad, and dessert. Each item must loosely fit within the definition of a coures (i.e. you cannot have five different candies as all five courses, but water can be considered a \"soup\"). Only one player needs to complete this challenge.",
         "flavorText": "🍽️ Eat like a king! 👑",
         "imageUrl": null
+      },
+      {
+        "code": "king-2",
+        "type": "task",
+        "title": "King Station - Beaver",
+        "description": "Take a selfie with Japan beaver! They are somewhere in the King Edward Hotel.",
+        "flavorText": "🦫 Beaver! 🦫",
+        "imageUrl": "/challenges/king/0.jpg"
+      },
+      {
+        "code": "king-1",
+        "type": "task",
+        "title": "King Station - Beaver",
+        "description": "Take a selfie with Canada beaver! They are somewhere in Berczy Park.",
+        "flavorText": "🦫 Beaver! 🦫",
+        "imageUrl": "/challenges/king/1.jpg"
+      },
+      {
+        "code": "king-3",
+        "type": "task",
+        "title": "King Station - Beaver",
+        "description": "Take a selfie with Netherlands beaver! They are somewhere in the King Edward Hotel.",
+        "flavorText": "🦫 Beaver! 🦫",
+        "imageUrl": "/challenges/king/2.jpg"
       }
     ],
     "queen": [
       {
-        "code": "queen",
+        "code": "queen-0",
         "type": "task",
         "title": "Queen Station",
         "description": "Let out your inner fashionista! One player must describe a clothing item that they would wear as a queen. It must have three distinct and recognizable features that are agreed upon. Then, the other player must go into Eaton Center and find and take a picture of a piece of clothing that matches that description. Features must have a form and a colour attributed to them (ex. a red shirt with a white collar and black buttons).",
         "flavorText": "👗 Dress like a queen! 👑",
         "imageUrl": null
+      },
+      {
+        "code": "queen-1",
+        "type": "task",
+        "title": "Queen Station - Beaver",
+        "description": "Take a selfie with Paraguay beaver! They are near the Canadian Venture Building.",
+        "flavorText": "🦫 Beaver! 🦫",
+        "imageUrl": "/challenges/queen.jpg"
       }
     ],
     "college": [
