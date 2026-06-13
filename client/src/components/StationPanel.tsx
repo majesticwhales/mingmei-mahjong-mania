@@ -12,6 +12,7 @@ import type {
   NodeViewTileDto,
 } from "../wire/nodeView";
 import type { HandTileDto } from "../wire/projection";
+import { ChallengeCooldownCountdown } from "./ChallengeCooldownCountdown";
 
 interface Props {
   /**
@@ -332,15 +333,7 @@ export function StationPanel({
               </button>
             )}
             {challengeCooldownUntil && (
-              <p className="station-panel__challenge-cooldown">
-                Challenge on cooldown until{" "}
-                <time dateTime={challengeCooldownUntil}>
-                  {new Date(challengeCooldownUntil).toLocaleTimeString([], {
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                </time>
-              </p>
+              <ChallengeCooldownCountdown cooldownUntil={challengeCooldownUntil} />
             )}
             {showClaimWin && onClaimWin && (
               <button
