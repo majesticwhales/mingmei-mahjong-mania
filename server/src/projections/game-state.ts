@@ -1020,16 +1020,17 @@ export async function buildCurrentChallenge(params: {
   let status: AtStationChallengeDto["status"] = "available";
   let instanceId: string | undefined;
   let cooldownUntil: string | undefined;
-  if (latestInstance) {
-    if (latestInstance.status === "in_progress") {
-      status = "in_progress";
-      instanceId = latestInstance.id;
-    } else if (
-      latestInstance.cooldownUntil != null &&
-      latestInstance.cooldownUntil.getTime() > nowMs
-    ) {
+  if (latestInstance?.status === "in_progress") {
+    status = "in_progress";
+    instanceId = latestInstance.id;
+  } else {
+    // Station-level cooldown: any resolution on any row gates the team
+    // until its `cooldown_until` elapses, so a `completed` resolution
+    // that advanced the cycle still blocks the next row's start.
+    const nodeCooldown = picked.latestInstanceAtNode?.cooldownUntil ?? null;
+    if (nodeCooldown != null && nodeCooldown.getTime() > nowMs) {
       status = "cooldown";
-      cooldownUntil = latestInstance.cooldownUntil.toISOString();
+      cooldownUntil = nodeCooldown.toISOString();
     }
   }
 
