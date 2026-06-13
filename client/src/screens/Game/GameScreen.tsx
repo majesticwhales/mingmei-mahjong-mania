@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
 import { useLockDocumentScroll } from "../../hooks/useLockDocumentScroll";
+import { useTimerExpired } from "../../hooks/useTimerExpired";
 import { resolveCheckedInChallenge } from "../../lib/challengeContext";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useIsAdmin } from "../../state/auth/hooks";
@@ -88,8 +89,10 @@ export function GameScreen() {
     state.id === id &&
     projection?.gameId === id;
 
-  const timerExpired =
-    gameReady && new Date(projection.endsAt).getTime() <= Date.now();
+  const timerExpired = useTimerExpired(
+    gameReady ? projection.endsAt : null,
+    gameReady && projection?.status === "active",
+  );
 
   const scoresRevealed = gameReady && projection.status === "ended";
 

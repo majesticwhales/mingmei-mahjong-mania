@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useLockDocumentScroll } from "../../hooks/useLockDocumentScroll";
+import { useTimerExpired } from "../../hooks/useTimerExpired";
 import { useIsAdmin } from "../../state/auth/hooks";
 import { useGame, useGameProjection } from "../../state/game/hooks";
 import { HttpError } from "../../transport/httpError";
@@ -39,8 +40,12 @@ export function GameWrapUpScreen() {
     projection?.gameId === id;
 
   const scoresRevealed = gameReady && projection.status === "ended";
+  const timerExpired = useTimerExpired(
+    gameReady ? projection.endsAt : null,
+    gameReady && projection.status === "active",
+  );
   const wrapUpActive =
-    gameReady && (projection.status === "ending" || timerExpired(projection.endsAt));
+    gameReady && (projection.status === "ending" || timerExpired);
 
   useEffect(() => {
     if (!id || !scoresRevealed) return;
@@ -49,10 +54,10 @@ export function GameWrapUpScreen() {
 
   useEffect(() => {
     if (!id || !gameReady || wrapUpActive) return;
-    if (projection.status === "active" && !timerExpired(projection.endsAt)) {
+    if (projection.status === "active" && !timerExpired) {
       navigate(`/games/${id}`, { replace: true });
     }
-  }, [gameReady, id, navigate, projection, wrapUpActive]);
+  }, [gameReady, id, navigate, projection, wrapUpActive, timerExpired]);
 
   const gatheringStationName = useMemo(
     () => resolveGatheringStationName(projection?.mapNodes),
@@ -134,8 +139,4 @@ export function GameWrapUpScreen() {
       )}
     </main>
   );
-}
-
-function timerExpired(endsAt: string): boolean {
-  return new Date(endsAt).getTime() <= Date.now();
 }
