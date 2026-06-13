@@ -32,6 +32,7 @@ function team(overrides: Partial<GameSummaryTeamDto>): GameSummaryTeamDto {
     handCompletedAt: null,
     winningTile: null,
     winningNodeCode: null,
+    winningNodeName: null,
     finalHand: [],
     finalHan: 0,
     finalFu: 0,
@@ -105,6 +106,7 @@ describe("GameSummaryScreen", () => {
           handCompletedAt: "2026-06-10T17:55:00.000Z",
           winningTile: summaryTile({}),
           winningNodeCode: "OSA",
+          winningNodeName: "Osaka",
           finalHand: [summaryTile({})],
           finalHan: 2,
           finalFu: 30,
@@ -118,6 +120,7 @@ describe("GameSummaryScreen", () => {
           handCompletedAt: "2026-06-10T17:50:00.000Z",
           winningTile: summaryTile({ rank: 7 }),
           winningNodeCode: "TKY",
+          winningNodeName: "Tokyo",
           finalHand: [summaryTile({ rank: 7 })],
           finalHan: 5,
           finalFu: 30,
@@ -140,8 +143,8 @@ describe("GameSummaryScreen", () => {
     expect(screen.getAllByText(/8,?000/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/2,?000/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Winner").length).toBeGreaterThan(0);
-    expect(screen.getByText("Won at TKY")).toBeInTheDocument();
-    expect(screen.getByText("Won at OSA")).toBeInTheDocument();
+    expect(screen.getByText("Won at Tokyo")).toBeInTheDocument();
+    expect(screen.getByText("Won at Osaka")).toBeInTheDocument();
     expect(screen.getByText("Riichi")).toBeInTheDocument();
   });
 

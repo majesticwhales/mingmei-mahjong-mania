@@ -15,6 +15,7 @@ const baseSnapshot: HandCompletedDto = {
     isRedFive: false,
   },
   winningNodeCode: "TKY",
+  winningNodeName: "Tokyo",
   finalHan: 4,
   finalFu: 30,
   finalPoints: 8000,
@@ -34,7 +35,7 @@ describe("HandCompletedModal", () => {
 
     expect(screen.getByRole("heading", { name: "Hand completed" })).toBeInTheDocument();
     expect(screen.getByText(/won at/i)).toBeInTheDocument();
-    expect(screen.getByText("TKY")).toBeInTheDocument();
+    expect(screen.getByText("Tokyo")).toBeInTheDocument();
     expect(screen.getAllByText(/8,?000/).length).toBeGreaterThan(0);
     expect(screen.getByText("4")).toBeInTheDocument();
     expect(screen.getByText("30")).toBeInTheDocument();

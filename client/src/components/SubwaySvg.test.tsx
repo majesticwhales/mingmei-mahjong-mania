@@ -152,6 +152,30 @@ describe("SubwaySvg per-slot rendering (Phase L §3.13)", () => {
     expect(slots[2]!.classList.contains("station-marker__tile-slot--hidden")).toBe(true);
   });
 
+  it("renders visible vacated slots as empty frames without a tile back", () => {
+    const tiles: MapNodeTileDto[] = [
+      { slotIndex: 0, tile: tile({ suit: "pin", rank: 5, copyIndex: 0 }), visible: true, locked: false },
+      { slotIndex: 1, tile: null, visible: true, locked: false },
+      { slotIndex: 2, tile: null, visible: false, locked: true },
+    ];
+
+    const { container } = render(
+      <SubwaySvg
+        network={network()}
+        mapNodes={[makeNode(tiles)]}
+        selectedStationId={null}
+        onSelectStation={vi.fn()}
+      />,
+    );
+
+    const slots = container.querySelectorAll(".station-marker__tile-slot");
+    expect(slots[1]!.classList.contains("station-marker__tile-slot--empty")).toBe(true);
+    expect(slots[1]!.getAttribute("data-empty")).toBe("true");
+    expect(slots[1]!.querySelector("image")).toBeNull();
+    expect(slots[2]!.classList.contains("station-marker__tile-slot--locked")).toBe(true);
+    expect(slots[2]!.querySelector("image")?.getAttribute("href")).toBe(TILE_BACK_IMAGE_PATH);
+  });
+
   it("falls back to face-down placeholders when the node carries no tiles", () => {
     // E.g. the node is absent from `mapNodes` entirely — server omitted
     // it (impossible today, but the renderer must not crash).

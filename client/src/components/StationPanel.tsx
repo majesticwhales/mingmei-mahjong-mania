@@ -133,15 +133,37 @@ function renderTripleStationSlots(tiles: NodeViewTileDto[] | undefined) {
         </div>
       );
     }
+    if (entry?.visible) {
+      return (
+        <div key={slotIndex} className="station-panel__slot station-panel__slot--empty">
+          <span className="station-panel__slot-label">Slot {slotIndex + 1}</span>
+          <div
+            className="station-panel__tile-placeholder station-panel__tile-image--station-slot"
+            aria-hidden="true"
+          />
+          <p className="station-panel__tile-name">Empty</p>
+        </div>
+      );
+    }
+    const locked = entry?.locked ?? false;
     return (
-      <div key={slotIndex} className="station-panel__slot station-panel__slot--unknown">
+      <div
+        key={slotIndex}
+        className={[
+          "station-panel__slot",
+          "station-panel__slot--unknown",
+          locked ? "station-panel__slot--locked" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <span className="station-panel__slot-label">Slot {slotIndex + 1}</span>
         <img
           src={TILE_BACK_IMAGE_PATH}
           alt=""
           className="station-panel__tile-image station-panel__tile-image--station-slot station-panel__tile-image--hidden"
         />
-        <p className="station-panel__tile-name">Unknown</p>
+        <p className="station-panel__tile-name">{locked ? "Locked" : "Unknown"}</p>
       </div>
     );
   });

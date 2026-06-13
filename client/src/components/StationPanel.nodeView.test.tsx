@@ -188,8 +188,33 @@ describe("StationPanel — useNodeView integration", () => {
     const slots = container.querySelectorAll(".station-panel__slot");
     expect(slots).toHaveLength(3);
     expect(within(slots[0] as HTMLElement).getByText("pin 1")).toBeTruthy();
-    expect(slots[1]?.classList.contains("station-panel__slot--unknown")).toBe(true);
-    expect(slots[2]?.classList.contains("station-panel__slot--unknown")).toBe(true);
+    expect(slots[1]?.classList.contains("station-panel__slot--locked")).toBe(true);
+    expect(within(slots[1] as HTMLElement).getByText("Locked")).toBeTruthy();
+    expect(slots[2]?.classList.contains("station-panel__slot--locked")).toBe(true);
+    expect(within(slots[2] as HTMLElement).getByText("Locked")).toBeTruthy();
+  });
+
+  it("renders vacated visible slots as Empty instead of Unknown", () => {
+    useNodeViewMock.mockReturnValue({
+      data: makeNodeView({
+        tiles: [
+          { slotIndex: 0, tile: makeTile({ suit: "pin", rank: 1 }), visible: true, locked: false },
+          { slotIndex: 1, tile: null, visible: true, locked: false },
+          { slotIndex: 2, tile: null, visible: false, locked: true },
+        ],
+      }),
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    const { container } = mountStationPanel();
+
+    const slots = container.querySelectorAll(".station-panel__slot");
+    expect(slots[1]?.classList.contains("station-panel__slot--empty")).toBe(true);
+    expect(within(slots[1] as HTMLElement).getByText("Empty")).toBeTruthy();
+    expect(slots[1]?.querySelector(".station-panel__tile-placeholder")).not.toBeNull();
+    expect(within(slots[2] as HTMLElement).getByText("Locked")).toBeTruthy();
   });
 
   it("renders 'Check in here' as the only action when the team is not yet checked in", () => {

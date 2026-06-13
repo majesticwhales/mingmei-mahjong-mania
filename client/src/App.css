@@ -1382,6 +1382,24 @@ html.scroll-locked body {
   color: var(--panel-muted);
 }
 
+.station-panel__slot--empty .station-panel__tile-name {
+  color: var(--panel-muted);
+  font-style: italic;
+}
+
+.station-panel__slot--locked .station-panel__tile-image--hidden {
+  border-color: #78716c;
+  background: #c9c0b4;
+}
+
+.station-panel__tile-placeholder {
+  aspect-ratio: 3 / 4;
+  border: 2px dashed rgba(154, 164, 178, 0.45);
+  border-radius: 7px;
+  background: rgba(154, 164, 178, 0.08);
+  box-shadow: none;
+}
+
 .station-panel__slot-label {
   display: block;
   font-size: 0.8rem;
@@ -1617,6 +1635,21 @@ html.scroll-locked body {
 .station-marker__tile-slot--hidden .station-marker__tile-frame {
   fill: #d8d0c4;
   stroke: #93a8d8;
+}
+
+.station-marker__tile-slot--locked .station-marker__tile-frame {
+  fill: #c9c0b4;
+  stroke: #78716c;
+}
+
+.station-marker__tile-slot--empty .station-marker__tile-frame {
+  fill: rgba(15, 23, 42, 0.35);
+  stroke: rgba(154, 164, 178, 0.55);
+  stroke-dasharray: 2 1.5;
+}
+
+.station-marker__tile-slot--empty .station-marker__tile-shadow {
+  fill: rgba(0, 0, 0, 0.12);
 }
 
 .station-marker__label {

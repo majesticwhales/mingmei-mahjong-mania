@@ -8,6 +8,11 @@ export interface TileSlotDisplay {
   label?: string;
   visible: boolean;
   /**
+   * Vacated slot — the map-reveal timer has elapsed but no tile
+   * occupies the slot (e.g. after another team claims their 14th tile).
+   */
+  empty?: boolean;
+  /**
    * Phase L §3.13: claim-unlock timer state, mirrored from
    * `MapNodeTileDto.locked`. Independent of `visible` — a slot can be
    * both visible AND locked (preview tier). When true, the marker
@@ -236,7 +241,8 @@ export function StationMarker({
             const x = slotIndex * (SLOT_WIDTH + SLOT_GAP);
             const className = [
               "station-marker__tile-slot",
-              slot?.visible ? "" : "station-marker__tile-slot--hidden",
+              slot?.empty ? "station-marker__tile-slot--empty" : "",
+              slot?.visible && !slot?.empty ? "" : slot?.empty ? "" : "station-marker__tile-slot--hidden",
               slot?.locked ? "station-marker__tile-slot--locked" : "",
             ]
               .filter(Boolean)
@@ -247,6 +253,7 @@ export function StationMarker({
                 className={className}
                 transform={`translate(${x} 0)`}
                 data-locked={slot?.locked ? "true" : undefined}
+                data-empty={slot?.empty ? "true" : undefined}
               >
                 <rect
                   className="station-marker__tile-shadow"
@@ -264,15 +271,17 @@ export function StationMarker({
                   rx={1.8}
                   aria-hidden="true"
                 />
-                <image
-                  href={imagePath}
-                  x={1.2}
-                  y={1.5}
-                  width={SLOT_WIDTH - 2.4}
-                  height={SLOT_HEIGHT - 3}
-                  preserveAspectRatio="xMidYMid meet"
-                  aria-hidden="true"
-                />
+                {!slot?.empty && (
+                  <image
+                    href={imagePath}
+                    x={1.2}
+                    y={1.5}
+                    width={SLOT_WIDTH - 2.4}
+                    height={SLOT_HEIGHT - 3}
+                    preserveAspectRatio="xMidYMid meet"
+                    aria-hidden="true"
+                  />
+                )}
               </g>
             );
           })}

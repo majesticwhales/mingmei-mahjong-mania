@@ -63,7 +63,7 @@ export function HandCompletedModal({
           <div className="hand-completed-modal__hero-copy">
             <p className="hand-completed-modal__eyebrow">Winning tile</p>
             <p className="hand-completed-modal__station">
-              Won at <strong>{handCompleted.winningNodeCode}</strong>
+              Won at <strong>{handCompleted.winningNodeName}</strong>
             </p>
             <p className="hand-completed-modal__tile-name">
               {handCompleted.winningTile.displayName}

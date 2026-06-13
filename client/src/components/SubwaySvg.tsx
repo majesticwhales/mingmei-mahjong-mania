@@ -49,6 +49,13 @@ function buildTileSlots(node: MapNodeDto | undefined): TileSlotDisplay[] {
         visible: true,
         locked: entry.locked,
       };
+    } else if (entry.visible && entry.tile == null) {
+      // Revealed but vacated — e.g. another team claimed their 14th tile.
+      slots[entry.slotIndex] = {
+        imagePath: TILE_BACK_IMAGE_PATH,
+        visible: true,
+        empty: true,
+      };
     } else {
       // Hidden slot — render face-down. Carry `locked` through so the
       // marker can stamp the lock affordance even before reveal.
