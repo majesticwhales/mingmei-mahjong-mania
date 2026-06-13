@@ -213,6 +213,17 @@ export function StationPanel({
     nodeView?.currentChallenge?.status === "cooldown"
       ? nodeView.currentChallenge.cooldownUntil
       : undefined;
+  // While the team has a challenge in flight at this station, the
+  // server reports `start_challenge.enabled === false` with reason
+  // `challenge_in_progress`. Locally we still want the button to be
+  // clickable so the player can re-open the modal after closing it via
+  // the X. Clicking is a no-op for the engine: GameScreen's auto-start
+  // effect only fires START_CHALLENGE when
+  // `currentChallenge.status === "available"`.
+  const challengeInProgress =
+    nodeView?.currentChallenge?.status === "in_progress";
+  const challengeButtonEnabled =
+    challengeInProgress || actions.start_challenge.enabled;
 
   const actionsDisabledBase = commandsPending || commandsDisabled || checkInPending;
 
@@ -302,8 +313,8 @@ export function StationPanel({
               <button
                 type="button"
                 className="btn btn--secondary"
-                disabled={actionsDisabledBase || !actions.start_challenge.enabled}
-                title={!actions.start_challenge.enabled ? challengeDisabledReason ?? undefined : undefined}
+                disabled={actionsDisabledBase || !challengeButtonEnabled}
+                title={!challengeButtonEnabled ? challengeDisabledReason ?? undefined : undefined}
                 onClick={onOpenChallenge}
               >
                 View challenge

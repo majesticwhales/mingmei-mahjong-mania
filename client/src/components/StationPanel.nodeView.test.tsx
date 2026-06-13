@@ -293,6 +293,47 @@ describe("StationPanel — useNodeView integration", () => {
     expect(screen.queryByRole("button", { name: /claim hand/i })).toBeNull();
   });
 
+  it("keeps the View challenge button enabled when the team's challenge is in_progress", () => {
+    // Server reports start_challenge.enabled === false with reason
+    // `challenge_in_progress` while a row is in flight; the panel
+    // overrides this locally so the player can re-open the modal after
+    // closing it via the X. Re-opening is safe — GameScreen's
+    // auto-start effect bails on any status other than "available".
+    const challenge: AtStationChallengeDto = {
+      challengeId: "c-1",
+      title: "Test",
+      description: "Test challenge",
+      flavorText: null,
+      imageUrl: null,
+      status: "in_progress",
+      instanceId: "instance-1",
+    };
+    useNodeViewMock.mockReturnValue({
+      data: makeNodeView({
+        currentChallenge: challenge,
+        availableActions: [
+          makeAction("check_out", true),
+          makeAction("swap_tile", false, "swap_credit_required"),
+          makeAction("swap_location_tiles", false, "swap_credit_required"),
+          makeAction("start_challenge", false, "challenge_in_progress"),
+          makeAction("claim_win", false, "not_tenpai"),
+        ],
+      }),
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    mountStationPanel(
+      { viewingNodeId: "node-1" },
+      makeAtStation({ nodeId: "node-1" }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: /view challenge/i }),
+    ).not.toBeDisabled();
+  });
+
   it("renders the cooldown timestamp from nodeView.currentChallenge.cooldownUntil when the challenge is on cooldown", () => {
     const cooldownUntil = "2026-06-11T21:30:00.000Z";
     const challenge: AtStationChallengeDto = {

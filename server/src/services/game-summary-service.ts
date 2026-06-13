@@ -86,10 +86,21 @@ export interface GameSummaryTeamDto {
   waits: SummaryAnalyzedWaitDto[] | null;
 }
 
+export type GameSummaryEndReason =
+  | "timer"
+  | "all_teams_completed"
+  | "manual";
+
 export interface GameSummaryDto {
   gameId: string;
   endedAt: string;
-  endReason: "timer" | "all_teams_completed";
+  /**
+   * Reason precedence (decided by `runGameEnd`):
+   *   - every team has `handCompletedAt` -> `all_teams_completed`
+   *   - else trigger is admin-driven `endGameEarly` -> `manual`
+   *   - else scheduler tick at the timer -> `timer`
+   */
+  endReason: GameSummaryEndReason;
   /** Strict `finalPoints` leader, or `null` when the game ended tied. */
   winningGameTeamId: string | null;
   teams: GameSummaryTeamDto[];
@@ -116,10 +127,12 @@ interface GameEndedPayload {
   winningGameTeamId?: unknown;
 }
 
-function isValidEndReason(
-  value: unknown,
-): value is "timer" | "all_teams_completed" {
-  return value === "timer" || value === "all_teams_completed";
+function isValidEndReason(value: unknown): value is GameSummaryEndReason {
+  return (
+    value === "timer" ||
+    value === "all_teams_completed" ||
+    value === "manual"
+  );
 }
 
 export async function buildGameSummary(

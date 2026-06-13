@@ -19,6 +19,8 @@ function endReasonLabel(reason: GameSummaryDto["endReason"]): string {
   switch (reason) {
     case "all_teams_completed":
       return "All teams completed their hands.";
+    case "manual":
+      return "The game was ended early by an admin.";
     case "timer":
       return "Time expired.";
     default:

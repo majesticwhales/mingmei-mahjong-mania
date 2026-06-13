@@ -1,12 +1,22 @@
+import type { Transaction } from "sequelize";
+import type { Game } from "../../models/game.ts";
 import { GameTeam } from "../../models/game-team.ts";
 import type {
   SchedulerJobHandler,
-  SchedulerJobHandlerContext,
   SchedulerJobHandlerOutcome,
 } from "../job-handler.ts";
 
 /**
- * Flip an active game to `ended` at its scheduled end time.
+ * Where the end-of-game transition originated. Threaded into `runGameEnd`
+ * so the `GAME_ENDED` event payload's `endReason` can distinguish a
+ * scheduler-driven termination (`timer`) from an admin-driven early
+ * end (`manual`). `all_teams_completed` always wins when every team
+ * already claimed — the natural label beats the trigger.
+ */
+export type GameEndTrigger = "scheduled" | "manual";
+
+/**
+ * Flip an active game to `ending`.
  *
  * v1 uses the intermediate `ending` state as a wrap-up window: teams
  * regather at the start station while the host reveals scores. The
@@ -14,7 +24,7 @@ import type {
  * ready. The queue-drain handoff reserved in the original TDD §5 note
  * still applies once the command-queue processor lands.
  *
- * Phase J (TDD §3.10) — two new responsibilities on this handler:
+ * Phase J (TDD §3.10) — two responsibilities on this transition:
  *
  *   1. **Snapshot incomplete teams.** Any team that didn't `CLAIM_WIN`
  *      before the job fires gets `final_han = final_fu = final_points = 0`
@@ -23,73 +33,100 @@ import type {
  *      "(hand_completed_at IS NULL) OR (snapshot complete)" disjunction.
  *      `final_yaku_keys` is left `NULL` — the summary endpoint
  *      synthesizes wait sets at request time via `analyzeHand`.
- *   2. **Compute end metadata for the event payload.** `endReason` is
- *      `"all_teams_completed"` when every team finished via `CLAIM_WIN`
- *      (the early-end branch upserts this job's `runAt` to `now()` —
- *      see the `claimWinHandler` tail) and `"timer"` otherwise.
+ *   2. **Compute end metadata for the event payload.** `endReason`
+ *      precedence:
+ *        - every team has `hand_completed_at` -> `"all_teams_completed"`
+ *        - `trigger === "manual"` -> `"manual"` (admin pressed end)
+ *        - otherwise -> `"timer"` (scheduler-driven timeout)
  *      `winningGameTeamId` is the strict `finalPoints` leader; ties are
  *      reported as `null`.
  *
  * Idempotent: an already-ended game returns success with no event. Any
  * other non-active status (none defined yet in v1) is rejected loudly.
+ *
+ * Single source of truth: both the scheduler tick (via `gameEndHandler`
+ * below) and `endGameEarly` call this helper. The handler shim threads
+ * `trigger: "scheduled"`; the admin-driven service threads `"manual"`.
+ */
+export async function runGameEnd(args: {
+  game: Game;
+  transaction: Transaction;
+  now: Date;
+  trigger: GameEndTrigger;
+}): Promise<SchedulerJobHandlerOutcome> {
+  const { game, transaction, now, trigger } = args;
+
+  if (game.status === "ended") {
+    return {};
+  }
+  if (game.status !== "active") {
+    throw new Error(
+      `GAME_END can only run on active games; game ${game.id} is ${game.status}`,
+    );
+  }
+
+  // Load every team's completion snapshot in deterministic order so the
+  // tie-break on `(finalPoints DESC, handCompletedAt ASC, id ASC)`
+  // produces stable winner selection across runs / replicas.
+  const teams = await GameTeam.findAll({
+    where: { gameId: game.id },
+    order: [["id", "ASC"]],
+    transaction,
+  });
+
+  // Stamp 0-snapshot onto the noten teams. The "incomplete + final_* = 0"
+  // shape is what the summary endpoint keys off (along with the live
+  // `analyzeHand` over the 13-tile hand for the wait set).
+  for (const team of teams) {
+    if (team.handCompletedAt == null) {
+      team.finalHan = 0;
+      team.finalFu = 0;
+      team.finalPoints = 0;
+      team.finalYakuKeys = null;
+      await team.save({ transaction });
+    }
+  }
+
+  const allCompleted = teams.every((t) => t.handCompletedAt != null);
+  const endReason = allCompleted
+    ? "all_teams_completed"
+    : trigger === "manual"
+      ? "manual"
+      : "timer";
+  const winningGameTeamId = selectWinningGameTeamId(teams);
+
+  game.status = "ending";
+  await game.save({ transaction });
+
+  return {
+    events: [
+      {
+        eventType: "GAME_ENDED",
+        payload: {
+          endedAt: now.toISOString(),
+          endReason,
+          winningGameTeamId,
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * Scheduler-registry shim — fires at the game's scheduled end time, which
+ * may have been pulled forward to `now()` by `claimWinHandler` when the
+ * last team completes their hand. Always threads `trigger: "scheduled"`;
+ * the `allCompleted` branch in `runGameEnd` upgrades to
+ * `"all_teams_completed"` when applicable.
  */
 export const gameEndHandler: SchedulerJobHandler = {
-  async handle(
-    ctx: SchedulerJobHandlerContext,
-  ): Promise<SchedulerJobHandlerOutcome> {
-    const { game, transaction, now } = ctx;
-
-    if (game.status === "ended") {
-      return {};
-    }
-    if (game.status !== "active") {
-      throw new Error(
-        `GAME_END can only run on active games; game ${game.id} is ${game.status}`,
-      );
-    }
-
-    // Load every team's completion snapshot in deterministic order so the
-    // tie-break on `(finalPoints DESC, handCompletedAt ASC, id ASC)`
-    // produces stable winner selection across runs / replicas.
-    const teams = await GameTeam.findAll({
-      where: { gameId: game.id },
-      order: [["id", "ASC"]],
-      transaction,
-    });
-
-    // Stamp 0-snapshot onto the noten teams. The "incomplete + final_* = 0"
-    // shape is what the summary endpoint keys off (along with the live
-    // `analyzeHand` over the 13-tile hand for the wait set).
-    for (const team of teams) {
-      if (team.handCompletedAt == null) {
-        team.finalHan = 0;
-        team.finalFu = 0;
-        team.finalPoints = 0;
-        team.finalYakuKeys = null;
-        await team.save({ transaction });
-      }
-    }
-
-    const allCompleted = teams.every((t) => t.handCompletedAt != null);
-    const endReason = allCompleted ? "all_teams_completed" : "timer";
-    const winningGameTeamId = selectWinningGameTeamId(teams);
-
-    game.status = "ending";
-    await game.save({ transaction });
-
-    return {
-      events: [
-        {
-          eventType: "GAME_ENDED",
-          payload: {
-            endedAt: now.toISOString(),
-            endReason,
-            winningGameTeamId,
-          },
-        },
-      ],
-    };
-  },
+  handle: (ctx) =>
+    runGameEnd({
+      game: ctx.game,
+      transaction: ctx.transaction,
+      now: ctx.now,
+      trigger: "scheduled",
+    }),
 };
 
 /**

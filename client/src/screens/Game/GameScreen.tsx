@@ -5,6 +5,7 @@ import { StationPanel } from "../../components/StationPanel";
 import { useLockDocumentScroll } from "../../hooks/useLockDocumentScroll";
 import { useTimerExpired } from "../../hooks/useTimerExpired";
 import { resolveCheckedInChallenge } from "../../lib/challengeContext";
+import { stationHasClaimableWait } from "../../lib/claimWin";
 import { projectionToNetwork } from "../../lib/projectionMap";
 import { useIsAdmin } from "../../state/auth/hooks";
 import {
@@ -353,7 +354,19 @@ export function GameScreen() {
       await runCommand(async () => {
         await completeChallengeCommand({ instanceId });
         setChallengeOpen(false);
-        setSwapOpen(true);
+        // Tenpai + a matching visible station tile means the post-credit
+        // claim button will light up. Skip straight to ClaimWinModal in
+        // that case so the user doesn't have to dismiss the swap modal
+        // before they can win.
+        const canClaimAtStation =
+          atStation != null &&
+          claimWinWaits != null &&
+          stationHasClaimableWait(atStation.tiles, claimWinWaits);
+        if (canClaimAtStation) {
+          setClaimOpen(true);
+        } else {
+          setSwapOpen(true);
+        }
       });
     } finally {
       setChallengePending(false);
