@@ -4,19 +4,20 @@ import { describe, expect, it, vi } from "vitest";
 import { ChallengeModal } from "./ChallengeModal";
 
 describe("ChallengeModal", () => {
-  it("renders title, description, and action buttons", () => {
+  it("renders the station title, description, flavor text, and action buttons", () => {
     render(
       <ChallengeModal
-        title="Find the dragon mural"
+        title="Bloor-Yonge Station"
         description="Take a photo of the red dragon tile mosaic near the platform."
+        flavorText="📚 Get that word count in! 📚"
         onComplete={vi.fn()}
         onAbandon={vi.fn()}
         onClose={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Station challenge" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Find the dragon mural" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Bloor-Yonge Station" })).toBeInTheDocument();
+    expect(screen.getByText("📚 Get that word count in! 📚")).toBeInTheDocument();
     expect(
       screen.getByText("Take a photo of the red dragon tile mosaic near the platform."),
     ).toBeInTheDocument();
