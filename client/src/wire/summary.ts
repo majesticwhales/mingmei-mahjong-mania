@@ -58,7 +58,12 @@ export interface GameSummaryTeamDto {
 export interface GameSummaryDto {
   gameId: string;
   endedAt: string;
-  endReason: "timer" | "all_teams_completed";
+  /**
+   * Server precedence: `all_teams_completed` (every team claimed) wins
+   * over the trigger; otherwise `manual` for admin-driven early ends and
+   * `timer` for the scheduler tick at the configured end time.
+   */
+  endReason: "timer" | "all_teams_completed" | "manual";
   /** Strict `finalPoints` leader; `null` on ties or no-winner. */
   winningGameTeamId: string | null;
   teams: GameSummaryTeamDto[];

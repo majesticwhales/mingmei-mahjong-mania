@@ -4,7 +4,7 @@ import type { Broadcaster } from "../engine/broadcaster.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Game } from "../models/game.ts";
 import { GameEvent } from "../models/game-event.ts";
-import { gameEndHandler } from "../scheduler/handlers/game-end.ts";
+import { runGameEnd } from "../scheduler/handlers/game-end.ts";
 import { getBroadcaster } from "../socket/broadcaster-registry.ts";
 import { assertIsAdmin } from "./auth-service.ts";
 
@@ -39,11 +39,11 @@ export async function endGameEarly(
       return [] as GameEvent[];
     }
 
-    const outcome = await gameEndHandler.handle({
-      job: null as never,
+    const outcome = await runGameEnd({
       game,
       transaction,
       now,
+      trigger: "manual",
     });
 
     const created: GameEvent[] = [];
