@@ -145,6 +145,43 @@ export function useNodeView(nodeId: string | null): UseNodeViewResult {
     });
   }, [gameId, nodeId, runFetch]);
 
+  // Auto-refresh on challenge cooldown expiry. Cooldown is a passive
+  // wall-clock threshold on the server (no scheduler job fires when
+  // it elapses) and the `game.event` channel only carries
+  // explicitly-emitted events, so without this timer the panel would
+  // keep `status: "cooldown"` + a disabled "View challenge" button
+  // until the user took some other action that triggered a refetch.
+  // Keyed off `data` so a fresh refetch reschedules the timer
+  // automatically (new cooldownUntil) or clears it (status flipped
+  // to available / in_progress). The setTimeout call site is in an
+  // effect — same external-subscription exemption as the socket
+  // handler above — so the `react-hooks/set-state-in-effect` lint
+  // doesn't fire.
+  useEffect(() => {
+    const cooldownUntil =
+      data?.currentChallenge?.status === "cooldown"
+        ? data.currentChallenge.cooldownUntil
+        : null;
+    if (!cooldownUntil) return undefined;
+
+    const fireRefresh = () => {
+      setLoading(true);
+      setError(null);
+      runFetch();
+    };
+
+    const deltaMs = new Date(cooldownUntil).getTime() - Date.now();
+    if (deltaMs <= 0) {
+      // Cooldown already elapsed by the time the response landed —
+      // server/client clock skew or a slow round-trip. Refetch
+      // immediately rather than wait on a stale timer.
+      fireRefresh();
+      return undefined;
+    }
+    const timer = setTimeout(fireRefresh, deltaMs);
+    return () => clearTimeout(timer);
+  }, [data, runFetch]);
+
   const refresh = useCallback(() => {
     if (!gameId || !nodeId) return;
     setLoading(true);

@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeProjection } from "../../test/fixtures/projection";
 import { HttpError } from "../../transport/httpError";
 import type { NodeViewDto } from "../../wire/nodeView";
-import type { RecentEventDto } from "../../wire/projection";
+import type {
+  AtStationChallengeDto,
+  RecentEventDto,
+} from "../../wire/projection";
 import { GameContext } from "./Context";
 import type { GameState } from "./types";
 import { useNodeView } from "./useNodeView";
@@ -303,5 +306,144 @@ describe("useNodeView", () => {
     expect(getNodeViewMock).not.toHaveBeenCalled();
     expect(result.current.data).toBeNull();
     expect(result.current.loading).toBe(false);
+  });
+
+  describe("challenge cooldown expiry auto-refresh", () => {
+    // Cooldown is a passive wall-clock threshold on the server (no
+    // scheduler job, no socket event when it elapses). Without the
+    // hook's setTimeout the panel would stay stuck on
+    // `status: "cooldown"` + a disabled "View challenge" button until
+    // some other event triggered a refetch.
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function makeCooldownChallenge(
+      cooldownUntilIso: string,
+    ): AtStationChallengeDto {
+      return {
+        challengeId: "challenge-1",
+        title: "Test",
+        description: null,
+        flavorText: null,
+        imageUrl: null,
+        status: "cooldown",
+        cooldownUntil: cooldownUntilIso,
+      };
+    }
+
+    // Wraps a microtask flush in `act` so the hook's `.then(setData)`
+    // and the React commit it triggers both land inside the same
+    // act-aware boundary. With fake timers in play we can't lean on
+    // testing-library's `waitFor` (its polling timer is also faked),
+    // so we drive the flush explicitly here.
+    async function flushMicrotasks() {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    it("schedules a background refresh when the response carries a future cooldownUntil and fires it on expiry", async () => {
+      vi.setSystemTime(new Date("2026-06-12T22:00:00.000Z"));
+      const cooldownUntilMs = Date.now() + 5_000;
+      const initial = makeNodeView({
+        name: "Cooling",
+        currentChallenge: makeCooldownChallenge(
+          new Date(cooldownUntilMs).toISOString(),
+        ),
+      });
+      getNodeViewMock.mockResolvedValueOnce(initial);
+
+      const { result } = renderHook(() => useNodeView("node-1"), {
+        wrapper: buildProvider(),
+      });
+
+      await flushMicrotasks();
+      expect(result.current.data?.name).toBe("Cooling");
+      expect(getNodeViewMock).toHaveBeenCalledTimes(1);
+
+      // Refresh fetch hangs so we can observe the no-flicker contract
+      // (prior data stays rendered while the auto-refresh is in flight).
+      let resolveRefresh!: (v: NodeViewDto) => void;
+      const refreshPromise = new Promise<NodeViewDto>((res) => {
+        resolveRefresh = res;
+      });
+      getNodeViewMock.mockReturnValueOnce(refreshPromise);
+
+      // Walk the clock past the cooldown — the scheduled timer fires.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(getNodeViewMock).toHaveBeenCalledTimes(2);
+      expect(result.current.loading).toBe(true);
+      expect(result.current.data?.name).toBe("Cooling");
+
+      const refreshed = makeNodeView({
+        name: "Cooling",
+        currentChallenge: {
+          challengeId: "challenge-1",
+          title: "Test",
+          description: null,
+          flavorText: null,
+          imageUrl: null,
+          status: "available",
+        },
+      });
+      await act(async () => {
+        resolveRefresh(refreshed);
+        await refreshPromise;
+      });
+
+      expect(result.current.data?.currentChallenge?.status).toBe("available");
+      expect(result.current.loading).toBe(false);
+    });
+
+    it("refreshes immediately when cooldownUntil has already elapsed by the time the response lands", async () => {
+      vi.setSystemTime(new Date("2026-06-12T22:00:00.000Z"));
+      // Negative delta — server's `now()` vs. ours skewed by a second,
+      // or the response sat in flight long enough for the cooldown to
+      // expire. The hook shouldn't sit on a stale timer; it should
+      // refetch on the next tick.
+      const expiredAt = new Date(Date.now() - 1_000).toISOString();
+      const stale = makeNodeView({
+        name: "Stale cooldown",
+        currentChallenge: makeCooldownChallenge(expiredAt),
+      });
+      const fresh = makeNodeView({
+        name: "Stale cooldown",
+        currentChallenge: {
+          challengeId: "challenge-1",
+          title: "Test",
+          description: null,
+          flavorText: null,
+          imageUrl: null,
+          status: "available",
+        },
+      });
+      getNodeViewMock
+        .mockResolvedValueOnce(stale)
+        .mockResolvedValueOnce(fresh);
+
+      const { result } = renderHook(() => useNodeView("node-1"), {
+        wrapper: buildProvider(),
+      });
+
+      // First flush — the mount fetch's `.then(setData)` lands; the
+      // expiry effect now sees a `cooldown` status with a past
+      // `cooldownUntil` and synchronously kicks off the second fetch.
+      await flushMicrotasks();
+      expect(result.current.data?.name).toBe("Stale cooldown");
+      expect(getNodeViewMock).toHaveBeenCalledTimes(2);
+
+      // Second flush — the refresh fetch's `.then(setData)` lands and
+      // surfaces the post-cooldown `available` status.
+      await flushMicrotasks();
+      expect(result.current.data?.currentChallenge?.status).toBe("available");
+    });
   });
 });
