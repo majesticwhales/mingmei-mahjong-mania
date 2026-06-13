@@ -310,6 +310,42 @@ describe("START_CHALLENGE handler", () => {
       );
     });
 
+    it("rejects START_CHALLENGE on the cycled-to row while the prior completion's cooldown is still active", async () => {
+      // Regression: before this fix, completing a row stamped
+      // `cooldown_until` but the handler only checked the *picked*
+      // row's history. After `completed` advances the cycle to the
+      // next row, that row has no history of its own and the gate
+      // disappeared — letting a team chain completions back-to-back.
+      // Cooldown is station-wide now: the team's latest resolution at
+      // the node gates any new `START_CHALLENGE` regardless of which
+      // row the cycle has advanced to.
+      const fixture = await setupLightweightGame({
+        nodeCodes: ["bay"],
+        startNodeCodeBySlot: { 1: "bay" },
+      });
+      const participant = fixture.participants[0]!;
+      const bayId = fixture.nodeIdByCode.get("bay")!;
+      const queue = await seedQueue(bayId, 3);
+      await seedResolvedInstance({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        seed: queue[0]!,
+        status: "completed",
+        reason: "completed",
+        cooldownAgoMs: -5 * 60 * 1000,
+      });
+
+      await expect(
+        processCommand({
+          gameId: fixture.gameId,
+          gameTeamId: participant.gameTeamId,
+          userId: participant.userId,
+          commandType: "START_CHALLENGE",
+          payload: { nodeId: bayId },
+        }),
+      ).rejects.toMatchObject({ status: 409, code: "challenge_on_cooldown" });
+    });
+
     it("advances to the next sort_order after the team completes the current row", async () => {
       const fixture = await setupLightweightGame({
         nodeCodes: ["bay"],

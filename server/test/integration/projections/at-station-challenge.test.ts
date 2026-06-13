@@ -416,8 +416,58 @@ describe("buildGameStateProjection - atStation challenge", () => {
         queue[1]!.challengeId,
       );
       expect(projection.atStation!.currentChallenge!.title).toBe("Second");
-      // Row 1 has no history of its own -> status falls back to available.
+      // `seedResolvedInstance` defaults to a cooldown 10min in the past,
+      // so the station-wide gate is already elapsed and the cycled-to
+      // row surfaces as `available`. The next test pins the same setup
+      // with a future cooldown to verify the gate fires.
       expect(projection.atStation!.currentChallenge!.status).toBe("available");
+    });
+
+    it("gates the cycled-to row with the prior completion's cooldown until it elapses", async () => {
+      // Regression: before this fix, completing a row stamped
+      // `cooldown_until` on that row but the projection only checked
+      // the *picked* row's history. After the cycle advanced past the
+      // completed row the cooldown was invisible, so the next card
+      // surfaced as `available` immediately. Cooldown is station-wide
+      // now — the latest resolution at the node gates any new
+      // `START_CHALLENGE` regardless of which row the cycle has
+      // advanced to.
+      const fixture = await setupLightweightGame({
+        nodeCodes: ["bay"],
+        startNodeCodeBySlot: { 1: "bay" },
+      });
+      const participant = fixture.participants[0]!;
+      const bayId = fixture.nodeIdByCode.get("bay")!;
+      const queue = await seedQueue(bayId, ["First", "Second", "Third"]);
+      // Future cooldown so the gate is active when the projection
+      // samples it.
+      const futureCooldownAgoMs = -5 * 60 * 1000;
+      await seedResolvedInstance({
+        gameId: fixture.gameId,
+        gameTeamId: participant.gameTeamId,
+        seed: queue[0]!,
+        status: "completed",
+        reason: "completed",
+        cooldownAgoMs: futureCooldownAgoMs,
+      });
+
+      const projection = await buildGameStateProjection(
+        fixture.gameId,
+        participant.gameTeamId,
+      );
+
+      // Cycle advanced past the completed row…
+      expect(projection.atStation!.currentChallenge!.challengeId).toBe(
+        queue[1]!.challengeId,
+      );
+      // …but the station-wide cooldown still applies until row 0's
+      // `cooldown_until` elapses.
+      expect(projection.atStation!.currentChallenge!.status).toBe("cooldown");
+      expect(
+        new Date(
+          projection.atStation!.currentChallenge!.cooldownUntil!,
+        ).getTime(),
+      ).toBeGreaterThan(Date.now());
     });
 
     it("pins to the same row after an explicit forfeit and surfaces its cooldown", async () => {

@@ -53,8 +53,10 @@ function parsePayload(payload: Record<string, unknown>): StartChallengePayload {
  *     (`409 challenge_in_progress`).
  *   - station has at least one challenge configured
  *     (`409 no_challenge_at_station`).
- *   - the current challenge is not on cooldown for this team
- *     (`409 challenge_on_cooldown`).
+ *   - the team has no resolved instance at the station still under
+ *     `cooldown_until` (`409 challenge_on_cooldown`). The gate is
+ *     station-wide: a prior `completed` row keeps blocking even after
+ *     the cycle has advanced to the next row.
  */
 export const startChallengeHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
@@ -147,12 +149,15 @@ export const startChallengeHandler: CommandHandler = {
     }
     const topChallenge = picked.row;
 
-    // Cooldown check: the helper already returned the team's most
-    // recent attempt on the picked row (or null if the team has never
-    // attempted this specific row). `cooldown_until` is non-null
-    // exactly when the row has resolved at least once.
+    // Station-wide cooldown gate: `latestInstanceAtNode` is the team's
+    // most-recent instance across the entire queue at this node, so a
+    // prior `completed` resolution still blocks even after the cycle
+    // advanced the picked row past it. `cooldown_until` is non-null
+    // exactly when the row has resolved (`completed` / `failed`), so
+    // `in_progress` (handled separately above) doesn't false-positive
+    // this gate.
     const now = new Date();
-    const cooldownUntil = picked.latestInstanceForRow?.cooldownUntil ?? null;
+    const cooldownUntil = picked.latestInstanceAtNode?.cooldownUntil ?? null;
     if (cooldownUntil != null && cooldownUntil.getTime() > now.getTime()) {
       throw new HttpError(
         409,
