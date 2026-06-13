@@ -78,7 +78,7 @@ export function GameWrapUpScreen() {
 
   if (state.status === "error" && state.id === id) {
     return (
-      <main className="screen">
+      <main className="screen screen--dark">
         <p>{state.error.message}</p>
         <Link to="/lobbies">Back to lobbies</Link>
       </main>
@@ -87,14 +87,14 @@ export function GameWrapUpScreen() {
 
   if (state.status === "loading" || !projection || !gameReady) {
     return (
-      <main className="screen screen--loading">
+      <main className="screen screen--loading screen--dark">
         <p>Loading…</p>
       </main>
     );
   }
 
   return (
-    <main className="screen game-wrap-up">
+    <main className="screen screen--dark game-wrap-up">
       <header className="game-wrap-up__header">
         <p className="game-wrap-up__eyebrow">Game over</p>
         <h1 className="game-wrap-up__title">Return to {gatheringStationName}</h1>
@@ -105,6 +105,12 @@ export function GameWrapUpScreen() {
         <strong>{gatheringStationName}</strong> so everyone can regroup before scores are
         revealed.
       </p>
+
+      <img
+        src="/challenges/bay-wrap-up.png"
+        alt={`Meet at ${gatheringStationName}`}
+        className="game-wrap-up__image"
+      />
 
       {isAdmin ? (
         <section className="game-wrap-up__host">
@@ -126,12 +132,6 @@ export function GameWrapUpScreen() {
           Waiting for the host to reveal scores…
         </p>
       )}
-
-      <footer className="game-wrap-up__footer">
-        <Link to="/lobbies" className="btn btn--ghost">
-          Back to lobbies
-        </Link>
-      </footer>
     </main>
   );
 }

@@ -67,6 +67,16 @@ html.scroll-locked body {
   max-width: 480px;
 }
 
+.screen--dark {
+  --bg: #0b0f14;
+  --panel-bg: #121821;
+  --panel-fg: #f5f7fa;
+  --panel-muted: #9aa4b2;
+  --panel-border: rgba(255, 255, 255, 0.08);
+  background: var(--bg);
+  color: var(--panel-fg);
+}
+
 .screen.game-summary {
   max-width: 640px;
   display: grid;
@@ -78,6 +88,12 @@ html.scroll-locked body {
   display: grid;
   gap: 1.25rem;
   text-align: center;
+  align-content: start;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .game-wrap-up__header {
@@ -98,6 +114,7 @@ html.scroll-locked body {
   margin: 0;
   font-size: 1.75rem;
   line-height: 1.15;
+  color: var(--panel-fg);
 }
 
 .game-wrap-up__message,
@@ -108,6 +125,16 @@ html.scroll-locked body {
   line-height: 1.5;
 }
 
+.game-wrap-up__image {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto;
+  border-radius: 14px;
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
 .game-wrap-up__host {
   display: grid;
   gap: 0.85rem;
@@ -116,12 +143,6 @@ html.scroll-locked body {
 .game-wrap-up__waiting {
   color: var(--panel-muted);
   font-style: italic;
-}
-
-.game-wrap-up__footer {
-  display: flex;
-  justify-content: center;
-  margin-top: 0.5rem;
 }
 
 .game-summary__header {
