@@ -112,28 +112,53 @@ describe("START_CHALLENGE handler", () => {
     ).rejects.toMatchObject({ status: 409, code: "no_challenge_at_station" });
   });
 
-  it("rejects with credit_already_used when the team has banked a credit this session", async () => {
+  it("allows a fresh START after a prior completion once the cooldown elapses, with the unspent swap credit still pending", async () => {
+    // Regression: the old `credit_earned_in_session` flag locked the
+    // team out of starting another challenge in the same check-in
+    // session — even after the cooldown elapsed and even with the
+    // credit unspent. Cooldown is the only rate-limit now, so the
+    // team can pick up the next challenge in the cycle without
+    // checking out. We seed an unspent `pendingSwapCredit=true` to
+    // pin down that the credit being pending is no longer a gate.
     const fixture = await setupLightweightGame({
       nodeCodes: ["bay"],
       startNodeCodeBySlot: { 1: "bay" },
     });
     const participant = fixture.participants[0]!;
     const bayId = fixture.nodeIdByCode.get("bay")!;
-    await attachChallengeToGameNode({ gameNodeId: bayId });
+    const seed = await attachChallengeToGameNode({ gameNodeId: bayId });
+    await GameChallengeInstance.create({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      challengeId: seed.challengeId,
+      gameNodeChallengeId: seed.gameNodeChallengeId,
+      status: "completed",
+      assignedAt: new Date(Date.now() - 10 * 60 * 1000),
+      resolvedAt: new Date(Date.now() - 6 * 60 * 1000),
+      cooldownUntil: new Date(Date.now() - 60 * 1000),
+      resolutionPayload: { reason: "completed" },
+    });
     await GameTeamPosition.update(
-      { creditEarnedInSession: true },
+      { pendingSwapCredit: true },
       { where: { gameTeamId: participant.gameTeamId } },
     );
 
-    await expect(
-      processCommand({
-        gameId: fixture.gameId,
-        gameTeamId: participant.gameTeamId,
-        userId: participant.userId,
-        commandType: "START_CHALLENGE",
-        payload: { nodeId: bayId },
-      }),
-    ).rejects.toMatchObject({ status: 409, code: "credit_already_used" });
+    const result = await processCommand({
+      gameId: fixture.gameId,
+      gameTeamId: participant.gameTeamId,
+      userId: participant.userId,
+      commandType: "START_CHALLENGE",
+      payload: { nodeId: bayId },
+    });
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]!.eventType).toBe("START_CHALLENGE");
+
+    // pendingSwapCredit is untouched — the team has not swapped yet,
+    // so the existing credit carries forward into the new attempt.
+    const position = await GameTeamPosition.findOne({
+      where: { gameTeamId: participant.gameTeamId },
+    });
+    expect(position?.pendingSwapCredit).toBe(true);
   });
 
   it("rejects with challenge_in_progress when the team already has an open instance", async () => {

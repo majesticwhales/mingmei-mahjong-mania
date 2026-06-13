@@ -378,7 +378,7 @@ describe("CLAIM_WIN handler", () => {
     const bayId = fixture.nodeIdByCode.get("bay")!;
     await attachChallengeToGameNode({ gameNodeId: bayId });
     await GameTeamPosition.update(
-      { pendingSwapCredit: true, creditEarnedInSession: true },
+      { pendingSwapCredit: true },
       { where: { gameTeamId: participant.gameTeamId } },
     );
     await seedShanponTenpai(fixture.gameId, participant.gameTeamId);
@@ -402,8 +402,6 @@ describe("CLAIM_WIN handler", () => {
       where: { gameTeamId: participant.gameTeamId },
     });
     expect(position?.pendingSwapCredit).toBe(false);
-    // `credit_earned_in_session` stays sticky, mirroring SWAP_TILE.
-    expect(position?.creditEarnedInSession).toBe(true);
   });
 
   it("rejects with not_a_winning_tile when the claimed tile is not in the wait set", async () => {
@@ -690,7 +688,7 @@ describe("CLAIM_WIN handler", () => {
       assignedAt: new Date(),
     });
     await GameTeamPosition.update(
-      { pendingSwapCredit: true, creditEarnedInSession: true },
+      { pendingSwapCredit: true },
       { where: { gameTeamId: participant.gameTeamId } },
     );
     await seedShanponTenpai(fixture.gameId, participant.gameTeamId);

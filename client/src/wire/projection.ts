@@ -104,7 +104,6 @@ export interface AtStationDto {
   tiles: MapNodeTileDto[];
   currentChallenge?: AtStationChallengeDto | null;
   pendingSwapCredit?: boolean;
-  creditEarnedInSession?: boolean;
 }
 
 export interface HandTileDto extends TileDto {

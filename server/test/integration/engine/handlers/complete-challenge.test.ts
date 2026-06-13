@@ -84,7 +84,6 @@ describe("CHALLENGE_COMPLETED handler", () => {
       where: { gameTeamId: participant.gameTeamId },
     });
     expect(position?.pendingSwapCredit).toBe(true);
-    expect(position?.creditEarnedInSession).toBe(true);
   });
 
   it("rejects with not_found when the instance id is unknown", async () => {
@@ -287,10 +286,9 @@ describe("CHALLENGE_COMPLETED handler", () => {
     expect(position?.lastKnownLatitude).toBe(43.65);
     expect(position?.lastKnownAccuracy).toBe(10);
     expect(position?.lastKnownSeenAt).toBeInstanceOf(Date);
-    // Existing per-session credit semantics still apply (the geo path
-    // rides along on the same position.save).
+    // Existing credit semantics still apply (the geo path rides along
+    // on the same position.save).
     expect(position?.pendingSwapCredit).toBe(true);
-    expect(position?.creditEarnedInSession).toBe(true);
   });
 
   it("Phase L: CHALLENGE_COMPLETED with malformed geo silently drops it and still resolves the instance", async () => {

@@ -482,7 +482,7 @@ describe("CHECK_IN handler", () => {
     expect(refreshed?.status).toBe("failed");
   });
 
-  it("resets pending_swap_credit + credit_earned_in_session on every CHECK_IN", async () => {
+  it("resets pending_swap_credit on every CHECK_IN", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["bay", "bloor-yonge"],
       startNodeCodeBySlot: { 1: "bay" },
@@ -490,7 +490,7 @@ describe("CHECK_IN handler", () => {
     const participant = fixture.participants[0]!;
     const bloorId = fixture.nodeIdByCode.get("bloor-yonge")!;
     await GameTeamPosition.update(
-      { pendingSwapCredit: true, creditEarnedInSession: true },
+      { pendingSwapCredit: true },
       { where: { gameTeamId: participant.gameTeamId } },
     );
 
@@ -507,6 +507,5 @@ describe("CHECK_IN handler", () => {
     });
     expect(position?.currentGameNodeId).toBe(bloorId);
     expect(position?.pendingSwapCredit).toBe(false);
-    expect(position?.creditEarnedInSession).toBe(false);
   });
 });

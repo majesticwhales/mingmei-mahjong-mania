@@ -52,7 +52,6 @@ export type AvailableActionReason =
   | "slot_locked"
   | "hand_completed"
   | "swap_credit_required"
-  | "credit_already_used"
   | "challenge_in_progress"
   | "challenge_on_cooldown"
   | "no_challenge_at_station"

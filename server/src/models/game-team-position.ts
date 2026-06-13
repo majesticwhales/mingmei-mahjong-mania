@@ -42,21 +42,14 @@ export class GameTeamPosition extends BaseModel {
 
   /**
    * Honor-system swap credit. `true` between `CHALLENGE_COMPLETED` and
-   * `SWAP_TILE` within a single check-in session. Reset to `false` on
-   * every `CHECK_IN` / `CHECK_OUT` and on `SWAP_TILE` consumption.
+   * the next `SWAP_TILE` / `CLAIM_WIN` within a single check-in
+   * session. Reset to `false` on every `CHECK_IN` / `CHECK_OUT` and on
+   * `SWAP_TILE` / `CLAIM_WIN` consumption. Pacing between completions
+   * is enforced by the per-station challenge cooldown
+   * (`game_challenge_instances.cooldown_until`), not by this flag.
    */
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
   declare pendingSwapCredit: boolean;
-
-  /**
-   * Sticky flag preventing a second credit-earning completion within
-   * the same check-in session. Set to `true` on `CHALLENGE_COMPLETED`
-   * (in addition to `pendingSwapCredit`) and stays `true` until the
-   * next `CHECK_IN` / `CHECK_OUT` resets it. Lets `START_CHALLENGE`
-   * reject "you already used your credit this visit".
-   */
-  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
-  declare creditEarnedInSession: boolean;
 
   /**
    * Phase L telemetry — most recent latitude reported by **any**

@@ -178,20 +178,13 @@ export interface AtStationDto {
    */
   currentChallenge: AtStationChallengeDto | null;
   /**
-   * Phase H: true between `CHALLENGE_COMPLETED` and the next `SWAP_TILE`.
-   * Consumed by `SWAP_TILE`; reset to false on every `CHECK_IN` /
-   * `CHECK_OUT`.
+   * Phase H: true between `CHALLENGE_COMPLETED` and the next
+   * `SWAP_TILE` / `CLAIM_WIN`. Consumed by `SWAP_TILE` / `CLAIM_WIN`;
+   * reset to false on every `CHECK_IN` / `CHECK_OUT`. Pacing between
+   * challenge attempts at the same station is enforced by
+   * `currentChallenge.cooldownUntil`, not by this flag.
    */
   pendingSwapCredit: boolean;
-  /**
-   * Phase H: sticky within a single check-in session — flipped true on
-   * `CHALLENGE_COMPLETED`, stays true through the credit-consuming
-   * `SWAP_TILE`, resets on every `CHECK_IN` / `CHECK_OUT`. Used by
-   * `START_CHALLENGE` to enforce "at most one credit per session"; the
-   * client uses it to gray out the "Start challenge" button after the
-   * team has already cashed in.
-   */
-  creditEarnedInSession: boolean;
 }
 
 export interface HandTileDto extends TileDto {
@@ -902,7 +895,6 @@ function buildAtStation(params: {
     tiles: atStationTiles,
     currentChallenge,
     pendingSwapCredit: teamPosition.pendingSwapCredit,
-    creditEarnedInSession: teamPosition.creditEarnedInSession,
   };
 }
 

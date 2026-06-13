@@ -184,7 +184,6 @@ describe("buildGameStateProjection", () => {
     });
     expect(projection.atStation?.currentChallenge).toBeNull();
     expect(projection.atStation?.pendingSwapCredit).toBe(false);
-    expect(projection.atStation?.creditEarnedInSession).toBe(false);
   });
 
   it("sorts handTiles by (suit_sort_order, rank, copy_index) and assigns sequential slotIndex", async () => {
