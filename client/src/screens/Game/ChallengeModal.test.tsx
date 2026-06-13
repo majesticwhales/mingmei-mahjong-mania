@@ -24,6 +24,22 @@ describe("ChallengeModal", () => {
     expect(screen.getByRole("button", { name: "Abandon challenge" })).toBeInTheDocument();
   });
 
+  it("preserves line breaks in the challenge description", () => {
+    render(
+      <ChallengeModal
+        title="High Park Station"
+        description={"Intro paragraph.\n\nQ: First?\nA: Answer one"}
+        onComplete={vi.fn()}
+        onAbandon={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(document.querySelector(".challenge-modal__description")?.textContent).toBe(
+      "Intro paragraph.\n\nQ: First?\nA: Answer one",
+    );
+  });
+
   it("does not render an image area when no imageUrl is provided", () => {
     render(
       <ChallengeModal
