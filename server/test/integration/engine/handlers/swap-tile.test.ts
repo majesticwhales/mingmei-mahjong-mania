@@ -327,7 +327,7 @@ describe("SWAP_TILE handler", () => {
     ).rejects.toMatchObject({ status: 409, code: "swap_credit_required" });
   });
 
-  it("consumes pending_swap_credit on a successful swap but keeps credit_earned_in_session sticky", async () => {
+  it("consumes pending_swap_credit on a successful swap", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["bay"],
       startNodeCodeBySlot: { 1: "bay" },
@@ -338,7 +338,7 @@ describe("SWAP_TILE handler", () => {
     const bayId = fixture.nodeIdByCode.get("bay")!;
     await attachChallengeToGameNode({ gameNodeId: bayId });
     await GameTeamPosition.update(
-      { pendingSwapCredit: true, creditEarnedInSession: true },
+      { pendingSwapCredit: true },
       { where: { gameTeamId: participant.gameTeamId } },
     );
 
@@ -359,7 +359,6 @@ describe("SWAP_TILE handler", () => {
       where: { gameTeamId: participant.gameTeamId },
     });
     expect(position?.pendingSwapCredit).toBe(false);
-    expect(position?.creditEarnedInSession).toBe(true);
   });
 
   it("rejects with hand_completed when the team has already claimed a winning tile (Phase J lock)", async () => {
@@ -413,7 +412,6 @@ describe("SWAP_TILE handler", () => {
       where: { gameTeamId: participant.gameTeamId },
     });
     expect(position?.pendingSwapCredit).toBe(false);
-    expect(position?.creditEarnedInSession).toBe(false);
   });
 
   // -------------------------------------------------------------------------

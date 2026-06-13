@@ -11,10 +11,10 @@ import { getSequelize, truncateMutableTables } from "../../setup/db.ts";
 
 /**
  * Phase H projection coverage for `AtStationDto.currentChallenge` +
- * `pendingSwapCredit` + `creditEarnedInSession`. Each test pins the
- * team at a station, seeds a challenge against that node, and asserts
- * the three observable states (available / in_progress / cooldown)
- * plus credit-flag transitions across the START → COMPLETE → SWAP loop.
+ * `pendingSwapCredit`. Each test pins the team at a station, seeds a
+ * challenge against that node, and asserts the three observable states
+ * (available / in_progress / cooldown) plus credit-flag transitions
+ * across the START → COMPLETE → SWAP loop.
  */
 describe("buildGameStateProjection - atStation challenge", () => {
   beforeEach(async () => {
@@ -41,7 +41,6 @@ describe("buildGameStateProjection - atStation challenge", () => {
     expect(projection.atStation).not.toBeNull();
     expect(projection.atStation!.currentChallenge).toBeNull();
     expect(projection.atStation!.pendingSwapCredit).toBe(false);
-    expect(projection.atStation!.creditEarnedInSession).toBe(false);
   });
 
   it("exposes the top challenge with status='available' before the team starts it", async () => {
@@ -135,7 +134,6 @@ describe("buildGameStateProjection - atStation challenge", () => {
       "cooldownUntil",
     );
     expect(projection.atStation!.pendingSwapCredit).toBe(false);
-    expect(projection.atStation!.creditEarnedInSession).toBe(false);
   });
 
   it("flips to status='cooldown' + sets credit flags after CHALLENGE_COMPLETED", async () => {
@@ -181,7 +179,6 @@ describe("buildGameStateProjection - atStation challenge", () => {
       "instanceId",
     );
     expect(projection.atStation!.pendingSwapCredit).toBe(true);
-    expect(projection.atStation!.creditEarnedInSession).toBe(true);
   });
 
   it("flips to status='cooldown' WITHOUT credit after an explicit CHALLENGE_FORFEITED", async () => {
@@ -218,7 +215,6 @@ describe("buildGameStateProjection - atStation challenge", () => {
 
     expect(projection.atStation!.currentChallenge!.status).toBe("cooldown");
     expect(projection.atStation!.pendingSwapCredit).toBe(false);
-    expect(projection.atStation!.creditEarnedInSession).toBe(false);
   });
 
   it("returns to status='available' once the cooldown has elapsed", async () => {
@@ -257,7 +253,7 @@ describe("buildGameStateProjection - atStation challenge", () => {
     );
   });
 
-  it("consumes pending_swap_credit on SWAP_TILE but keeps creditEarnedInSession sticky", async () => {
+  it("consumes pending_swap_credit on SWAP_TILE", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["bay"],
       startNodeCodeBySlot: { 1: "bay" },
@@ -290,7 +286,6 @@ describe("buildGameStateProjection - atStation challenge", () => {
       participant.gameTeamId,
     );
     expect(afterComplete.atStation!.pendingSwapCredit).toBe(true);
-    expect(afterComplete.atStation!.creditEarnedInSession).toBe(true);
 
     await processCommand({
       gameId: fixture.gameId,
@@ -308,7 +303,6 @@ describe("buildGameStateProjection - atStation challenge", () => {
       participant.gameTeamId,
     );
     expect(afterSwap.atStation!.pendingSwapCredit).toBe(false);
-    expect(afterSwap.atStation!.creditEarnedInSession).toBe(true);
   });
 
   describe("per-team challenge cycle at multi-challenge stations", () => {

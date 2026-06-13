@@ -48,10 +48,26 @@
     ],
     "high-park": [
       {
-        "code": "high-park",
+        "code": "high-park-0",
         "type": "task",
         "title": "High Park Station",
         "description": "Find the Maple Leaf at High Park and answer four trivia questions. You must get at least two correct to pass. One player must be the test taker, and the other must be the proctor. The proctor must quiz the test taker on the following four questions. The proctor may not collaborate with the test taker in any way once the questions have been revealed and may only confirm if the test taker has gotten the question correct or not without revealing the answer itself.\n\nQ: What is the official sport of Canada? \nA: Lacrosse\n\nQ: Which Canadian province is known as the \"Land of 100 000 Lakes\"?\nA: Manitoba\n\nQ: What bird appears on the Canadian one-dollar coin?\nA: Loon\n\nQ: Which Canadian province is the largest by area?\nA: Québec",
+        "flavorText": "🍁 Oh Canada! 🍁",
+        "imageUrl": null
+      },
+      {
+        "code": "high-park-1",
+        "type": "task",
+        "title": "High Park Station",
+        "description": "Find the Maple Leaf at High Park and answer four trivia questions. You must get at least two correct to pass. One player must be the test taker, and the other must be the proctor. The proctor must quiz the test taker on the following four questions. The proctor may not collaborate with the test taker in any way once the questions have been revealed and may only confirm if the test taker has gotten the question correct or not without revealing the answer itself.\n\nQ: What Canadian body of water experiences a lower force of gravity than the rest of the world? \nA: Hudson Bay\n\nQ: What condiment is Quebéc the world's top producer of?\nA: Maple syrup\n\nQ: Which event was the most watched broadcast in Canadian history?\nA: The 2010 Olympic Men's Hockey Final\n\nQ: People in Churchill, Manitoba leave their cars unlocked for people escaping which animal?\nA: Polar bears",
+        "flavorText": "🍁 Oh Canada! 🍁",
+        "imageUrl": null
+      },
+      {
+        "code": "high-park-2",
+        "type": "task",
+        "title": "High Park Station",
+        "description": "Find the Maple Leaf at High Park and answer four trivia questions. You must get at least two correct to pass. One player must be the test taker, and the other must be the proctor. The proctor must quiz the test taker on the following four questions. The proctor may not collaborate with the test taker in any way once the questions have been revealed and may only confirm if the test taker has gotten the question correct or not without revealing the answer itself.\n\nQ: What is Canada's most played sport? \nA: Golf\n\nQ: Project Atigi is the name of a collaboration that aims to combine the garments with traditional Inuit culture and designs between Inuit designers and which high-end parka brand?\nA: Canada Goose\n\nQ: In 1980, which athlete and Canadian hero, who was equipped with a prosthetic right leg, ran more than 5000 kilometres across the country to raise money for cancer research in his \"Marathon of Hope\"?\nA: Terry Fox\n\nQ: The name Canada is generally accepted as coming from the St. Lawrence Iroquoian word \"kanata\", meaning what?\nA: Village/settlement",
         "flavorText": "🍁 Oh Canada! 🍁",
         "imageUrl": null
       }
@@ -236,22 +252,54 @@
     ],
     "king": [
       {
-        "code": "king",
+        "code": "king-0",
         "type": "task",
         "title": "King Station",
         "description": "Treat yourself with a five-course meal! The meal must consist of five distinct food items: Appetizer, soup, entrée, salad, and dessert. Each item must loosely fit within the definition of a coures (i.e. you cannot have five different candies as all five courses, but water can be considered a \"soup\"). Only one player needs to complete this challenge.",
         "flavorText": "🍽️ Eat like a king! 👑",
         "imageUrl": null
+      },
+      {
+        "code": "king-2",
+        "type": "task",
+        "title": "King Station - Beaver",
+        "description": "Take a selfie with Japan beaver! They are somewhere in the King Edward Hotel.",
+        "flavorText": "🦫 Beaver! 🦫",
+        "imageUrl": "/challenges/king/0.jpg"
+      },
+      {
+        "code": "king-1",
+        "type": "task",
+        "title": "King Station - Beaver",
+        "description": "Take a selfie with Canada beaver! They are somewhere in Berczy Park.",
+        "flavorText": "🦫 Beaver! 🦫",
+        "imageUrl": "/challenges/king/1.jpg"
+      },
+      {
+        "code": "king-3",
+        "type": "task",
+        "title": "King Station - Beaver",
+        "description": "Take a selfie with Netherlands beaver! They are somewhere in the King Edward Hotel.",
+        "flavorText": "🦫 Beaver! 🦫",
+        "imageUrl": "/challenges/king/2.jpg"
       }
     ],
     "queen": [
       {
-        "code": "queen",
+        "code": "queen-0",
         "type": "task",
         "title": "Queen Station",
         "description": "Let out your inner fashionista! One player must describe a clothing item that they would wear as a queen. It must have three distinct and recognizable features that are agreed upon. Then, the other player must go into Eaton Center and find and take a picture of a piece of clothing that matches that description. Features must have a form and a colour attributed to them (ex. a red shirt with a white collar and black buttons).",
         "flavorText": "👗 Dress like a queen! 👑",
-        "imageUrl": null
+        "imageUrl": "/challenges/queen/0.png"
+      },
+      {
+        "code": "queen-1",
+        "type": "task",
+        "title": "Queen Station - Beaver",
+        "description": "Take a selfie with Paraguay beaver! They are near the Canadian Venture Building.",
+        "flavorText": "🦫 Beaver! 🦫",
+        "imageUrl": "/challenges/queen/1.jpg"
       }
     ],
     "college": [
@@ -291,7 +339,7 @@
         "title": "Eglinton Station",
         "description": "Time to play a playground classic: \"Hot and Cold\"! One player must secretly pick an establishment at least five minutes away by walking from Eglinton station. The other player, starting at Eglinton station, must ask questions about the location relative to other locations, and the first player must answer \"hot\" if the direction or location they have chosen is closer than their previous guess (ex. Q: \"Is it the library?\" A: \"Hot\"). The guesser is permitted up to ten questions. You may progress once the location has been correctly guessed.",
         "flavorText": "🔥 Hot & Cold ❄️",
-        "imageUrl": null
+        "imageUrl": "/challenges/eglinton.jpg"
       }
     ],
     "aga-khan": [

@@ -95,7 +95,6 @@ function makeAtStation(overrides: Partial<AtStationDto> = {}): AtStationDto {
     nodeId: "node-1",
     code: TILE_STATION_CODE,
     pendingSwapCredit: false,
-    creditEarnedInSession: false,
     tiles: [],
     currentChallenge: null,
     ...overrides,

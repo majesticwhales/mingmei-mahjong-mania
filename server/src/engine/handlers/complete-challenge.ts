@@ -33,9 +33,11 @@ function parsePayload(payload: Record<string, unknown>): CompleteChallengePayloa
 
 /**
  * Honor-system completion of an in-progress challenge. Grants the issuing
- * team a single-use swap credit (consumed by the next `SWAP_TILE` within
- * the same check-in session) and stamps a 5-minute cooldown so the team
- * cannot immediately re-attempt the same challenge.
+ * team a single-use swap credit (consumed by the next `SWAP_TILE` /
+ * `CLAIM_WIN`) and stamps a per-station cooldown so the team cannot
+ * immediately re-attempt another challenge at the same station — but
+ * once that cooldown elapses they can start the next challenge in the
+ * station's cycle without checking out.
  *
  * Pre-conditions (in evaluation order):
  *   - `instanceId` resolves to a row owned by this team and this game
@@ -47,9 +49,8 @@ function parsePayload(payload: Record<string, unknown>): CompleteChallengePayloa
  *
  * Mutations:
  *   - `game_challenge_instances`: status='completed', resolved_at=now,
- *     cooldown_until=now+5min.
- *   - `game_team_positions`: pending_swap_credit=true,
- *     credit_earned_in_session=true.
+ *     cooldown_until=now + game.challengeCooldownSeconds.
+ *   - `game_team_positions`: pending_swap_credit=true.
  */
 export const completeChallengeHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
@@ -152,7 +153,6 @@ export const completeChallengeHandler: CommandHandler = {
     await instance.save({ transaction: ctx.transaction });
 
     position.pendingSwapCredit = true;
-    position.creditEarnedInSession = true;
     await position.save({ transaction: ctx.transaction });
 
     const eventPayload: Record<string, unknown> = {

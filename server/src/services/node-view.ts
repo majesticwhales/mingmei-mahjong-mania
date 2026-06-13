@@ -103,7 +103,6 @@ export type AvailableActionReason =
   | "slot_locked"
   | "hand_completed"
   | "swap_credit_required"
-  | "credit_already_used"
   | "challenge_in_progress"
   | "challenge_on_cooldown"
   | "no_challenge_at_station"
@@ -578,13 +577,6 @@ async function computeStartChallengeAction(
   }
   if (atDifferentNode) {
     return { action: "start_challenge", enabled: false, reason: "wrong_node" };
-  }
-  if (position.creditEarnedInSession) {
-    return {
-      action: "start_challenge",
-      enabled: false,
-      reason: "credit_already_used",
-    };
   }
   // Mirrors `start-challenge.ts`: any in-progress instance for this
   // team (anywhere in the game) blocks a new START_CHALLENGE.

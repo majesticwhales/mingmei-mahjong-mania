@@ -125,6 +125,12 @@ html.scroll-locked body {
   line-height: 1.5;
 }
 
+.game-wrap-up__reason {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 1.05rem;
+}
+
 .game-wrap-up__image {
   display: block;
   width: 100%;

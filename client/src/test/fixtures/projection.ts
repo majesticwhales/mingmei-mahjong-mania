@@ -5,6 +5,7 @@ export function makeProjection(overrides: Partial<GameStateProjection> = {}): Ga
     gameId: "game-1",
     status: "active",
     endsAt: new Date(Date.now() + 3600_000).toISOString(),
+    endReason: null,
     nextVisibilityChangeAt: null,
     visibilityPhase: 0,
     visibilityPhaseCount: 3,

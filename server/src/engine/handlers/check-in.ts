@@ -155,12 +155,10 @@ export const checkInHandler: CommandHandler = {
     position.lastCheckInLongitude = geoResult.geo?.longitude ?? null;
     position.geofenceValidated = geoResult.geofenceValidated;
     position.geolocationWarning = geoResult.geolocationWarning;
-    // Phase H: every CHECK_IN starts a fresh session. The swap-credit
-    // flags reset unconditionally — even if the team hadn't earned a
-    // credit, this normalizes the state and keeps the per-session
-    // invariant single-source-of-truth in this handler.
+    // Phase H: every CHECK_IN starts a fresh session. Any unspent
+    // `pendingSwapCredit` from the prior station is forfeited
+    // unconditionally — the credit pairs with a specific check-in.
     position.pendingSwapCredit = false;
-    position.creditEarnedInSession = false;
     await position.save({ transaction: ctx.transaction });
 
     const checkInPayload: Record<string, unknown> = {

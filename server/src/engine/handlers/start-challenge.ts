@@ -48,7 +48,6 @@ function parsePayload(payload: Record<string, unknown>): StartChallengePayload {
  * Pre-conditions (in evaluation order):
  *   - team is checked in at `payload.nodeId` (`409 not_checked_in` /
  *     `409 wrong_node`).
- *   - `credit_earned_in_session === false` (`409 credit_already_used`).
  *   - team has no active `in_progress` instance anywhere
  *     (`409 challenge_in_progress`).
  *   - station has at least one challenge configured
@@ -56,7 +55,10 @@ function parsePayload(payload: Record<string, unknown>): StartChallengePayload {
  *   - the team has no resolved instance at the station still under
  *     `cooldown_until` (`409 challenge_on_cooldown`). The gate is
  *     station-wide: a prior `completed` row keeps blocking even after
- *     the cycle has advanced to the next row.
+ *     the cycle has advanced to the next row. This is the only
+ *     rate-limit between challenge attempts at the same station —
+ *     teams can re-attempt the next challenge in the cycle without
+ *     leaving the station once the cooldown elapses.
  */
 export const startChallengeHandler: CommandHandler = {
   async handle(ctx: CommandContext): Promise<CommandResult> {
@@ -83,13 +85,6 @@ export const startChallengeHandler: CommandHandler = {
         409,
         "wrong_node",
         "nodeId does not match the team's current station",
-      );
-    }
-    if (position.creditEarnedInSession) {
-      throw new HttpError(
-        409,
-        "credit_already_used",
-        "Team has already earned a swap credit during this check-in",
       );
     }
 

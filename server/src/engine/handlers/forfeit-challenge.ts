@@ -32,13 +32,13 @@ function parsePayload(payload: Record<string, unknown>): ForfeitChallengePayload
 }
 
 /**
- * Explicit forfeit of an in-progress challenge. Triggers the same 5-minute
- * cooldown as a completion but DOES NOT grant a swap credit; the team's
- * `pending_swap_credit` and `credit_earned_in_session` flags are
- * untouched. Implicit forfeits from check-in / check-out emit the same
- * event type with `reason: "checkout"` (see `challenge-lifecycle.ts`);
- * this handler emits `reason: "explicit"` to distinguish a player-driven
- * forfeit from an auto-forfeit in the event log.
+ * Explicit forfeit of an in-progress challenge. Triggers the same
+ * per-station cooldown as a completion but DOES NOT grant a swap
+ * credit; the team's `pending_swap_credit` flag is untouched. Implicit
+ * forfeits from check-in / check-out emit the same event type with
+ * `reason: "checkout"` (see `challenge-lifecycle.ts`); this handler
+ * emits `reason: "explicit"` to distinguish a player-driven forfeit
+ * from an auto-forfeit in the event log.
  *
  * Pre-conditions: same as `complete-challenge.ts` except no check-in
  * requirement — a team can forfeit even if a race with auto-forfeit

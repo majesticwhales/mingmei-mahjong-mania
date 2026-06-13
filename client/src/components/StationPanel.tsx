@@ -67,8 +67,6 @@ function reasonCopy(reason: AvailableActionReason | undefined): string | null {
       return "Your hand is already complete.";
     case "swap_credit_required":
       return "Complete this station's challenge to earn a swap credit.";
-    case "credit_already_used":
-      return "Swap credit already spent at this station.";
     case "challenge_in_progress":
       return "A challenge is already in progress.";
     case "challenge_on_cooldown":

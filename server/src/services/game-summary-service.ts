@@ -1,5 +1,9 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.ts";
+import {
+  type GameEndReason,
+  isValidGameEndReason,
+} from "../game/game-end-reason.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Game } from "../models/game.ts";
 import { GameEvent } from "../models/game-event.ts";
@@ -86,10 +90,13 @@ export interface GameSummaryTeamDto {
   waits: SummaryAnalyzedWaitDto[] | null;
 }
 
-export type GameSummaryEndReason =
-  | "timer"
-  | "all_teams_completed"
-  | "manual";
+/**
+ * Re-export of the shared `GameEndReason` type under the original
+ * `GameSummaryEndReason` name so existing imports stay working. Both
+ * the projection and the summary DTO render the same three values; the
+ * canonical declaration lives in `../game/game-end-reason.ts`.
+ */
+export type GameSummaryEndReason = GameEndReason;
 
 export interface GameSummaryDto {
   gameId: string;
@@ -125,14 +132,6 @@ interface GameEndedPayload {
   endedAt?: unknown;
   endReason?: unknown;
   winningGameTeamId?: unknown;
-}
-
-function isValidEndReason(value: unknown): value is GameSummaryEndReason {
-  return (
-    value === "timer" ||
-    value === "all_teams_completed" ||
-    value === "manual"
-  );
 }
 
 export async function buildGameSummary(
@@ -171,7 +170,7 @@ export async function buildGameSummary(
     typeof payload.endedAt === "string"
       ? payload.endedAt
       : gameEndedEvent.createdAt.toISOString();
-  const endReason = isValidEndReason(payload.endReason)
+  const endReason = isValidGameEndReason(payload.endReason)
     ? payload.endReason
     : "timer";
   const winningGameTeamId =

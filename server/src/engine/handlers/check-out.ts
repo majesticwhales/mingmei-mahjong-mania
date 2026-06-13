@@ -96,9 +96,8 @@ export const checkOutHandler: CommandHandler = {
     position.geolocationWarning = null;
     // Phase H: end-of-session credit reset. Mirrors the unconditional
     // reset in `check-in.ts` so both paths produce identical "session
-    // boundary" state.
+    // boundary" state — any unspent credit dies with the session.
     position.pendingSwapCredit = false;
-    position.creditEarnedInSession = false;
     await position.save({ transaction: ctx.transaction });
 
     const checkOutPayload: Record<string, unknown> = {

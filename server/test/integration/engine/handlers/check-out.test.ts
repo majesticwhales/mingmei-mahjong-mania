@@ -115,14 +115,14 @@ describe("CHECK_OUT handler", () => {
     expect(refreshed?.cooldownUntil).toBeInstanceOf(Date);
   });
 
-  it("resets pending_swap_credit + credit_earned_in_session on check-out", async () => {
+  it("resets pending_swap_credit on check-out", async () => {
     const fixture = await setupLightweightGame({
       nodeCodes: ["bay"],
       startNodeCodeBySlot: { 1: "bay" },
     });
     const participant = fixture.participants[0]!;
     await GameTeamPosition.update(
-      { pendingSwapCredit: true, creditEarnedInSession: true },
+      { pendingSwapCredit: true },
       { where: { gameTeamId: participant.gameTeamId } },
     );
 
@@ -138,7 +138,6 @@ describe("CHECK_OUT handler", () => {
       where: { gameTeamId: participant.gameTeamId },
     });
     expect(position?.pendingSwapCredit).toBe(false);
-    expect(position?.creditEarnedInSession).toBe(false);
   });
 
   // -------------------------------------------------------------------------

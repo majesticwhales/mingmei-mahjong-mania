@@ -1,9 +1,14 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.ts";
+import {
+  type GameEndReason,
+  isValidGameEndReason,
+} from "../game/game-end-reason.ts";
 import { visibilityIncludes } from "../game/visibility-mode.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { Game, type GameStatus } from "../models/game.ts";
 import { GameEdge } from "../models/game-edge.ts";
+import { GameEvent } from "../models/game-event.ts";
 import { GameLine } from "../models/game-line.ts";
 import { GameLocationTeamVisibility } from "../models/game-location-team-visibility.ts";
 import { GameNode } from "../models/game-node.ts";
@@ -178,20 +183,13 @@ export interface AtStationDto {
    */
   currentChallenge: AtStationChallengeDto | null;
   /**
-   * Phase H: true between `CHALLENGE_COMPLETED` and the next `SWAP_TILE`.
-   * Consumed by `SWAP_TILE`; reset to false on every `CHECK_IN` /
-   * `CHECK_OUT`.
+   * Phase H: true between `CHALLENGE_COMPLETED` and the next
+   * `SWAP_TILE` / `CLAIM_WIN`. Consumed by `SWAP_TILE` / `CLAIM_WIN`;
+   * reset to false on every `CHECK_IN` / `CHECK_OUT`. Pacing between
+   * challenge attempts at the same station is enforced by
+   * `currentChallenge.cooldownUntil`, not by this flag.
    */
   pendingSwapCredit: boolean;
-  /**
-   * Phase H: sticky within a single check-in session — flipped true on
-   * `CHALLENGE_COMPLETED`, stays true through the credit-consuming
-   * `SWAP_TILE`, resets on every `CHECK_IN` / `CHECK_OUT`. Used by
-   * `START_CHALLENGE` to enforce "at most one credit per session"; the
-   * client uses it to gray out the "Start challenge" button after the
-   * team has already cashed in.
-   */
-  creditEarnedInSession: boolean;
 }
 
 export interface HandTileDto extends TileDto {
@@ -247,6 +245,19 @@ export interface GameStateProjection {
   gameId: string;
   status: GameStatus;
   endsAt: string;
+  /**
+   * Reason the game ended, decoded from the canonical `GAME_ENDED` event
+   * payload. Populated whenever `status` is `"ending"` (wrap-up screen
+   * up, scores not yet revealed) or `"ended"` (post-reveal); `null` for
+   * `"active"` games where no `GAME_ENDED` event exists yet. Lets the
+   * wrap-up screen render reason-specific copy ("Time's up" /
+   * "Everyone has won" / "The host ended the game early") without
+   * waiting on the summary endpoint, which is only available after
+   * `status === "ended"`. Mirrors `GameSummaryDto.endReason`; both
+   * surfaces share the same decode helper in
+   * `../game/game-end-reason.ts` so the two paths can't drift.
+   */
+  endReason: GameEndReason | null;
   /**
    * Earliest pending `VISIBILITY_PHASE_ADVANCE` job's `runAt`, or `null`
    * when none are scheduled (e.g. game is in its terminal phase). The
@@ -409,6 +420,7 @@ export async function buildGameStateProjection(
     nextVisibilityJob,
     recentEvents,
     allTeams,
+    gameEndedEvent,
   ] = await Promise.all([
     GameRuleFlag.findOne({
       where: { gameId, ruleKey: RED_FIVES_RULE_KEY },
@@ -472,6 +484,19 @@ export async function buildGameStateProjection(
       where: { gameId },
       include: [TeamDefinition],
     }),
+    // `endReason` for the wrap-up / summary copy. Only meaningful once a
+    // `GAME_ENDED` event has been written (i.e. `game.status` flipped to
+    // `"ending"` or `"ended"`); skip the lookup for active games so the
+    // projection's hot path stays a single round-trip. A defensive `.findOne`
+    // on the latest matching event in case (theoretically) more than one
+    // ever gets persisted — the scheduler only ever writes one, but the
+    // `DESC` order picks the most recent anyway.
+    game.status === "active"
+      ? Promise.resolve(null)
+      : GameEvent.findOne({
+          where: { gameId, eventType: "GAME_ENDED" },
+          order: [["sequence", "DESC"]],
+        }),
   ]);
 
   const redFivesEnabled = redFivesFlag?.enabled ?? false;
@@ -794,10 +819,23 @@ export async function buildGameStateProjection(
     });
   }
 
+  // Decode the cached `GAME_ENDED` event payload into the projection's
+  // `endReason`. The fallback to `"timer"` mirrors the summary endpoint
+  // (`game-summary-service.ts`) so a malformed payload renders the same
+  // copy on both surfaces; the strict validator keeps a future reason
+  // string from leaking through without an explicit copy entry.
+  let endReason: GameEndReason | null = null;
+  if (gameEndedEvent) {
+    const rawReason = (gameEndedEvent.payload as { endReason?: unknown } | null)
+      ?.endReason;
+    endReason = isValidGameEndReason(rawReason) ? rawReason : "timer";
+  }
+
   return {
     gameId,
     status: game.status,
     endsAt: game.endsAt.toISOString(),
+    endReason,
     // `nextVisibilityChangeAt` advertises the next phase advance to the
     // client (countdown banner). When the phase layer is off there are
     // no `VISIBILITY_PHASE_ADVANCE` jobs at all (scheduler gated in
@@ -902,7 +940,6 @@ function buildAtStation(params: {
     tiles: atStationTiles,
     currentChallenge,
     pendingSwapCredit: teamPosition.pendingSwapCredit,
-    creditEarnedInSession: teamPosition.creditEarnedInSession,
   };
 }
 

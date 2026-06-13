@@ -70,7 +70,6 @@ describe("CHALLENGE_FORFEITED handler", () => {
       where: { gameTeamId: participant.gameTeamId },
     });
     expect(position?.pendingSwapCredit).toBe(false);
-    expect(position?.creditEarnedInSession).toBe(false);
   });
 
   it("stamps cooldown_until from games.challenge_cooldown_seconds (per-game override)", async () => {

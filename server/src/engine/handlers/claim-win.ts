@@ -379,10 +379,9 @@ export const claimWinHandler: CommandHandler = {
     await team.save({ transaction: ctx.transaction });
 
     // Consume the credit (same as SWAP_TILE) when one was required.
-    // `credit_earned_in_session` stays sticky so a follow-up
-    // START_CHALLENGE attempt during the same session is rejected — not
-    // that the locked-out team could issue one anymore, but the
-    // bookkeeping invariant is identical to SWAP_TILE.
+    // The team's hand is now complete so they can't START_CHALLENGE
+    // anyway; the credit teardown keeps the position row in a clean
+    // post-spend state.
     if (challengeCount > 0) {
       position.pendingSwapCredit = false;
     }

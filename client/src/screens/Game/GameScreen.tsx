@@ -263,7 +263,14 @@ export function GameScreen() {
   }, [atStation?.nodeId]);
 
   useEffect(() => {
-    const challenge = atStation?.currentChallenge;
+    // Read through `resolveCheckedInChallenge` so a projection whose
+    // cooldown deadline has elapsed (but whose `status` snapshot is
+    // still `"cooldown"` because no server event reset it) is treated
+    // as effectively available here — same as in the modal's
+    // `activeChallenge` memo above. Without the synthesis the
+    // auto-start effect would skip and the modal would open with a
+    // disabled "Complete" button until the next event hit the socket.
+    const challenge = resolveCheckedInChallenge(atStation);
     if (!challengeOpen || !challenge || !atStation) return;
     if (challenge.status !== "available") return;
 

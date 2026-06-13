@@ -2,6 +2,14 @@
 
 export type GameStatus = "active" | "ending" | "ended";
 
+/**
+ * Reason the game ended. Mirrors `GameSummaryDto.endReason` (see
+ * `wire/summary.ts`) and `GameEndReason` on the server; both surfaces
+ * decode the same `GAME_ENDED` event payload, so any new value must be
+ * added in lockstep.
+ */
+export type GameEndReason = "timer" | "all_teams_completed" | "manual";
+
 export interface TileDto {
   instanceId: string;
   suit: string;
@@ -104,7 +112,6 @@ export interface AtStationDto {
   tiles: MapNodeTileDto[];
   currentChallenge?: AtStationChallengeDto | null;
   pendingSwapCredit?: boolean;
-  creditEarnedInSession?: boolean;
 }
 
 export interface HandTileDto extends TileDto {
@@ -209,6 +216,14 @@ export interface GameStateProjection {
   gameId: string;
   status: GameStatus;
   endsAt: string;
+  /**
+   * Reason the game ended (set whenever `status` is `"ending"` or
+   * `"ended"`; `null` for `"active"`). Lets the wrap-up screen render
+   * reason-specific copy without waiting on the summary endpoint, which
+   * is only available after `status === "ended"`. Mirrors
+   * `GameSummaryDto.endReason` on the post-game scoreboard.
+   */
+  endReason: GameEndReason | null;
   nextVisibilityChangeAt: string | null;
   /**
    * **Telemetry only as of Phase L §3.13.** Surfaces "phase k of n"

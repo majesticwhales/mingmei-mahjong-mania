@@ -199,9 +199,10 @@ export const swapTileHandler: CommandHandler = {
       ctx.transaction,
     );
 
-    // Consume the credit. `credit_earned_in_session` stays true so the
-    // team can't earn a second credit within the same check-in (TDD §3.8
-    // "one swap per session"). Both flags clear on CHECK_OUT / CHECK_IN.
+    // Consume the credit. Re-attempting another challenge at this
+    // station is then rate-limited by the per-station cooldown stamped
+    // on the team's last challenge instance — not by any session-wide
+    // flag. `pendingSwapCredit` also clears on CHECK_OUT / CHECK_IN.
     if (challengeCount > 0) {
       position.pendingSwapCredit = false;
     }

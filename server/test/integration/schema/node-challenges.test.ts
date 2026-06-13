@@ -111,15 +111,17 @@ describe("node challenge schema (chunk 1)", () => {
       expect(desc.cooldown_until!.allowNull).toBe(true);
     });
 
-    it("adds game_team_positions credit flags (NOT NULL with default false)", async () => {
+    it("adds game_team_positions.pending_swap_credit (NOT NULL with default false) and no longer carries credit_earned_in_session", async () => {
+      // `credit_earned_in_session` was the session-wide "one credit per
+      // check-in" gate; it was dropped in 20260613120000 because the
+      // per-station cooldown already paces challenge re-attempts.
       const sequelize = await getSequelize();
       const desc = await sequelize
         .getQueryInterface()
         .describeTable("game_team_positions");
       expect(desc).toHaveProperty("pending_swap_credit");
       expect(desc.pending_swap_credit!.allowNull).toBe(false);
-      expect(desc).toHaveProperty("credit_earned_in_session");
-      expect(desc.credit_earned_in_session!.allowNull).toBe(false);
+      expect(desc).not.toHaveProperty("credit_earned_in_session");
     });
   });
 
@@ -304,7 +306,6 @@ describe("node challenge schema (chunk 1)", () => {
           { transaction },
         );
         expect(position.pendingSwapCredit).toBe(false);
-        expect(position.creditEarnedInSession).toBe(false);
       });
     });
   });
