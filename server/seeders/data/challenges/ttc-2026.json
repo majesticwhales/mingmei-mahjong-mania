@@ -291,7 +291,7 @@
         "title": "Queen Station",
         "description": "Let out your inner fashionista! One player must describe a clothing item that they would wear as a queen. It must have three distinct and recognizable features that are agreed upon. Then, the other player must go into Eaton Center and find and take a picture of a piece of clothing that matches that description. Features must have a form and a colour attributed to them (ex. a red shirt with a white collar and black buttons).",
         "flavorText": "👗 Dress like a queen! 👑",
-        "imageUrl": null
+        "imageUrl": "/challenges/queen/0.png"
       },
       {
         "code": "queen-1",
@@ -299,7 +299,7 @@
         "title": "Queen Station - Beaver",
         "description": "Take a selfie with Paraguay beaver! They are near the Canadian Venture Building.",
         "flavorText": "🦫 Beaver! 🦫",
-        "imageUrl": "/challenges/queen.jpg"
+        "imageUrl": "/challenges/queen/1.jpg"
       }
     ],
     "college": [

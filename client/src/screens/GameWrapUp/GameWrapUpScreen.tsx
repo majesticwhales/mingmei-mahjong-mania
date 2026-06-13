@@ -6,6 +6,7 @@ import { useIsAdmin } from "../../state/auth/hooks";
 import { useGame, useGameProjection } from "../../state/game/hooks";
 import { HttpError } from "../../transport/httpError";
 import { restClient } from "../../transport/restClient";
+import type { GameEndReason } from "../../wire/projection";
 
 const GATHERING_STATION_CODE = "bay";
 
@@ -14,6 +15,28 @@ function resolveGatheringStationName(
 ): string {
   const station = mapNodes?.find((node) => node.code === GATHERING_STATION_CODE);
   return station?.name ?? "Bay Station";
+}
+
+/**
+ * Reason-specific wrap-up headline. The projection's `endReason` is
+ * only populated once the `GAME_ENDED` event has been written; when
+ * the client lands on the wrap-up screen because the local timer hit
+ * zero before the server's `GAME_END` job ran (`endReason == null`)
+ * we fall back to the timer copy — the scheduler will overwrite the
+ * projection with the canonical reason as soon as the event hits the
+ * socket, and the typical case for that race is the timer firing.
+ */
+function endReasonHeadline(reason: GameEndReason | null): string {
+  switch (reason) {
+    case "all_teams_completed":
+      return "Every team has completed their hand.";
+    case "manual":
+      return "The host ended the game early.";
+    case "timer":
+    case null:
+    default:
+      return "Time's up.";
+  }
 }
 
 export function GameWrapUpScreen() {
@@ -64,6 +87,18 @@ export function GameWrapUpScreen() {
     [projection?.mapNodes],
   );
 
+  // Wrap-up can mount before the server has emitted `GAME_ENDED` (when
+  // the client timer hits zero a tick ahead of the scheduler job), so
+  // `endReason` may still be `null` here. We resolve the headline from
+  // whatever value the projection currently holds and re-evaluate on
+  // every push; once the event lands the headline upgrades from the
+  // timer default to the canonical reason ("Every team has completed
+  // their hand." / "The host ended the game early.").
+  const reasonHeadline = useMemo(
+    () => endReasonHeadline(projection?.endReason ?? null),
+    [projection?.endReason],
+  );
+
   async function handleRevealScores() {
     if (!id) return;
     setRevealing(true);
@@ -102,13 +137,13 @@ export function GameWrapUpScreen() {
     <main className="screen screen--dark game-wrap-up">
       <header className="game-wrap-up__header">
         <p className="game-wrap-up__eyebrow">Game over</p>
-        <h1 className="game-wrap-up__title">Return to {gatheringStationName}</h1>
+        <h1 className="game-wrap-up__title">Return to {gatheringStationName} Station</h1>
       </header>
 
       <p className="game-wrap-up__message">
-        The timer has run out or the game has ended. Please head back to{" "}
-        <strong>{gatheringStationName}</strong> so everyone can regroup before scores are
-        revealed.
+        <p>{reasonHeadline}</p>{" "}
+        Head back to <strong>{gatheringStationName} Station</strong> so everyone can
+        regroup before scores are revealed.
       </p>
 
       <img

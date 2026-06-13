@@ -1757,6 +1757,17 @@ The wiring is enabled for every team's projection — no opt-in flag. Clients ig
 - `teamsCompleted` — public list of every team currently hand-completed, scoped to identity only (`gameTeamId`, `teamCode`, `completedAt`). Lets the client render "X / 4 teams finished" without leaking which tile they won on or what their score is. The detailed scoring breakdown for **other** teams is only visible via `GET /api/games/:id/summary` once the game ends.
 - Both fields are present (possibly empty / null) on every projection from Phase J onward; older clients ignore them.
 
+**End-of-game reason.** Every projection also surfaces:
+
+```json
+{
+  "status": "ending",
+  "endReason": "all_teams_completed"
+}
+```
+
+- `endReason` — `null` while `status === "active"`; once the `GAME_END` job fires and writes the `GAME_ENDED` event, the projection decodes the event's `endReason` payload (`"timer"` / `"all_teams_completed"` / `"manual"`) on every subsequent push for both `status === "ending"` (wrap-up screen) and `status === "ended"` (post-reveal). Malformed payloads round-trip to `"timer"` so the wrap-up renders a sensible reason even when the event was hand-written. Mirrors `GameSummaryDto.endReason`; the shared decode helper lives in `server/src/game/game-end-reason.ts` so the projection and `GET /summary` can't disagree on the wrap-up vs. scoreboard copy. The client wrap-up screen reads this field to render reason-specific headlines ("Time's up." / "Every team has completed their hand." / "The host ended the game early.") instead of the previous generic "timer or game has ended" copy.
+
 **Phase L projection updates.** Two additive changes, both backed by the new sections above:
 
 - `mapNodes[].tiles[]` adopts the exhaustive `{ slotIndex, tile, visible, locked }` shape ([§3.13](#313-server-authoritative-tile-visibility)). `atStation` becomes a thin wrapper around `buildNodeView(gameId, gameTeamId, currentNodeId)` ([§3.14](#314-node-view-endpoint)) plus the CHECK_IN-state `pendingSwapCredit` flag — both surfaces emit byte-identical `tiles[]` for the same node + team + clock.

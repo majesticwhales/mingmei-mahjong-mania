@@ -895,4 +895,96 @@ describe("buildGameStateProjection", () => {
     expect(doraEntry).toBeDefined();
     expect(doraEntry!.han).toBe(3);
   });
+
+  it("endReason: null while game.status='active' (no GAME_ENDED event)", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.endReason).toBeNull();
+  });
+
+  it("endReason: decodes GAME_ENDED payload once game flips to 'ending' (wrap-up)", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    const sequelize = await getSequelize();
+    await sequelize.transaction(async (tx) => {
+      await appendEvent(tx, {
+        gameId: fixture.gameId,
+        eventType: "GAME_ENDED",
+        payload: {
+          endedAt: new Date().toISOString(),
+          endReason: "manual",
+          winningGameTeamId: null,
+        },
+      });
+    });
+    await Game.update(
+      { status: "ending" },
+      { where: { id: fixture.gameId } },
+    );
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.status).toBe("ending");
+    expect(projection.endReason).toBe("manual");
+  });
+
+  it("endReason: stays populated after status flips to 'ended' (post-reveal)", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    const sequelize = await getSequelize();
+    await sequelize.transaction(async (tx) => {
+      await appendEvent(tx, {
+        gameId: fixture.gameId,
+        eventType: "GAME_ENDED",
+        payload: {
+          endedAt: new Date().toISOString(),
+          endReason: "all_teams_completed",
+          winningGameTeamId: null,
+        },
+      });
+    });
+    await Game.update(
+      { status: "ended", endedAt: new Date() },
+      { where: { id: fixture.gameId } },
+    );
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.status).toBe("ended");
+    expect(projection.endReason).toBe("all_teams_completed");
+  });
+
+  it("endReason: falls back to 'timer' when the GAME_ENDED payload is malformed", async () => {
+    const fixture = await setupLightweightGame({ participantCount: 1 });
+    const participant = fixture.participants[0]!;
+    const sequelize = await getSequelize();
+    await sequelize.transaction(async (tx) => {
+      await appendEvent(tx, {
+        gameId: fixture.gameId,
+        eventType: "GAME_ENDED",
+        // `endReason` missing entirely — the projection's defensive
+        // decode should round-trip to `"timer"` so the wrap-up screen
+        // still renders a sensible reason rather than `null`.
+        payload: { endedAt: new Date().toISOString(), winningGameTeamId: null },
+      });
+    });
+    await Game.update(
+      { status: "ending" },
+      { where: { id: fixture.gameId } },
+    );
+
+    const projection = await buildGameStateProjection(
+      fixture.gameId,
+      participant.gameTeamId,
+    );
+    expect(projection.endReason).toBe("timer");
+  });
 });
