@@ -268,6 +268,7 @@ describe("GET /api/games/:id/summary", () => {
     expect(east.handCompletedAt).not.toBeNull();
     expect(east.winningTile).not.toBeNull();
     expect(east.winningNodeCode).toBe("bay");
+    expect(east.winningNodeName).toBe("bay");
     expect(east.finalHand).toHaveLength(1);
     expect(east.finalHan).toBe(3);
     expect(east.finalFu).toBe(30);

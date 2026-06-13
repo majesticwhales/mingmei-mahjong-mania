@@ -77,6 +77,7 @@ describe("buildGameStateProjection - Phase J hand-completed", () => {
       { name: "Tsumo", han: 1 },
     ]);
     expect(projectionA.handCompleted!.winningNodeCode).toBe("bay");
+    expect(projectionA.handCompleted!.winningNodeName).toBe("bay");
     // Winning tile is the team's first hand tile per the fixture's pinning
     // rule.
     expect(projectionA.handCompleted!.winningTile.instanceId).toBe(

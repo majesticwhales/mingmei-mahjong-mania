@@ -196,6 +196,7 @@ export interface HandCompletedDto {
   completedAt: string;
   winningTile: TileDto;
   winningNodeCode: string;
+  winningNodeName: string;
   finalHan: number;
   finalFu: number;
   finalPoints: number;

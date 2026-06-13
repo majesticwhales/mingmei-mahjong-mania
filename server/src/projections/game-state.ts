@@ -222,6 +222,8 @@ export interface HandCompletedDto {
   winningTile: TileDto;
   /** `game_nodes.code` of the station where the win was claimed. */
   winningNodeCode: string;
+  /** `game_nodes.name` of the station where the win was claimed. */
+  winningNodeName: string;
   finalHan: number;
   finalFu: number;
   finalPoints: number;
@@ -791,6 +793,7 @@ export async function buildGameStateProjection(
       completedAt: team.handCompletedAt!.toISOString(),
       winningTile,
       winningNodeCode: winningNode.code,
+      winningNodeName: winningNode.name,
       finalHan: team.finalHan,
       finalFu: team.finalFu,
       finalPoints: team.finalPoints,

@@ -75,6 +75,8 @@ export interface GameSummaryTeamDto {
   winningTile: SummaryTileDto | null;
   /** `game_nodes.code` of the station the win was claimed at; `null` for incomplete. */
   winningNodeCode: string | null;
+  /** `game_nodes.name` of the station the win was claimed at; `null` for incomplete. */
+  winningNodeName: string | null;
   /** 14 tiles for completed teams (includes the winning tile), 13 otherwise. */
   finalHand: SummaryTileDto[];
   finalHan: number;
@@ -369,6 +371,7 @@ function buildTeamSummary(params: {
 
   let winningTile: SummaryTileDto | null = null;
   let winningNodeCode: string | null = null;
+  let winningNodeName: string | null = null;
   if (team.winningTileId != null) {
     const found = handRows.find((row) => row.game_tile_id === team.winningTileId);
     winningTile = found ? rowToTileDto(found, redFivesEnabled) : null;
@@ -376,6 +379,7 @@ function buildTeamSummary(params: {
   if (team.winningNodeId != null) {
     const node = nodesById.get(team.winningNodeId);
     winningNodeCode = node?.code ?? null;
+    winningNodeName = node?.name ?? null;
   }
 
   const finalHan = team.finalHan ?? 0;
@@ -402,6 +406,7 @@ function buildTeamSummary(params: {
       handCompletedAt: team.handCompletedAt.toISOString(),
       winningTile,
       winningNodeCode,
+      winningNodeName,
       finalHand,
       finalHan,
       finalFu,
@@ -444,6 +449,7 @@ function buildTeamSummary(params: {
     handCompletedAt: null,
     winningTile: null,
     winningNodeCode: null,
+    winningNodeName: null,
     finalHand,
     finalHan,
     finalFu,

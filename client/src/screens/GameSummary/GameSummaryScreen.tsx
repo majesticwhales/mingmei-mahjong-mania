@@ -52,7 +52,7 @@ function TeamCard({ team, isWinner, isOwnTeam, rank }: TeamCardProps) {
   const completed = team.handCompletedAt != null;
   const tenpai = !completed && team.waits != null && team.waits.length > 0;
   const statusLabel = completed
-    ? `Won at ${team.winningNodeCode ?? "—"}`
+    ? `Won at ${team.winningNodeName ?? team.winningNodeCode ?? "—"}`
     : tenpai
       ? "Tenpai"
       : "Noten";
@@ -257,8 +257,8 @@ export function GameSummaryScreen() {
             </p>
             <p className="game-summary__winner-score">
               {winningTeam.finalPoints.toLocaleString()} points
-              {winningTeam.winningNodeCode
-                ? ` · Won at ${winningTeam.winningNodeCode}`
+              {winningTeam.winningNodeName ?? winningTeam.winningNodeCode
+                ? ` · Won at ${winningTeam.winningNodeName ?? winningTeam.winningNodeCode}`
                 : ""}
             </p>
           </div>

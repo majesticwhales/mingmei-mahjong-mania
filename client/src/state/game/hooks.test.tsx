@@ -223,6 +223,7 @@ describe("useHandCompleted", () => {
         isRedFive: false,
       },
       winningNodeCode: "TKY",
+      winningNodeName: "Tokyo",
       finalHan: 3,
       finalFu: 40,
       finalPoints: 5200,

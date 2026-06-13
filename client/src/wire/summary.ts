@@ -44,6 +44,8 @@ export interface GameSummaryTeamDto {
   winningTile: SummaryTileDto | null;
   /** `game_nodes.code` of the station the win was claimed at; `null` for incomplete. */
   winningNodeCode: string | null;
+  /** `game_nodes.name` of the station the win was claimed at; `null` for incomplete. */
+  winningNodeName: string | null;
   /** 14 tiles for completed teams (includes the winning tile), 13 otherwise. */
   finalHand: SummaryTileDto[];
   finalHan: number;
