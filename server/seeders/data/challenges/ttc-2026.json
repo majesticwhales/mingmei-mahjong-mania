@@ -48,10 +48,26 @@
     ],
     "high-park": [
       {
-        "code": "high-park",
+        "code": "high-park-0",
         "type": "task",
         "title": "High Park Station",
         "description": "Find the Maple Leaf at High Park and answer four trivia questions. You must get at least two correct to pass. One player must be the test taker, and the other must be the proctor. The proctor must quiz the test taker on the following four questions. The proctor may not collaborate with the test taker in any way once the questions have been revealed and may only confirm if the test taker has gotten the question correct or not without revealing the answer itself.\n\nQ: What is the official sport of Canada? \nA: Lacrosse\n\nQ: Which Canadian province is known as the \"Land of 100 000 Lakes\"?\nA: Manitoba\n\nQ: What bird appears on the Canadian one-dollar coin?\nA: Loon\n\nQ: Which Canadian province is the largest by area?\nA: Québec",
+        "flavorText": "🍁 Oh Canada! 🍁",
+        "imageUrl": null
+      },
+      {
+        "code": "high-park-1",
+        "type": "task",
+        "title": "High Park Station",
+        "description": "Find the Maple Leaf at High Park and answer four trivia questions. You must get at least two correct to pass. One player must be the test taker, and the other must be the proctor. The proctor must quiz the test taker on the following four questions. The proctor may not collaborate with the test taker in any way once the questions have been revealed and may only confirm if the test taker has gotten the question correct or not without revealing the answer itself.\n\nQ: What Canadian body of water experiences a lower force of gravity than the rest of the world? \nA: Hudson Bay\n\nQ: What condiment is Quebéc the world's top producer of?\nA: Maple syrup\n\nQ: Which event was the most watched broadcast in Canadian history?\nA: The 2010 Olympic Men's Hockey Final\n\nQ: People in Churchill, Manitoba leave their cars unlocked for people escaping which animal?\nA: Polar bears",
+        "flavorText": "🍁 Oh Canada! 🍁",
+        "imageUrl": null
+      },
+      {
+        "code": "high-park-2",
+        "type": "task",
+        "title": "High Park Station",
+        "description": "Find the Maple Leaf at High Park and answer four trivia questions. You must get at least two correct to pass. One player must be the test taker, and the other must be the proctor. The proctor must quiz the test taker on the following four questions. The proctor may not collaborate with the test taker in any way once the questions have been revealed and may only confirm if the test taker has gotten the question correct or not without revealing the answer itself.\n\nQ: What is Canada's most played sport? \nA: Golf\n\nQ: Project Atigi is the name of a collaboration that aims to combine the garments with traditional Inuit culture and designs between Inuit designers and which high-end parka brand?\nA: Canada Goose\n\nQ: In 1980, which athlete and Canadian hero, who was equipped with a prosthetic right leg, ran more than 5000 kilometres across the country to raise money for cancer research in his \"Marathon of Hope\"?\nA: Terry Fox\n\nQ: The name Canada is generally accepted as coming from the St. Lawrence Iroquoian word \"kanata\", meaning what?\nA: Village/settlement",
         "flavorText": "🍁 Oh Canada! 🍁",
         "imageUrl": null
       }
