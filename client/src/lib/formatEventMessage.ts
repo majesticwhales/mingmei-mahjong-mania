@@ -99,6 +99,8 @@ export function formatEventMessage(
       return event.template ? `Notification: ${event.template}` : "Notification";
     case "GAME_ENDED":
       return "Game ended";
+    case "SCORES_REVEALED":
+      return "Scores revealed";
     default:
       return event.type.replace(/_/g, " ").toLowerCase();
   }

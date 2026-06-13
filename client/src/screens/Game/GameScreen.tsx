@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { MapShell } from "../../components/MapShell";
 import { StationPanel } from "../../components/StationPanel";
 import { useLockDocumentScroll } from "../../hooks/useLockDocumentScroll";
+import { useTimerExpired } from "../../hooks/useTimerExpired";
 import { resolveCheckedInChallenge } from "../../lib/challengeContext";
 import { stationHasClaimableWait } from "../../lib/claimWin";
 import { projectionToNetwork } from "../../lib/projectionMap";
@@ -84,26 +85,37 @@ export function GameScreen() {
     }
   }, [id, joinGame, state.status, state]);
 
-  // Only treat the game as ended when the loaded projection belongs to this
-  // route. Otherwise a prior session's ended game can still be in context
-  // for a frame after navigating to a freshly-started game, which wrongly
-  // bounced users to /summary before joinGame finished.
-  const gameEnded =
+  const gameReady =
     state.status === "active" &&
     state.id === id &&
-    projection?.gameId === id &&
-    projection.status === "ended";
+    projection?.gameId === id;
 
-  // Phase J — once the game flips to `ended`, send everyone to the
-  // summary. The game screen is read-only at this point (the projection
-  // already locked every action via `commandsDisabled={gameEnded}`), so
-  // there's no in-progress UI to interrupt. The "Back to lobbies" header
-  // button still works because the summary screen exposes the same exit.
+  const timerExpired = useTimerExpired(
+    gameReady ? projection.endsAt : null,
+    gameReady && projection?.status === "active",
+  );
+
+  const scoresRevealed = gameReady && projection.status === "ended";
+
+  const gameWrapUp =
+    gameReady &&
+    !scoresRevealed &&
+    (projection.status === "ending" || timerExpired);
+
+  const gameOver = scoresRevealed || gameWrapUp;
+
+  // Once the game enters wrap-up or scores are revealed, leave the live
+  // map for the appropriate post-game surface.
   useEffect(() => {
-    if (gameEnded && id && !viewingEndedMap) {
+    if (!id || viewingEndedMap) return;
+    if (scoresRevealed) {
       navigate(`/games/${id}/summary`, { replace: true });
+      return;
     }
-  }, [gameEnded, id, navigate, viewingEndedMap]);
+    if (gameWrapUp) {
+      navigate(`/games/${id}/wrap-up`, { replace: true });
+    }
+  }, [scoresRevealed, gameWrapUp, id, navigate, viewingEndedMap]);
 
   // Auto-open the hand-completed modal when a new win snapshot arrives.
   // Adjust state during render (not in an effect) so eslint's
@@ -119,10 +131,10 @@ export function GameScreen() {
   const handCompletedOpen = Boolean(handCompleted) && !handCompletedDismissed;
 
   const handleVisibilityPhaseElapsed = useCallback(() => {
-    if (!gameEnded) {
+    if (!gameOver) {
       void resyncGame();
     }
-  }, [gameEnded, resyncGame]);
+  }, [gameOver, resyncGame]);
 
   const network = useMemo(() => {
     if (!projection) return null;
@@ -425,7 +437,7 @@ export function GameScreen() {
     setEnding(true);
     try {
       await restClient.endGame(id);
-      navigate(`/games/${id}/summary`, { replace: true });
+      navigate(`/games/${id}/wrap-up`, { replace: true });
     } catch (error) {
       const message =
         error instanceof HttpError ? error.message : "Could not end game — try again";
@@ -436,7 +448,7 @@ export function GameScreen() {
   }
 
   function handleExitClick() {
-    if (gameEnded) {
+    if (gameOver) {
       void handleLeave();
       return;
     }
@@ -473,14 +485,14 @@ export function GameScreen() {
         </button>
         <h1 className="app__title">Mingmei&apos;s Mahjong Mania</h1>
         <div className="game-screen__header-end">
-          <GameTimer endsAt={projection.endsAt} ended={gameEnded} />
-          {!gameEnded && (
+          <GameTimer endsAt={projection.endsAt} ended={gameOver} />
+          {!gameOver && (
             <VisibilityCountdown
               nextVisibilityChangeAt={projection.nextVisibilityChangeAt}
               onElapsed={handleVisibilityPhaseElapsed}
             />
           )}
-          {gameEnded && id && (
+          {scoresRevealed && id && (
             <Link to={`/games/${id}/summary`} className="btn btn--secondary">
               Summary
             </Link>
@@ -529,7 +541,7 @@ export function GameScreen() {
           disabled={exitPending}
           onClick={handleExitClick}
         >
-          {gameEnded ? "Back to lobbies" : isAdmin ? (ending ? "Ending…" : "End game") : "Leave"}
+          {gameOver ? "Back to lobbies" : isAdmin ? (ending ? "Ending…" : "End game") : "Leave"}
         </button>
       </main>
       {exitConfirmOpen && (
@@ -562,7 +574,7 @@ export function GameScreen() {
           handTiles={projection.handTiles}
           commandsPending={commandsPending}
           checkInPending={checkInPending || isSyncingCheckIn}
-          commandsDisabled={gameEnded || Boolean(handCompleted)}
+          commandsDisabled={gameOver || Boolean(handCompleted)}
           onClose={handleClosePanel}
           onCheckIn={handleCheckIn}
           onCheckOut={handleCheckOut}

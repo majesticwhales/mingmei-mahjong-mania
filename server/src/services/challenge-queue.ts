@@ -74,7 +74,13 @@ export async function pickCurrentChallengeForTeam(args: {
 
   const latestAtNode = await GameChallengeInstance.findOne({
     where: { gameTeamId, gameNodeChallengeId: rowIds },
-    order: [["createdAt", "DESC"]],
+    // Prefer `resolvedAt` so back-to-back seeds with identical
+    // `createdAt` still pick the chronologically latest attempt.
+    order: [
+      ["resolvedAt", "DESC"],
+      ["createdAt", "DESC"],
+      ["id", "DESC"],
+    ],
     transaction,
   });
 

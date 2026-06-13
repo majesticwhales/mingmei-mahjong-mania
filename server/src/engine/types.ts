@@ -37,6 +37,7 @@ export function isCommandType(value: unknown): value is CommandType {
 export const NOTIFICATION_TYPES = [
   "VISIBILITY_PHASE_ADVANCED",
   "GAME_ENDED",
+  "SCORES_REVEALED",
   "NOTIFICATION",
   "SLOT_UNLOCKED",
   "SLOT_MAP_UNLOCKED",

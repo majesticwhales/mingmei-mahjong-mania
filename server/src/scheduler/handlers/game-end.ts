@@ -16,13 +16,13 @@ import type {
 export type GameEndTrigger = "scheduled" | "manual";
 
 /**
- * Flip an active game to `ended`.
+ * Flip an active game to `ending`.
  *
- * v1 collapses the TDD §5 `active → ending → ended` lifecycle into a single
- * transition: `active → ended`. The intermediate `ending` state is reserved
- * for the queue-drain handoff once the command-queue processor lands, at
- * which point this handler will move to `ending` and the queue processor
- * will finalize to `ended`.
+ * v1 uses the intermediate `ending` state as a wrap-up window: teams
+ * regather at the start station while the host reveals scores. The
+ * `revealGameScores` service flips `ending → ended` once everyone is
+ * ready. The queue-drain handoff reserved in the original TDD §5 note
+ * still applies once the command-queue processor lands.
  *
  * Phase J (TDD §3.10) — two responsibilities on this transition:
  *
@@ -95,7 +95,7 @@ export async function runGameEnd(args: {
       : "timer";
   const winningGameTeamId = selectWinningGameTeamId(teams);
 
-  game.status = "ended";
+  game.status = "ending";
   await game.save({ transaction });
 
   return {

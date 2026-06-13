@@ -16,10 +16,10 @@ describe("endGameEarly", () => {
     const { gameId, hostUserId } = await setupStartedGame();
 
     const result = await endGameEarly(gameId, hostUserId);
-    expect(result.status).toBe("ended");
+    expect(result.status).toBe("ending");
 
     const game = await Game.findByPk(gameId);
-    expect(game?.status).toBe("ended");
+    expect(game?.status).toBe("ending");
   });
 
   it("rejects non-admin users", async () => {
@@ -32,12 +32,12 @@ describe("endGameEarly", () => {
     });
   });
 
-  it("is idempotent when the game is already ended", async () => {
+  it("is idempotent when the game is already in wrap-up or ended", async () => {
     const { gameId, hostUserId } = await setupStartedGame();
     await endGameEarly(gameId, hostUserId);
 
     await expect(endGameEarly(gameId, hostUserId)).resolves.toEqual({
-      status: "ended",
+      status: "ending",
     });
   });
 
@@ -123,10 +123,10 @@ describe("POST /api/games/:id/end", () => {
       .set(bearer(admin.token));
 
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe("ended");
+    expect(res.body.status).toBe("ending");
 
     const game = await Game.findByPk(gameId);
-    expect(game?.status).toBe("ended");
+    expect(game?.status).toBe("ending");
     expect(hostUserId).toBeTruthy();
   });
 });
