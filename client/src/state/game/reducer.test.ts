@@ -21,6 +21,7 @@ const projection: GameStateProjection = {
   doraIndicator: null,
   handCompleted: null,
   teamsCompleted: [],
+  endReason: null,
 };
 
 describe("gameReducer", () => {
@@ -57,10 +58,10 @@ describe("gameReducer", () => {
     const withToast =
       active.status === "active"
         ? gameReducer(active, {
-            type: "game/notification",
-            template: "test",
-            at: "2026-01-01T00:00:00.000Z",
-          })
+          type: "game/notification",
+          template: "test",
+          at: "2026-01-01T00:00:00.000Z",
+        })
         : active;
     const resynced = gameReducer(withToast, {
       type: "game/resynced",
